@@ -1,0 +1,38 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main] # Triggers when CI passes and PR is merged
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment: staging # GitHub environment — can require approvals
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy frontend to Vercel (staging)
+        run: echo "→ Wire in Vercel CLI deploy command here in Stage 3"
+        # Example: npx vercel --token=${{ secrets.VERCEL_TOKEN }} --env=staging
+
+      - name: Deploy backend to Railway (staging)
+        run: echo "→ Wire in Railway CLI deploy command here in Stage 3"
+
+      - name: Notify success
+        run: echo "Staging deploy complete for commit ${{ github.sha }}"
+
+  deploy-prod:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment: production # This environment requires manual approval in GitHub
+    needs: deploy-staging # Only runs after staging succeeds
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Production
+        run: echo "→ Production deploy commands go here"
