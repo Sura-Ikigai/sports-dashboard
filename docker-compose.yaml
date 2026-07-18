@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  # ── POSTGRES ──────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine # Use official image, no Dockerfile needed
+    container_name: sports_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER} # Pulled from .env.local
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432" # host:container — maps container port to your machine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Persists data between restarts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FASTAPI BACKEND ───────────────────────────────────────
+  backend:
+    build:
+      context: ./backend # Where to find the Dockerfile
+    container_name: sports_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      ENVIRONMENT: local
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app # Mounts your local code into the container
+    depends_on:
+      db:
+        condition: service_healthy # Waits for DB healthcheck to pass before starting
+
+  # ── NEXT.JS FRONTEND ──────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+    container_name: sports_frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # Prevents host node_modules from overriding container's
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data: # Named volume — persists even when containers stop
