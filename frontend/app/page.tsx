@@ -3,6 +3,7 @@
 import { useFetch } from "@/hooks/useFetch";
 import { usePolling } from "@/hooks/usePolling";
 import { GameCard } from "@/components/GameCard";
+import { TeamSearch } from "@/components/TeamSearch";
 
 interface Team {
   id: number;
@@ -31,6 +32,7 @@ export default function Dashboard() {
 
   return (
     <main className="p-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+      <TeamSearch />
       {games?.map((game) => (
         <GameCard key={game.id} game={game} />
       ))}
