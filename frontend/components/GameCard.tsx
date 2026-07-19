@@ -1,6 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
+import { FavoriteButton } from "./FavoriteButton";
 
 interface Team {
   id: number;
@@ -20,7 +21,10 @@ interface Game {
 function TeamRow({ team, score }: { team: Team; score: number | null }) {
   return (
     <div className="flex justify-between items-center">
-      <span>{team.name}</span>
+      <div className="flex items-center gap-2">
+        <FavoriteButton teamId={String(team.id)} initialFavorited={false} />
+        <span>{team.name}</span>
+      </div>
       <AnimatePresence mode="popLayout">
         <motion.span
           key={score}

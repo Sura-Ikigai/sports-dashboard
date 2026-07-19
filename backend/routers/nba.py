@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+import random
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 from services import nba_service
@@ -31,3 +32,12 @@ def list_teams(q: str | None = None, db: Session = Depends(get_db)):
 @router.get("/games", response_model=list[GameOut])
 def list_games(db: Session = Depends(get_db)):
     return db.query(Game).order_by(Game.game_time.desc()).limit(20).all()
+
+
+@router.post("/favorite/{team_id}")
+async def favorite_team(team_id: str):
+    """TEMPORARY -- replaced with real persistence in the next task.
+    Exists only to let the optimistic-UI rollback path be observed firsthand."""
+    if random.random() < 0.2:
+        raise HTTPException(status_code=500, detail="Simulated failure")
+    return {"status": "favorited", "team_id": team_id}
