@@ -1,0 +1,21 @@
+[tool.ruff.lint]
+# Deliberately selected, not "whatever ruff currently defaults to" --
+# ruff has changed its default rule set between versions before (see the
+# CI failure this config was added to fix), so this list is the actual
+# source of truth for what this project lints against.
+select = [
+    "E4", "E7", "E9",  # pycodestyle: import position, control flow, syntax errors
+    "F",               # pyflakes: unused imports/names, undefined names
+    "I",                # isort: import sorting
+    "UP",               # pyupgrade: modernize to current-Python idioms
+    "B",                # flake8-bugbear: likely bugs and design problems
+    "DTZ",              # flake8-datetimez: catches naive (non-timezone-aware) datetimes
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection pattern (`param: X = Depends(get_x)`) calls a
+# function in an argument default by design -- that's how FastAPI resolves
+# dependencies per-request. B008 doesn't know this pattern is safe by default;
+# this tells it explicitly rather than disabling B008 (and everything else it
+# catches) project-wide.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.params.Depends", "fastapi.Query"]

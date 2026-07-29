@@ -41,6 +41,11 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+      # Step 6: Unit test the custom hooks
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
   # ── JOB 2: BACKEND CHECKS ────────────────────────────────
   backend:
     name: Backend — Lint & Tests
@@ -80,7 +85,7 @@ jobs:
       - name: Lint with ruff
         working-directory: backend
         run: |
-          pip install ruff
+          pip install ruff==0.16.0
           ruff check .
 
       - name: Run tests
@@ -88,5 +93,5 @@ jobs:
         env:
           DATABASE_URL: postgresql://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost:5432/${{ secrets.DB_NAME }}
         run: |
-          pip install pytest pytest-asyncio httpx
+          pip install pytest pytest-asyncio httpx respx
           pytest tests/ -v        # Will pass if no tests yet — add a /tests folder
