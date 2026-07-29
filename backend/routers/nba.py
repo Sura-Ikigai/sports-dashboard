@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+
 from database import get_db
+from models import Favorite, Game, Team
+from schemas import FavoriteOut, GameOut, TeamOut
 from services import nba_service
-from models import Team, Game, Favorite
-from schemas import TeamOut, GameOut, FavoriteOut
 
 router = APIRouter(prefix="/nba", tags=["nba"])
 

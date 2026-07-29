@@ -1,6 +1,7 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
 import os
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Falls back to a syntactically valid (but unused) URL so `create_engine`
 # never raises on import when DATABASE_URL isn't set -- e.g. running

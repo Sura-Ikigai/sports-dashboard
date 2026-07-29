@@ -1,7 +1,10 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
-from sqlalchemy.orm import relationship
-from database import Base
 import datetime
+
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy.orm import relationship
+
+from database import Base
+
 
 class Team(Base):
     __tablename__ = "teams"

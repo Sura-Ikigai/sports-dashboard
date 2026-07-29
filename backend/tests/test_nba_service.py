@@ -1,7 +1,8 @@
-import pytest
 from unittest.mock import AsyncMock, patch
-from models import Team, Game
 
+import pytest
+
+from models import Game, Team
 
 RAW_TEAMS = [
     {"id": "1", "displayName": "Atlanta Hawks", "abbreviation": "ATL",

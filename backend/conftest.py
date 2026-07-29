@@ -1,8 +1,9 @@
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from database import Base
+
 import models  # noqa: F401 -- registers Team/Game on Base.metadata before create_all
+from database import Base
 
 
 @pytest.fixture

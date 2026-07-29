@@ -1,12 +1,13 @@
+import os
 from contextlib import asynccontextmanager
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-import os
 
 from database import SessionLocal
-from services import nba_service
 from routers import nba
+from services import nba_service
 
 scheduler = AsyncIOScheduler()
 

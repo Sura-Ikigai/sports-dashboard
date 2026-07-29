@@ -1,6 +1,7 @@
+import httpx
 import pytest
 import respx
-import httpx
+
 from services import espn_client
 
 TEAMS_RESPONSE = {

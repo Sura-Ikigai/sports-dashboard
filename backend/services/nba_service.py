@@ -1,7 +1,9 @@
 import datetime
+
 from sqlalchemy.orm import Session
+
+from models import Game, Team
 from services import espn_client
-from models import Team, Game
 
 
 async def sync_teams(db: Session):
@@ -61,7 +63,7 @@ async def sync_games(db: Session, date: str | None = None):
             existing.home_score = home_score
             existing.away_score = away_score
             existing.status = status
-            existing.last_synced = datetime.datetime.utcnow()
+            existing.last_synced = datetime.datetime.now(datetime.UTC)
         else:
             db.add(Game(
                 external_id=event["id"],
@@ -71,7 +73,7 @@ async def sync_games(db: Session, date: str | None = None):
                 away_score=away_score,
                 status=status,
                 game_time=game_time,
-                last_synced=datetime.datetime.utcnow(),
+                last_synced=datetime.datetime.now(datetime.UTC),
             ))
 
     db.commit()
