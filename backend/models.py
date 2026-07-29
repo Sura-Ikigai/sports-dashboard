@@ -28,3 +28,12 @@ class Game(Base):
 
     home_team = relationship("Team", foreign_keys=[home_team_id])
     away_team = relationship("Team", foreign_keys=[away_team_id])
+
+class Favorite(Base):
+    __tablename__ = "favorites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id"), unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    team = relationship("Team")

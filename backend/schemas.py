@@ -24,3 +24,9 @@ class GameOut(BaseModel):
     game_time: datetime
 
     model_config = {"from_attributes": True}
+
+
+class FavoriteOut(BaseModel):
+    team_id: int
+
+    model_config = {"from_attributes": True}

@@ -18,11 +18,11 @@ interface Game {
   status: string;
 }
 
-function TeamRow({ team, score }: { team: Team; score: number | null }) {
+function TeamRow({ team, score, favorited }: { team: Team; score: number | null; favorited: boolean }) {
   return (
     <div className="flex justify-between items-center">
       <div className="flex items-center gap-2">
-        <FavoriteButton teamId={String(team.id)} initialFavorited={false} />
+        <FavoriteButton teamId={String(team.id)} initialFavorited={favorited} />
         <span>{team.name}</span>
       </div>
       <AnimatePresence mode="popLayout">
@@ -41,11 +41,11 @@ function TeamRow({ team, score }: { team: Team; score: number | null }) {
   );
 }
 
-export function GameCard({ game }: { game: Game }) {
+export function GameCard({ game, favoritedTeamIds }: { game: Game; favoritedTeamIds: Set<number> }) {
   return (
     <div className="border rounded-lg p-4 bg-gray-900 text-white">
-      <TeamRow team={game.away_team} score={game.away_score} />
-      <TeamRow team={game.home_team} score={game.home_score} />
+      <TeamRow team={game.away_team} score={game.away_score} favorited={favoritedTeamIds.has(game.away_team.id)} />
+      <TeamRow team={game.home_team} score={game.home_score} favorited={favoritedTeamIds.has(game.home_team.id)} />
       <span className="text-xs text-gray-400 uppercase">{game.status}</span>
     </div>
   );
