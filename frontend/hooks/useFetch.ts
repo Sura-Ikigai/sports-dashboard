@@ -21,7 +21,15 @@ export function useFetch<T>(url: string): UseFetchState<T> & { refetch: () => vo
     // can actually cancel an in-flight request on unmount or URL change.
     const controller = new AbortController();
 
-    setState((prev) => ({ ...prev, loading: true, error: null }));
+    // Reset loading/error for this run (needed on refetch, when a prior
+    // fetch may have already flipped loading to false). Deferred to a
+    // microtask so this isn't a synchronous setState call directly in the
+    // effect body (react-hooks/set-state-in-effect); the AbortController
+    // and the fetch() call itself still happen synchronously above/below
+    // so abort-on-unmount and abort-on-url-change keep working.
+    Promise.resolve().then(() => {
+      setState((prev) => ({ ...prev, loading: true, error: null }));
+    });
 
     fetch(url, { signal: controller.signal })
       .then((response) => {

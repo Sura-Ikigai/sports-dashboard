@@ -26,7 +26,7 @@ describe("usePolling", () => {
   });
 
   it("always calls the latest callback, not a stale closure", () => {
-    let renderedCallback = vi.fn();
+    const renderedCallback = vi.fn();
     const { rerender } = renderHook(
       ({ cb }) => usePolling(cb, 1000),
       { initialProps: { cb: renderedCallback } }
