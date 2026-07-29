@@ -27,12 +27,12 @@ interface Favorite {
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export default function Dashboard() {
-  const { data: games, loading, error, refetch } = useFetch<Game[]>(`${API_URL}/nba/games`);
-  const { data: favorites } = useFetch<Favorite[]>(`${API_URL}/nba/favorites`);
+  const { data: games, loading: gamesLoading, error, refetch } = useFetch<Game[]>(`${API_URL}/nba/games`);
+  const { data: favorites, loading: favoritesLoading } = useFetch<Favorite[]>(`${API_URL}/nba/favorites`);
 
   usePolling(refetch, 30000);
 
-  if (loading) return <div className="p-8">Loading games...</div>;
+  if ((gamesLoading && !games) || (favoritesLoading && !favorites)) return <div className="p-8">Loading games...</div>;
   if (error) return <div className="p-8">Error: {error}</div>;
 
   const favoritedTeamIds = new Set(favorites?.map((f) => f.team_id) ?? []);

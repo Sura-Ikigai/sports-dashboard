@@ -89,7 +89,7 @@ async def test_sync_games_inserts_final_game_with_scores(db_session):
 
 
 @pytest.mark.asyncio
-async def test_sync_games_scheduled_game_has_null_scores_and_scheduled_status(db_session):
+async def test_sync_games_scheduled_game_has_scheduled_status(db_session):
     from services import nba_service
 
     _seed_two_teams(db_session)
@@ -100,6 +100,8 @@ async def test_sync_games_scheduled_game_has_null_scores_and_scheduled_status(db
     game = db_session.query(Game).filter(Game.external_id == "401810999").first()
     assert game is not None
     assert game.status == "scheduled"
+    assert game.home_score == 0
+    assert game.away_score == 0
 
 
 @pytest.mark.asyncio
