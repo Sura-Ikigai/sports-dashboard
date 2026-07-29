@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -5,16 +6,12 @@ from sqlalchemy import pool
 
 from alembic import context
 
+from database import Base
+from models import Team, Game  # noqa: F401 -- registers models on Base.metadata
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-
-import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from database import Base
-from models import Team, Game  # noqa: F401 -- registers models on Base.metadata
 
 config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
 
