@@ -21,6 +21,25 @@ should inherit from the factory.
   every historical task is invisible to `review-ledger-current` — the gate only ever sees work done
   after the stamp. Open fork: does canon want a "stamp onto brownfield" procedure, or an explicit
   `pre-canon` marker for code that predates the gate?
+- **Canon's builder agents carry stack assumptions, but `gate-completeness` only checks that the
+  files exist.** Instantiating a non-Supabase project copied `backend-engineer.md` verbatim, so the
+  builder was instructed to ship RLS in a project with no RLS — the exact failure the new overlay was
+  written to prevent, reintroduced one layer up (F-008). The overlay's *Builder domain notes* section
+  exists precisely to carry this per-stack knowledge (§6.2) but nothing propagates it into the agent
+  files. Open fork: should agents reference the overlay at runtime rather than embedding stack prose,
+  or should instantiation be a templating step that injects the overlay's notes into the copies? A
+  content-level check ("no agent mentions a mechanism the stack's invariants deny") is a third option.
+- **Canon's `templates/ci/gate.yml` ships without `permissions:` or `persist-credentials: false`**
+  (F-009), so every project stamped from it runs arbitrary manifest `run:` commands alongside a
+  `GITHUB_TOKEN` on disk — in a job whose own header comment asserts it holds no secrets. The comment
+  documents an intent the file does not implement. This is canon-level and inherited by every stack.
+- **The review commit must be `docs/`-only.** `review-ledger-current` computes the code tip as
+  `git log -1 -- . ':(exclude)docs/'`, so bundling any non-docs edit with the ledger write invalidates
+  the ✅ being written, and fixing a reviewer's LOW findings in the same breath as recording their ✅
+  is self-defeating — it starts an unbounded re-review regress. The working discipline: reviewers'
+  non-blocking findings become next-cycle tasks with a `revisit-when: next-non-docs-commit`, never
+  same-commit fixes. Open fork: canon states the rule nowhere, and it is not discoverable until it
+  bites — belongs in SYSTEM.md §5.4 as an explicit step.
 - **A task whose deliverable is a DECISION cannot be closed.** "Select the historical data source"
   was written as T-002, then had to be rewritten as an ingest task, because the status enum routes
   everything through the reviewer gate to reach `DONE` — and `review-ledger-current` fails any

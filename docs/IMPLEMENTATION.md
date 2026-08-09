@@ -20,13 +20,14 @@
 ## Current state
 
 **State now:** Stage 3 shipped — the dashboard syncs live NBA teams/games from ESPN into Postgres and
-renders them. The Dev-System is instantiated on top of it (tracker, agents, gate, hooks) and the gate
-runs green on all 7 checks; T-001 is `BUILT` and awaiting the review gate. The historical source is
-decided (D-004: sportsdataverse, ESPN-keyed) and the Kaggle corpus is deleted (D-005). The next body
-of work is the **game-modeling layer**, not yet planned.
+renders them. The Dev-System is instantiated and **T-001 is `REVIEWED`** — the gate ran for real, both
+reviewers returned ⛔ on the first pass, F-008..F-013 were remediated, and round 2 returned ✅✅ at
+`d0e661d`. The historical source is decided (D-004: sportsdataverse, ESPN-keyed) and the Kaggle corpus
+is deleted (D-005). The next body of work is the **game-modeling layer**, not yet planned.
 
-**Next action:** Run the review gate on T-001 (`security-auditor`, then `logic-reviewer`), then the
-PLAN phase (grill-me → to-PRD → `docs/plans/PLAN-v1.md`) for the modeling layer.
+**Next action:** Open the PLAN phase for the modeling layer (grill-me → to-PRD →
+`docs/plans/PLAN-v1.md`). Opening move of that cycle's first non-docs commit: close F-016 and F-017,
+whose `revisit-when: next-non-docs-commit` fires then.
 
 **Active plan:** none yet — `docs/plans/PLAN-current.md` is created by the first planning session.
 **History:** docs/log.md (append-only, session-by-session)
@@ -53,7 +54,7 @@ PLAN phase (grill-me → to-PRD → `docs/plans/PLAN-v1.md`) for the modeling la
 ## Tasks
 
 ### Dev-System instantiation
-- [ ] **T-001** Instantiate the Dev-System into this repo — `BUILT` — owner: `human`
+- [ ] **T-001** Instantiate the Dev-System into this repo — `REVIEWED` — owner: `human`
       - acceptance: `.claude/` (5 agents + 2 Stop hooks + settings.json + CANON-VERSION),
         `checks/` + `stacks/nextjs-fastapi-postgres.md`, `docs/` (tracker, log, learning-notes),
         root `CLAUDE.md`, `.github/workflows/gate.yml`; `node checks/run-gate.mjs
@@ -121,7 +122,7 @@ PLAN phase (grill-me → to-PRD → `docs/plans/PLAN-v1.md`) for the modeling la
 
 | Task  | security-auditor | logic-reviewer | ui-ux-reviewer | notes |
 |-------|------------------|----------------|----------------|-------|
-| T-001 | pending          | pending        | n/a            | instantiation is config + docs; no user-facing surface changed |
+| T-001 | ✅ d0e661d       | ✅ d0e661d     | n/a            | round 1 ⛔⛔ @ d8e3515 → F-008..F-013 remediated in d0e661d → round 2 ✅✅. n/a: config + docs only, no user-facing surface changed |
 
 ## Findings (from reviews, append-only)
 
@@ -209,6 +210,28 @@ PLAN phase (grill-me → to-PRD → `docs/plans/PLAN-v1.md`) for the modeling la
   never consults the manifest's reviewer list, so a deleted `ui-ux-reviewer` column or an `n/a` cell
   silently exempts it while `gate-completeness` still reports "3 reviewer(s) installed".
   Status: ACCEPTED — canon-level, not project-level. revisit-when: `reconcile-canon`.
+
+### Review round 2 — T-001 @ d0e661d (both reviewers ✅; F-008..F-013 verified closed)
+
+<!-- Round 2 confirmed each round-1 fix was real rather than cosmetic, and opened two LOW residuals.
+     These are deliberately NOT fixed in this cycle: every non-docs/ edit advances the code tip and
+     invalidates the ✅@d0e661d that was just earned. Fixing them is the next cycle's opening move. -->
+
+- **F-016** (ops, LOW) — `.gitignore`'s `models/` is an unanchored directory pattern, matching at any
+  depth. Harmless today, but `backend/models.py` → `backend/models/` is a routine FastAPI refactor,
+  and the package would land untracked and silent. Remediation: anchor it (`/models/` or
+  `data/models/`). Status: OPEN. revisit-when: `next-non-docs-commit`.
+- **F-017** (docs, LOW) — Three lines in `.claude/agents/ui-ux-reviewer.md` still contradict the
+  F-010 override: `:38-39` calls the reduced-motion fallback "a check's job", `:42-43` frames
+  mechanical a11y as out of lane, `:51` refers to "the a11y check's evidence" that does not exist.
+  The override wins on placement and explicitness, so the fix holds — but the stale lines weaken it.
+  Remediation: strike them. Status: OPEN. revisit-when: `next-non-docs-commit`.
+
+> Also noted in round 2, folded into existing items rather than opened as new findings: `ci.yml` has
+> the exact `permissions:`/`persist-credentials` gap that F-009 closed in `gate.yml`, and injects
+> `secrets.DB_*` into a `pull_request`-triggered job — **F-007** already schedules its retirement, so
+> retire it rather than harden it. And `frontend/.gitignore` has `.env*` with no `!.env.example`
+> negation, asymmetric with the root fix; pre-existing, cosmetic until someone adds that file.
 
 ## Future hardening (review output → next-cycle backlog)
 

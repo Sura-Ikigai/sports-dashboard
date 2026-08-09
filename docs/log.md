@@ -28,5 +28,16 @@ Newest entry on top. Keep it lean — a few lines per session; git history carri
   (ESPN-keyed, seasons 2022–2026); `nba_api` was rejected specifically because it pulls live from
   stats.nba.com, which drops datacenter IPs. D-005 dropped and **deleted** the Kaggle corpus, closing
   F-002/F-003/F-004 as moot and F-005 as designed-out. D-006 holds Python at 3.11.
-- Ended at: instantiation committed on `chore/dev-system-instantiation`. T-001 awaits the review gate.
-  Next is the PLAN phase for the modeling layer.
+- Promoted the overlay to the factory as Dev-System/main `8398baa` and re-stamped `CANON-VERSION`
+  against it, so the overlay reads as canon rather than project drift at reconcile time.
+- **Ran the review gate for real, and it caught things.** Round 1 @ `d8e3515`: both reviewers ⛔.
+  The blocker (F-008) was mine — I installed the builder agents unmodified from Supabase canon, so
+  `backend-engineer` was telling builders "RLS ships with the schema" in a project whose whole
+  premise is that no RLS exists. Also F-009 (gate.yml leaked `GITHUB_TOKEN` into `.git/config` for
+  every manifest `run:` to read), F-010, F-011, F-012, F-013. Remediated in `d0e661d`; round 2
+  returned ✅✅ and verified each fix was real rather than cosmetic. T-001 → `REVIEWED`.
+- Learned a mechanic worth keeping: the review commit must be **`docs/`-only**, because
+  `review-ledger-current` computes the code tip excluding `docs/` — bundling any code edit with the
+  ledger write invalidates the ✅ it is recording. F-016/F-017 were therefore deferred, not fixed.
+- Ended at: T-001 `REVIEWED` at `d0e661d` on `chore/dev-system-instantiation`. Next is the PLAN phase
+  for the modeling layer.
