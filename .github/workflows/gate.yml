@@ -22,6 +22,12 @@ concurrency:
   group: gate-${{ github.ref }}
   cancel-in-progress: true
 
+# The job runs arbitrary trusted config (manifest `run:` commands, plus npm lifecycle scripts via
+# `npm ci`). Give it the least token it can do its job with, and do not leave a credential on disk
+# for those commands to find.
+permissions:
+  contents: read
+
 jobs:
   gate:
     runs-on: ubuntu-latest
@@ -29,6 +35,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # review-ledger-current needs history to compute the code tip
+          # Don't write the GITHUB_TOKEN into .git/config where every `run:` command can read it.
+          # review-ledger-current only runs `git log` against the local clone, so nothing needs it.
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -51,9 +60,11 @@ jobs:
 
       - name: Install backend deps
         working-directory: backend
+        # Pinned exactly, like requirements.txt -- an unpinned dev tool means the gate can change
+        # meaning between two runs of the same commit.
         run: |
           pip install -r requirements.txt
-          pip install ruff==0.16.0 pytest pytest-asyncio httpx respx
+          pip install ruff==0.16.0 pytest==9.1.1 pytest-asyncio==1.4.0 respx==0.23.1
 
       # --- the whole deterministic gate, through the host-agnostic runner ---
       # be-unit runs on in-memory SQLite (backend/conftest.py), so no Postgres service is needed.

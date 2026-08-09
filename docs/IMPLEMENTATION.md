@@ -87,16 +87,16 @@ PLAN phase (grill-me → to-PRD → `docs/plans/PLAN-v1.md`) for the modeling la
 
 ## Decisions log (append-only)
 
-- 2026-08-09 — Instantiated the Dev-System into `sports-dashboard/` before planning the modeling
+- **D-001** 2026-08-09 — Instantiated the Dev-System into `sports-dashboard/` before planning the modeling
   layer, rather than after. Reason: modeling adds a second data domain and a second store; without a
   tracker and gate in place first, those decisions live only in chat — the exact loss SYSTEM.md §0
   exists to prevent. (Supersedes nothing.)
-- 2026-08-09 — Authored a new stack overlay `nextjs-fastapi-postgres` instead of reusing
+- **D-002** 2026-08-09 — Authored a new stack overlay `nextjs-fastapi-postgres` instead of reusing
   `nextjs-fastapi-supabase`. Reason: this project runs plain Postgres with no Supabase and no RLS, so
   the Supabase overlay's RLS invariants and `rls-coverage` gate would be gates over a mechanism that
   does not exist — worse than no gate, because they read as protection. Its safety role transfers to
   `authz-deny`, which is undeclared until auth exists (see F-001). (Supersedes nothing.)
-- 2026-08-09 — The gate declares only the five checks that genuinely run today (fe-typecheck, fe-lint,
+- **D-003** 2026-08-09 — The gate declares only the five checks that genuinely run today (fe-typecheck, fe-lint,
   fe-unit, be-lint, be-unit). `a11y`, `perf`, and `authz-deny` are deliberately NOT declared because
   their tooling is not installed; `gate-completeness` fails a declared-but-missing gate by design.
   (Supersedes nothing.)
@@ -161,6 +161,55 @@ PLAN phase (grill-me → to-PRD → `docs/plans/PLAN-v1.md`) for the modeling la
   costing a second full CI pass per PR. Remediation: retire `ci.yml` once `gate` is the required
   status check on `main`. Status: OPEN.
 
+### Review round 1 — T-001 @ d8e3515 (both reviewers ⛔; all remediated at the SHA in the ledger)
+
+- **F-008** (security, HIGH) — The builder agents were installed unmodified from Supabase canon.
+  `backend-engineer.md` instructed builders that *"RLS ships with the schema — any new table's
+  row-level-security policies go in the same migration"*, in a project whose central invariant is
+  that no RLS, no Supabase and no auth exist. A builder would have shipped RLS on the first
+  user-scoped modeling table and reported it `BUILT` believing rows were protected — doubly wrong,
+  since the app connects as table owner and an owner bypasses RLS absent `FORCE ROW LEVEL SECURITY`.
+  This is D-002's own reasoning ("a gate over a mechanism that does not exist reads as protection")
+  defeated one layer up, and `gate-completeness` cannot catch it: it existence-checks agent *files*,
+  never their content. Remediation: rewrote the domain guidance of `backend-engineer.md` and
+  `frontend-engineer.md` from the overlay's builder notes, leading with the no-RLS invariant.
+  Status: FIXED.
+- **F-009** (security, MEDIUM) — `gate.yml` declared no `permissions:` block and checked out with
+  `persist-credentials` defaulting to true, so `GITHUB_TOKEN` was written into `.git/config` where
+  every manifest `run:` command and every npm lifecycle script could read it — in a job whose own
+  header claims to hold no secrets. Same-repo branch PRs (this repo's model) get a write-capable
+  token. Remediation: added `permissions: contents: read` and `persist-credentials: false`.
+  Status: FIXED. **This gap is inherited from canon** `templates/ci/gate.yml` — see learning-notes.
+- **F-010** (security, MEDIUM) — `ui-ux-reviewer.md` instructs the reviewer to *"not re-audit"*
+  a11y/perf and to *"assume a green gate means they passed"* — but D-003 deliberately declares
+  neither check. Both layers were off: nothing mechanical ran, and the only reviewer who would look
+  was told to assume it had. Remediation: added a project override to the agent making a11y and perf
+  the reviewer's own responsibility until the checks are declared. Status: FIXED.
+- **F-011** (security, MEDIUM) — `.gitignore` covered `.env`, `.env.local`, `.env*.local` but **not**
+  `.env.production` / `.env.development`, the exact names Next.js loads by convention. Verified with
+  `git check-ignore`. Remediation: `.env*` plus `!.env.example`. Status: FIXED.
+- **F-012** (logic, MEDIUM) — T-001's acceptance claimed the gate "exits 0 locally", but from the
+  project's own documented instructions it exits **1**: `ruff` and `pytest` are absent from
+  `requirements.txt` and installed nowhere but `backend/venv`. The prerequisite existed only as a
+  historical aside in `log.md`. Remediation: `CLAUDE.md` now carries the venv build + `PATH`
+  invocation as explicit setup. Status: FIXED.
+- **F-013** (ops, LOW) — `.claude/settings.json` interpolated `$CLAUDE_PROJECT_DIR` unquoted into
+  both Stop-hook commands. This repo's path is space-free today, but the workspace above it is not
+  (`Client Projects/`), and a hook that exits 127 fails *open* and silently — the enforcement just
+  stops. Remediation: quoted. Status: FIXED.
+- **F-014** (ops, LOW) — The gate's own fixture tests (`checks/*.test.mjs`) run nowhere. `run-gate`
+  imports `checks/lib/*` directly and never shells to vitest, and the CI job deliberately skips
+  installing `checks/`. The meta-checks are what make the gate self-guarding; their tests are the
+  only thing guarding *them*. `checks/package.json` also floats `vitest: ^2.1.0` with no lockfile.
+  Status: ACCEPTED. revisit-when: `first-edit-to-checks-lib` — the moment anyone changes the gate's
+  own logic, this stops being theoretical. Deferred rather than half-wired: `npm ci` needs a
+  lockfile that does not exist yet.
+- **F-015** (ops, LOW) — Declaring `ui-ux-reviewer` in the manifest implies more enforcement than
+  exists: `checks/lib/tracker.mjs` hardcodes `mandatory = ['security-auditor','logic-reviewer']` and
+  never consults the manifest's reviewer list, so a deleted `ui-ux-reviewer` column or an `n/a` cell
+  silently exempts it while `gate-completeness` still reports "3 reviewer(s) installed".
+  Status: ACCEPTED — canon-level, not project-level. revisit-when: `reconcile-canon`.
+
 ## Future hardening (review output → next-cycle backlog)
 
 - Install Playwright and declare the `a11y` check; tune `checks/reference/perf-budgets.json` for this
@@ -169,6 +218,13 @@ PLAN phase (grill-me → to-PRD → `docs/plans/PLAN-v1.md`) for the modeling la
   insufficient once historical games are queryable.
 - The APScheduler sync runs in-process in the API container; a second replica would double-sync. Move
   to a single scheduled worker before scaling out.
+- Wire the gate's own tests (F-014): generate `checks/package-lock.json`, pin vitest to the frontend's
+  `4.1.10`, and add `- { id: meta-unit, run: "npm --prefix checks ci && npm --prefix checks test" }`.
+- `gate.yml` pins Node 22 while the legacy `ci.yml` pins Node 20. Resolves itself when F-007 retires
+  `ci.yml`; until then two workflows run every check on different Node majors.
+- Constrain T-002's store location: acceptance says "the store is gitignored", but only `data/`,
+  `models/` and the listed extensions are. Require the store under `data/` so the claim is structural
+  rather than dependent on remembering to add an extension.
 
 ---
 

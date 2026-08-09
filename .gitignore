@@ -1,6 +1,7 @@
-.env
-.env.local
-.env*.local
+# Every .env variant, then re-admit the committed template. `.env` + `.env*.local` alone left
+# `.env.production` / `.env.development` -- the exact names Next.js loads by convention -- trackable.
+.env*
+!.env.example
 __pycache__/
 *.pyc
 venv/
@@ -17,8 +18,19 @@ node_modules/
 *.db
 *.db-journal
 *.parquet
+*.feather
+*.arrow
+*.h5
+*.csv.gz
+*.tar.xz
 data/
 archive/
+
+# Model artifacts -- outputs belong in the store or the registry, never in git.
+*.pkl
+*.joblib
+*.onnx
+models/
 
 # --- local check runs ---
 .pytest_cache/

@@ -32,9 +32,27 @@ Stack overlay: `stacks/nextjs-fastapi-postgres.md`
 backend-engineer · frontend-engineer · security-auditor · logic-reviewer · ui-ux-reviewer
 
 ## The gate
-`node checks/run-gate.mjs --stack stacks/nextjs-fastapi-postgres.md` — runs the two meta-checks
-(`gate-completeness`, `review-ledger-current`) plus fe-typecheck, fe-lint, fe-unit, be-lint, be-unit.
-Same runner locally and in `.github/workflows/gate.yml`, so "green" means one thing.
+
+**Local setup (required — the gate exits 1 without it).** `ruff` and `pytest` are not in
+`requirements.txt` and are not installed globally; they live in `backend/venv`, which must be built
+on **Python 3.11** (`nba_service` uses `datetime.UTC`, which is 3.11+):
+
+```bash
+python3.11 -m venv backend/venv
+backend/venv/bin/pip install -r backend/requirements.txt
+backend/venv/bin/pip install ruff==0.16.0 pytest==9.1.1 pytest-asyncio==1.4.0 respx==0.23.1
+```
+
+Then run the gate with that venv on `PATH` (activate it, or prefix the command):
+
+```bash
+PATH="$PWD/backend/venv/bin:$PATH" node checks/run-gate.mjs --stack stacks/nextjs-fastapi-postgres.md
+```
+
+CI provisions the same tools itself via `pip install`, so `.github/workflows/gate.yml` needs no venv.
+
+It runs the two meta-checks (`gate-completeness`, `review-ledger-current`) plus fe-typecheck,
+fe-lint, fe-unit, be-lint, be-unit — same runner locally and in CI, so "green" means one thing.
 Canon gates this project does **not** yet run: `a11y`, `perf`, `authz-deny` (tooling/auth absent —
 tracked in *Future hardening*, deliberately undeclared so `gate-completeness` stays honest).
 

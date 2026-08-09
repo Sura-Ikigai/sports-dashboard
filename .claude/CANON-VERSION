@@ -6,14 +6,11 @@
 #
 # Factory: ~/Desktop/LabRoomV2.0/Client Projects/Dev-System
 
-stamped-from:    bd58a227d3471a3bb97809f27082b51faa49c975
-last-reconciled: bd58a227d3471a3bb97809f27082b51faa49c975
+stamped-from:    8398baa4b9977bd535275f674a97d62a3678dfb9
+last-reconciled: 8398baa4b9977bd535275f674a97d62a3678dfb9
 stamped-date:    2026-08-09
 
-# PROVENANCE CAVEAT (resolve before the first /reconcile-canon):
-# This project is gated by `stacks/nextjs-fastapi-postgres.md`, a NEW overlay authored at
-# instantiation because no existing overlay matched (the factory had Supabase variants only;
-# this project runs plain Postgres with no RLS). The overlay was written into the factory at
-# Dev-System/stacks/nextjs-fastapi-postgres.md but is NOT YET COMMITTED there — so the SHA
-# above does not contain it. Commit it in the factory and re-stamp this file with the new SHA,
-# or /reconcile-canon will read the overlay as project-local drift rather than canon.
+# This project is gated by `stacks/nextjs-fastapi-postgres.md`, authored at instantiation because no
+# existing overlay matched (canon had Supabase variants only; this project runs plain Postgres with
+# no RLS). It was promoted to the factory as Dev-System/main 8398baa, which is the SHA stamped above
+# — so /reconcile-canon reads the overlay as canon, not as project-local drift.

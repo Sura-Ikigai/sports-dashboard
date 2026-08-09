@@ -29,8 +29,9 @@ user-facing features one tracker task at a time and hand them off in a clean, re
 
 - **Server vs client components.** Default to server components; reach for `"use client"` only when
   you need interactivity/state. Keep client bundles lean.
-- **Data fetching through the API.** **The frontend calls FastAPI, never Supabase directly.** Do not
-  ship the service-role key or any server secret to the client.
+- **Data fetching through the API.** **The frontend calls FastAPI and nothing else** — never the
+  database, never ESPN or any upstream provider directly. Always via `NEXT_PUBLIC_API_URL`; never
+  hardcode a host. Do not ship DB credentials, provider keys, or any server secret to the client.
 - **Always handle every state.** Loading, error, and empty are first-class — never render assuming
   the happy path only.
 - **Accessibility.** Semantic HTML, labelled controls, visible focus, full keyboard operability,
