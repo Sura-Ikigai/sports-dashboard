@@ -19,17 +19,17 @@
 
 ## Current state
 
-**State now:** Stage 3 shipped — the dashboard syncs live NBA teams/games from ESPN into Postgres and
-renders them. The Dev-System is instantiated and **T-001 is `REVIEWED`** — the gate ran for real, both
-reviewers returned ⛔ on the first pass, F-008..F-013 were remediated, and round 2 returned ✅✅ at
-`d0e661d`. The historical source is decided (D-004: sportsdataverse, ESPN-keyed) and the Kaggle corpus
-is deleted (D-005). The next body of work is the **game-modeling layer**, not yet planned.
+**State now:** Stage 3 shipped and T-001 (Dev-System instantiation) is `REVIEWED` at `d0e661d`. The
+PLAN phase is done: grill-me resolved 10 forks (D-007..D-017) and PLAN-v1 is ACTIVE, decomposed into
+T-005..T-010. **Phase 1 is offline-only** — no schema, API, UI or served-image change — and answers the
+one question that can invalidate everything downstream: can four pre-game features clear 62% with
+honest calibration? Nothing is built yet; T-005 is the next thing anyone touches.
 
-**Next action:** Open the PLAN phase for the modeling layer (grill-me → to-PRD →
-`docs/plans/PLAN-v1.md`). Opening move of that cycle's first non-docs commit: close F-016 and F-017,
-whose `revisit-when: next-non-docs-commit` fires then.
+**Next action:** Build T-005 (`Use the backend-engineer subagent on T-005`). That is the first non-docs
+commit of this cycle, so it also fires the `next-non-docs-commit` trigger on F-016 and F-017 — close
+both in the same PR.
 
-**Active plan:** none yet — `docs/plans/PLAN-current.md` is created by the first planning session.
+**Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
 **History:** docs/log.md (append-only, session-by-session)
 
 ## Architecture snapshot
@@ -81,10 +81,60 @@ whose `revisit-when: next-non-docs-commit` fires then.
         (pandas/pyarrow/scikit-learn) all publish wheels for it
       - also: `backend/pyproject.toml` has no `requires-python`, so ruff's `UP` rules are targeting a
         default rather than this project's real floor — set it as part of this task
-- [ ] **T-003** PLAN the modeling layer (grill-me → to-PRD → `PLAN-v1.md`) — `BACKLOG` — owner: `human`
+- [ ] **T-003** PLAN the modeling layer (grill-me → to-PRD → `PLAN-v1.md`) — `BUILT` — owner: `human`
       - acceptance: `docs/plans/PLAN-v1.md` exists, is copied to `PLAN-current.md`, and decomposes
-        into tracker tasks each carrying acceptance criteria + a security note
-      - blocked on: T-002
+        into tracker tasks each carrying acceptance criteria + a security note — **all met**
+      - outcome: grill-me resolved 10 forks (D-007..D-016); to-PRD wrote PLAN-v1. Two premises of the
+        original brief did not survive contact with the data — see D-007.
+
+### Phase 1 — analytical core (PLAN-v1)
+
+<!-- Offline only. No schema, API, UI, or served-image change. Answers the one question that can
+     invalidate everything downstream: can four pre-game features clear 62% with honest calibration? -->
+
+- [ ] **T-005** Historical data loader — `PLANNED` — owner: `backend-engineer`
+      - acceptance: downloads 2022–2026 season schedules from a pinned upstream release tag into the
+        ignored data dir; normalizes to a completed-game collection; per-season counts match
+        (2022 → 1,324; 2026 → 1,326); non-final games excluded; re-running is idempotent
+      - security note: third-party data over the network into a parsing path. Pin by release tag not a
+        moving branch, verify the download before parsing, never use a deserializer that can execute
+        code, write only inside the ignored data dir.
+- [ ] **T-006** `features` deep module + tests — `PLANNED` — owner: `backend-engineer`
+      - acceptance: one interface (history, target game, as-of) → feature mapping; rolling form, rest
+        days, season-to-date point differential, home indicator, all as home-minus-away differences
+        with `n/(n+k)` shrinkage; module is pure (no I/O, no clock, no DB); golden fixtures pass;
+        **leakage property test passes**; shrinkage boundaries at 0, 1, `k` pass
+      - security note: the as-of filter is an integrity control, not a convenience — it is what makes
+        every reported number honest. Enforce it inside the module, never delegate to callers, so no
+        future call site can opt out.
+- [ ] **T-007** `splits` fold generator + tests — `PLANNED` — owner: `backend-engineer`
+      - acceptance: yields exactly the three expanding-window folds (22-23→24, 22-24→25, 22-25→26);
+        tests assert every fold's training seasons precede its test season and no season appears on
+        both sides of a fold
+      - security note: integrity only — a fold must never train on its own future.
+- [ ] **T-008** `evaluate` metrics module + tests — `PLANNED` — owner: `backend-engineer`
+      - acceptance: accuracy, log loss, AUC, calibration curve, and comparison against a constant
+        base-rate predictor; tests assert each against hand-computed values on a small labelled set,
+        plus the comparator's boundary behavior
+      - security note: none.
+- [ ] **T-009** `estimator` + walk-forward evaluation run — `PLANNED` — owner: `backend-engineer`
+      - acceptance: logistic regression fit per fold; versioned artifact emitted; three folds run end
+        to end; per-fold and headline accuracy/log loss/AUC reported with the fold-to-fold spread;
+        states plainly whether **both** criteria are met (≥62% accuracy AND log loss beating a constant
+        55.56% predictor); training-only deps confined to the training requirements file, served image
+        unchanged
+      - security note: **the serialized artifact is an arbitrary-code-execution vector.** Loading a
+        pickled object executes code inside it, and Phase 2 loads this artifact inside the API service.
+        Produce and consume it only with this project's own code, load only from a trusted local path,
+        never from a network or user-supplied path, never commit it. Pin the new numeric/modelling deps
+        exactly, consistent with existing requirements discipline.
+- [ ] **T-010** Written analysis of the result — `PLANNED` — owner: `human`
+      - acceptance: records which features carried signal (coefficients + direction), where the model
+        failed, whether probabilities are calibrated, how folds differed; states the ship/no-ship
+        verdict against the paired criterion; every number reproducible from committed code + the
+        pinned data release
+      - security note: publish nothing that cannot be reproduced from committed code — an
+        unreproducible number in a portfolio artifact is a claim that cannot be audited.
 
 ## Decisions log (append-only)
 
@@ -117,6 +167,62 @@ whose `revisit-when: next-non-docs-commit` fires then.
   real failure mode (psycopg2-binary wheel availability against a `-slim` image), so it goes through
   the gate as T-004 rather than riding along with the instantiation. If it moves, 3.13 is preferred
   over 3.14 for scientific-stack wheel coverage. (Supersedes nothing.)
+
+<!-- D-007..D-017 come from the 2026-08-09 grill-me session; the full reasoning is in PLAN-v1. -->
+
+- **D-007** 2026-08-09 — **The NBA home-court baseline is 55.56%, not 58%.** Measured over 6,615
+  completed games (2022–2026); only one of those five seasons reached 58%. Sampling back to 2002 shows
+  why: pre-2020 seasons average 59.3% home wins, 2021-onward 55.2% — a ~4-point structural break at the
+  COVID no-crowd seasons that never reverted. The 58% figure is an artifact of averaging across an era
+  that no longer describes the sport. Consequence: every "beat the baseline" claim in this project is
+  measured against 55.56%. (Supersedes nothing.)
+- **D-008** 2026-08-09 — **Ship criterion is paired: ≥62% accuracy on the sealed fold AND log loss
+  beating a constant 55.56% predictor.** Accuracy alone cannot validate the product's central promise —
+  that a 55% call and an 80% call differ — and a model can hit 65% accuracy while being badly
+  calibrated. Calibration is therefore a gate, not a nice-to-have. (Supersedes nothing.)
+- **D-009** 2026-08-09 — **Train 2022–24, validate 2025, seal 2026.** 25 seasons are available back to
+  2002; older ones are deliberately unused. Training on a 59.3% home-court era shifts every emitted
+  probability, which fails D-008's calibration half even where accuracy survives. The window also
+  excludes the two COVID-affected seasons as abnormal for a home-court model. (Supersedes nothing.)
+- **D-010** 2026-08-09 — **Predictions are persisted append-only and written by a scheduled job inside
+  FastAPI.** Forced by the live accuracy tracker: proving "we said 71% before tip-off" requires the
+  prediction as it existed then, and a model that re-predicts a finished game will use information that
+  did not exist. Keeping the writer inside FastAPI preserves the only-DB-writer invariant, currently the
+  only structural guarantee about write access given there is no RLS and no auth. (Supersedes nothing.)
+- **D-011** 2026-08-09 — **One `games` table, one feature function, for both training and inference.**
+  Backfill history into Postgres and let the existing ESPN sync keep it current. Two sources feeding one
+  feature function is train/serve skew — the failure that produces a great backtest and a quietly worse
+  live model, with no visible symptom. Feasible only because D-004 chose an ESPN-keyed source, so the
+  two merge rather than needing reconciliation. (Supersedes nothing.)
+- **D-012** 2026-08-09 — **Seven-day horizon, appended daily, keyed (game_id, model_version, as_of).**
+  Resolves the conflict between wanting a week-ahead board and immutable predictions: rows are never
+  updated, the board shows the newest, and the tracker evaluates the last row before tip-off. A
+  prediction made six days out has a rest-day feature that is wrong, not merely stale — refreshing is
+  required, so immutability had to be defined per-row rather than per-game. (Supersedes nothing.)
+- **D-013** 2026-08-09 — **Expanding-window walk-forward, three folds**, rather than one sealed season.
+  A single 1,326-game season carries ~±2.6 points of accuracy noise at 95% confidence, so a 62% gate on
+  one season is substantially decided by chance. Three folds give ~3,900 evaluation games plus a
+  fold-to-fold spread, while the final fold remains untouched as the headline. Random k-fold is rejected
+  outright: it trains on the future. (Supersedes nothing.)
+- **D-014** 2026-08-09 — **Phase 1 is the analytical core evaluated offline, with no application
+  change.** The existential risk is whether four pre-game features clear 62%, and that is answerable
+  from the data files before any migration exists. Building the plumbing first means possibly writing it
+  for a model that never ships. This is §5.2's "extract the analytical core" applied literally.
+  (Supersedes nothing.)
+- **D-015** 2026-08-09 — **Cold start handled by shrinkage toward the league mean**, weight ≈ `n/(n+k)`
+  with k≈5, rather than dropping early-season games. Dropping until both teams have N prior games costs
+  ~16% of every season including all of opening month — and would take the product dark for three weeks
+  each autumn, exactly when interest peaks. (Supersedes nothing.)
+- **D-016** 2026-08-09 — **The model package lives inside the backend, with serving and training
+  dependencies split.** D-010 puts inference inside FastAPI, so the API image must eventually load the
+  artifact and run the feature function regardless — placing the package anywhere else guarantees a
+  later move or a duplicated feature function, the latter reintroducing exactly the skew D-011 removed.
+  Training-only tooling stays out of the deployed image. (Supersedes nothing.)
+- **D-017** 2026-08-09 — **Retrain on all five seasons before the 2026-27 opener (2026-09-30).** The
+  walk-forward establishes the honest estimate using only past-trained folds; once banked, the holdout
+  has done its job. The next NBA game is 2026-10-03, so there are ~7.5 weeks with no games — the window
+  Phase 1 needs — and 2026-27 then becomes a genuine live out-of-sample test, the most credible number
+  this project can produce. (Supersedes nothing.)
 
 ## Review ledger
 

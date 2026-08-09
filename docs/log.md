@@ -6,6 +6,27 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-09 — PLAN phase: grill-me → PLAN-v1 (Phase 1 = analytical core)
+
+- Ran grill-me over the prediction-model brief. Two of its premises did not survive: the 58% home-court
+  baseline (really **55.56%** over 6,615 games — pre-2020 averages 59.3%, 2021+ 55.2%, a regime break at
+  the COVID seasons that never reverted, so 58% was an artifact of the era the deleted Kaggle corpus
+  averaged over) and the "Next.js/FastAPI/Supabase" stack, which this project is not.
+- Ten forks resolved as D-007..D-017. The load-bearing ones: calibration made a **ship gate** alongside
+  62% accuracy; one shared feature function for training and inference so train/serve skew is
+  structurally impossible; expanding-window walk-forward because one sealed season carries ±2.6 points
+  of noise on the ship decision; and Phase 1 scoped to the analytical core **offline**, so the plumbing
+  is never built for a model that might not clear the bar.
+- Noted a timing fact that shaped sequencing: the next NBA game is **2026-10-03** (season opens 09-30),
+  so there are ~7.5 weeks with no games — almost exactly the window Phase 1 needs, and the live board
+  has nothing to show before then regardless.
+- to-PRD wrote `docs/plans/PLAN-v1.md` (ACTIVE, copied to `PLAN-current.md`), decomposed into T-005..
+  T-010. T-003 → `BUILT`. Security notes captured at plan time, including the one that matters most:
+  the serialized model artifact is an arbitrary-code-execution vector, and Phase 2 loads it inside the
+  API service.
+- Ended at: nothing built. Next is T-005 (`backend-engineer`), which is also this cycle's first
+  non-docs commit and therefore fires the F-016/F-017 revisit trigger.
+
 ## 2026-08-09 — Dev-System instantiated onto the Stage 3 dashboard
 
 - Cloned `sports-dashboard` into the LabRoom `Sports/` workspace alongside a staged 2.35 GB Kaggle
