@@ -6,6 +6,24 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-09 — Phase 1 blocked by a canon bug (F-018); fixed and promoted
+
+- Tried to start T-005 and found the gate would reject it. `review-ledger-current` gated every
+  `REVIEWED` **and `DONE`** task against the repo's *current* code tip, so any commit invalidated every
+  completed review at once — N done tasks meant N re-reviews per commit. Verified with
+  `--code-head abc1234` before touching anything. The check was unusable past a project's first phase;
+  this is the first instantiation, so it surfaced here first.
+- Fixed by gating `REVIEWED` only (D-018) and **promoted to canon** as Dev-System `be5f6dc`;
+  CANON-VERSION re-stamped. Not patched locally — every project stamped from this canon has the bug.
+- Editing `checks/lib/tracker.mjs` fired F-014's `first-edit-to-checks-lib` trigger, so that deferral
+  came due and was closed: `meta-unit` wired into the manifest and CI, lockfile committed, vitest
+  pinned. It paid for itself immediately — the F-018 edit broke two fixtures that used `DONE` as their
+  gated status, and no CI anywhere would have caught them.
+- F-016 (`models/` → `/models/`, anchored) and F-017 (stale `ui-ux-reviewer` lines) also closed.
+- T-001 → `BUILT`: its deliverable changed after review, which is exactly what that transition means.
+- Ended at: T-001 owes review round 3. Phase 1 opens only after this phase merges to `main` — the
+  system correctly refuses to let the next phase start on an unmerged, un-re-reviewed one.
+
 ## 2026-08-09 — PLAN phase: grill-me → PLAN-v1 (Phase 1 = analytical core)
 
 - Ran grill-me over the prediction-model brief. Two of its premises did not survive: the 58% home-court

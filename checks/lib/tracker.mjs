@@ -81,7 +81,7 @@ function parseCell(raw) {
 }
 
 /**
- * Core rule (SYSTEM.md §5.4, grill-me Q7). For every task at REVIEWED or DONE:
+ * Core rule (SYSTEM.md §5.4, grill-me Q7). For every task at REVIEWED:
  *   - each MANDATORY reviewer must be PRESENT in the ledger and `pass` (never absent/na/pending/fail),
  *   - every applicable reviewer's ✅ must reference `codeHead` (the current code tip), compared by
  *     SHA prefix (git may abbreviate %h to more than 7 chars in larger repos).
@@ -90,7 +90,13 @@ function parseCell(raw) {
  */
 export function evaluateLedgerCurrency(tasks, ledger, codeHead, opts = {}) {
   const mandatory = (opts.mandatory ?? ['security-auditor', 'logic-reviewer']).map((s) => s.toLowerCase());
-  const gated = new Set(['REVIEWED', 'DONE']);
+  // REVIEWED only — NOT DONE (F-018). REVIEWED means "passed review, awaiting merge", so its ✅ must
+  // reflect the code about to merge; that is the stale-review case this check exists to catch. DONE
+  // means "merged/shipped" — frozen history that later, unrelated work must not retroactively
+  // invalidate. Gating DONE made the check unusable past the first phase: every completed task went
+  // stale on the next commit anywhere in the repo, so N done tasks demanded N re-reviews per commit.
+  // If DONE code is later modified, that is a NEW task carrying its own review, not a re-review here.
+  const gated = new Set(['REVIEWED']);
   const byTask = Object.fromEntries(ledger.rows.map((r) => [r.task, r.cells]));
   const head = codeHead ? String(codeHead).toLowerCase() : null;
   const failures = [];

@@ -27,10 +27,12 @@ data/
 archive/
 
 # Model artifacts -- outputs belong in the store or the registry, never in git.
+# `/models/` is ANCHORED to the repo root (F-016): an unanchored `models/` matches at any depth, so a
+# routine backend/models.py -> backend/models/ refactor would land untracked and silent.
 *.pkl
 *.joblib
 *.onnx
-models/
+/models/
 
 # --- local check runs ---
 .pytest_cache/

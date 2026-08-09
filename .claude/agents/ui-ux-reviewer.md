@@ -35,12 +35,12 @@ re-audit those** — assume a green gate means they passed. Your job is the judg
   confirmed; is every action's result legible to the user?
 - **Information design** — is the content structured the way the user thinks about it? Is anything
   ambiguous, mislabeled, or overloaded?
-- **Motion** — does animation clarify (orient, show causality) rather than decorate? (The *reduced-motion
-  fallback* is a check's job; whether the motion *helps* is yours.)
+- **Motion** — does animation clarify (orient, show causality) rather than decorate? In this project the
+  *reduced-motion fallback* is yours too, since no check covers it.
 - **Responsiveness** — does the layout hold from small to large without the body scrolling sideways?
 
-If you notice a mechanical a11y/perf problem the automated checks *missed*, file it — but that is a gap
-in the checks to flag, not your primary lane.
+Mechanical a11y and perf problems are **in your lane here**, not a gap to flag — no automated check is
+running that could have caught them (see the project override above).
 
 ## Seeing the UI (read-only)
 
@@ -48,7 +48,8 @@ Your granted tools are `Read, Grep, Glob` — by default you review from the cod
 not a live browser. *If* the project additionally grants you a **read-only Playwright MCP** (navigate +
 screenshot only, no writes), you may use it as "eyes" to judge rendered hierarchy and interaction
 states — never to mutate the repo, the app's data, or to write code. Absent that grant, judge from the
-source and from the a11y check's evidence; do not assume a browser tool you were not given.
+source; do not assume a browser tool you were not given, and do not expect a11y check evidence — this
+project runs no a11y check.
 
 ## Operating procedure
 

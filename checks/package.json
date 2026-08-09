@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "private": true,
-  "description": "Dev-System canon gate checks (SYSTEM.md §5.4): pure fixture-tested cores (lib/) + thin CLIs. Copied into a project alongside .claude/ at instantiation.",
+  "description": "Dev-System canon gate checks (SYSTEM.md \u00a75.4): pure fixture-tested cores (lib/) + thin CLIs. Copied into a project alongside .claude/ at instantiation.",
   "scripts": {
     "test": "vitest run",
     "gate": "node run-gate.mjs"
   },
   "devDependencies": {
-    "vitest": "^2.1.0"
+    "vitest": "2.1.9"
   }
 }

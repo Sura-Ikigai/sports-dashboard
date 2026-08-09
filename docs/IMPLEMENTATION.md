@@ -19,15 +19,17 @@
 
 ## Current state
 
-**State now:** Stage 3 shipped and T-001 (Dev-System instantiation) is `REVIEWED` at `d0e661d`. The
-PLAN phase is done: grill-me resolved 10 forks (D-007..D-017) and PLAN-v1 is ACTIVE, decomposed into
-T-005..T-010. **Phase 1 is offline-only** — no schema, API, UI or served-image change — and answers the
-one question that can invalidate everything downstream: can four pre-game features clear 62% with
-honest calibration? Nothing is built yet; T-005 is the next thing anyone touches.
+**State now:** PLAN-v1 is ACTIVE and Phase 1 is decomposed into T-005..T-010, but **Phase 1 has not
+started** — attempting it exposed F-018, a canon bug that made the gate unusable past a project's first
+phase. That is fixed and promoted to canon (`be5f6dc`), and the three deferred findings whose triggers
+fired alongside it (F-014, F-016, F-017) are closed. Because all of that changed T-001's own deliverable,
+**T-001 is back at `BUILT` and owes review round 3** at the current SHA.
 
-**Next action:** Build T-005 (`Use the backend-engineer subagent on T-005`). That is the first non-docs
-commit of this cycle, so it also fires the `next-non-docs-commit` trigger on F-016 and F-017 — close
-both in the same PR.
+**Next action:** Re-review T-001 (`security-auditor`, then `logic-reviewer`) at the current code tip.
+On ✅✅ → `REVIEWED` → merge this phase to `main` → `DONE`. Only then does Phase 1 open, on its own
+branch, starting with T-005. Phase 1 cannot start before that merge: T-001 sitting at `REVIEWED` is
+gated, so T-005's first code commit would fail the gate — which is the phase discipline working, not a
+defect.
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
 **History:** docs/log.md (append-only, session-by-session)
@@ -54,7 +56,7 @@ both in the same PR.
 ## Tasks
 
 ### Dev-System instantiation
-- [ ] **T-001** Instantiate the Dev-System into this repo — `REVIEWED` — owner: `human`
+- [ ] **T-001** Instantiate the Dev-System into this repo — `BUILT` — owner: `human`
       - acceptance: `.claude/` (5 agents + 2 Stop hooks + settings.json + CANON-VERSION),
         `checks/` + `stacks/nextjs-fastapi-postgres.md`, `docs/` (tracker, log, learning-notes),
         root `CLAUDE.md`, `.github/workflows/gate.yml`; `node checks/run-gate.mjs
@@ -224,11 +226,19 @@ both in the same PR.
   Phase 1 needs — and 2026-27 then becomes a genuine live out-of-sample test, the most credible number
   this project can produce. (Supersedes nothing.)
 
+- **D-018** 2026-08-09 — **A reviewer ✅ goes stale only while a task is `REVIEWED`, never once it is
+  `DONE`.** Gating DONE meant every completed task's review expired on the next commit anywhere in the
+  repo, which made the check unusable past a project's first phase (F-018). REVIEWED is "passed review,
+  awaiting merge" — its ✅ must reflect the code about to merge. DONE is "merged/shipped": frozen
+  history. If DONE code is later modified, that is a new task with its own review, not a re-review of
+  the old one. Promoted to canon (`be5f6dc`) rather than patched locally, because every project stamped
+  from this canon has the bug. (Supersedes nothing.)
+
 ## Review ledger
 
 | Task  | security-auditor | logic-reviewer | ui-ux-reviewer | notes |
 |-------|------------------|----------------|----------------|-------|
-| T-001 | ✅ d0e661d       | ✅ d0e661d     | n/a            | round 1 ⛔⛔ @ d8e3515 → F-008..F-013 remediated in d0e661d → round 2 ✅✅. n/a: config + docs only, no user-facing surface changed |
+| T-001 | pending          | pending        | n/a            | r1 ⛔⛔@d8e3515 → r2 ✅✅@d0e661d → **reopened**: F-018/F-014/F-016/F-017 changed the deliverable, so round 3 is owed at the new SHA. n/a: no user-facing surface changed |
 
 ## Findings (from reviews, append-only)
 
@@ -338,6 +348,26 @@ both in the same PR.
 > `secrets.DB_*` into a `pull_request`-triggered job — **F-007** already schedules its retirement, so
 > retire it rather than harden it. And `frontend/.gitignore` has `.env*` with no `!.env.example`
 > negation, asymmetric with the root fix; pre-existing, cosmetic until someone adds that file.
+
+### Review round 3 pending — T-001 @ (post-F-018 SHA)
+
+- **F-018** (canon, HIGH) — `review-ledger-current` gated every `REVIEWED` **and `DONE`** task against
+  the repo's *current* code tip, so any commit anywhere invalidated every completed task's review at
+  once. A project with N done tasks owed N re-reviews per commit; the check was unusable past its
+  first phase. Surfaced the instant Phase 1 tried to start: T-005's first code commit would have failed
+  the gate on T-001, a finished and correctly-reviewed task. Verified empirically with
+  `--code-head abc1234` before changing anything. Remediation: gate `REVIEWED` only — it means "passed
+  review, awaiting merge", which is the stale-review case the check exists to catch — while `DONE`
+  means "merged/shipped", frozen history that later unrelated work must not retroactively invalidate.
+  Status: FIXED, and **promoted to canon** as Dev-System `be5f6dc`; CANON-VERSION re-stamped.
+- **F-014** — CLOSED. Its `revisit-when: first-edit-to-checks-lib` fired when F-018 required editing
+  `checks/lib/tracker.mjs`. Wired `meta-unit` into the manifest and CI, committed `checks/package-lock.json`,
+  pinned vitest to 2.1.9 exactly. **The deferral was vindicated immediately**: the F-018 edit broke two
+  existing fixtures that used `DONE` as their gated status, and no CI anywhere would have caught it.
+- **F-016** — CLOSED. `models/` → `/models/`, anchored to the repo root.
+- **F-017** — CLOSED. The three stale `ui-ux-reviewer` lines now agree with the project override rather
+  than contradicting it; mechanical a11y/perf is stated as in-lane, and the reference to non-existent
+  "a11y check evidence" is gone.
 
 ## Future hardening (review output → next-cycle backlog)
 

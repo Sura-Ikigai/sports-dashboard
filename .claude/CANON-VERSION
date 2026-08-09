@@ -6,8 +6,8 @@
 #
 # Factory: ~/Desktop/LabRoomV2.0/Client Projects/Dev-System
 
-stamped-from:    8398baa4b9977bd535275f674a97d62a3678dfb9
-last-reconciled: 8398baa4b9977bd535275f674a97d62a3678dfb9
+stamped-from:    be5f6dc8a899debdb753e846f9efbeb946755b9a
+last-reconciled: be5f6dc8a899debdb753e846f9efbeb946755b9a
 stamped-date:    2026-08-09
 
 # This project is gated by `stacks/nextjs-fastapi-postgres.md`, authored at instantiation because no

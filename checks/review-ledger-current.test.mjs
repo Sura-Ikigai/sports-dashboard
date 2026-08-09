@@ -29,13 +29,13 @@ function evalFixture(md, codeHead = HEAD) {
 
 describe('review-ledger-current', () => {
   it('passes when every applicable reviewer is ✅ at the current code tip', () => {
-    const r = evalFixture(tracker({ status: 'DONE', cells: [`✅ ${HEAD}`, `✅ ${HEAD}`, `✅ ${HEAD}`] }));
+    const r = evalFixture(tracker({ status: 'REVIEWED', cells: [`✅ ${HEAD}`, `✅ ${HEAD}`, `✅ ${HEAD}`] }));
     expect(r.ok).toBe(true);
     expect(r.failures).toEqual([]);
   });
 
   it('fails a ✅ that references a stale SHA (code changed after review)', () => {
-    const r = evalFixture(tracker({ status: 'DONE', cells: [`✅ ${HEAD}`, `✅ ${OLD}`, `✅ ${HEAD}`] }));
+    const r = evalFixture(tracker({ status: 'REVIEWED', cells: [`✅ ${HEAD}`, `✅ ${OLD}`, `✅ ${HEAD}`] }));
     expect(r.ok).toBe(false);
     expect(r.failures).toHaveLength(1);
     expect(r.failures[0]).toMatchObject({ task: 'T-001', reviewer: 'logic-reviewer' });
@@ -49,24 +49,32 @@ describe('review-ledger-current', () => {
   });
 
   it('fails a mandatory reviewer marked n/a', () => {
-    const r = evalFixture(tracker({ status: 'DONE', cells: ['n/a', `✅ ${HEAD}`, `✅ ${HEAD}`] }));
+    const r = evalFixture(tracker({ status: 'REVIEWED', cells: ['n/a', `✅ ${HEAD}`, `✅ ${HEAD}`] }));
     expect(r.ok).toBe(false);
     expect(r.failures[0]).toMatchObject({ task: 'T-001', reviewer: 'security-auditor' });
     expect(r.failures[0].reason).toMatch(/marked n\/a/);
   });
 
   it('allows a non-mandatory reviewer (ui-ux) to be n/a', () => {
-    const r = evalFixture(tracker({ status: 'DONE', cells: [`✅ ${HEAD}`, `✅ ${HEAD}`, 'n/a'] }));
+    const r = evalFixture(tracker({ status: 'REVIEWED', cells: [`✅ ${HEAD}`, `✅ ${HEAD}`, 'n/a'] }));
     expect(r.ok).toBe(true);
   });
 
-  it('ignores tasks not yet at REVIEWED/DONE (BUILT can have pending reviews)', () => {
+  it('ignores tasks not yet at REVIEWED (BUILT can have pending reviews)', () => {
     const r = evalFixture(tracker({ status: 'BUILT', cells: ['pending', 'pending', 'pending'] }));
     expect(r.ok).toBe(true);
   });
 
+  // F-018: DONE is frozen history. Gating it made the check unusable past the first phase --
+  // every completed task went stale on the next commit anywhere in the repo.
+  it('does NOT gate a DONE task whose ✅ is at an older SHA (frozen history)', () => {
+    const r = evalFixture(tracker({ status: 'DONE', cells: [`✅ ${OLD}`, `✅ ${OLD}`, `✅ ${OLD}`] }));
+    expect(r.ok).toBe(true);
+    expect(r.failures).toEqual([]);
+  });
+
   it('fails a ✅ with no SHA (cannot prove currency)', () => {
-    const r = evalFixture(tracker({ status: 'DONE', cells: ['✅', `✅ ${HEAD}`, `✅ ${HEAD}`] }));
+    const r = evalFixture(tracker({ status: 'REVIEWED', cells: ['✅', `✅ ${HEAD}`, `✅ ${HEAD}`] }));
     expect(r.ok).toBe(false);
     expect(r.failures[0].reason).toMatch(/no commit SHA/);
   });
@@ -79,7 +87,7 @@ describe('review-ledger-current', () => {
 
 // Regressions for reviewer findings — the happy-path suite above missed these.
 describe('review-ledger-current — reviewer-finding regressions', () => {
-  const led = (header, row) => `## Tasks\n- [ ] **T-1** x — \`DONE\`\n## Review ledger\n| ${header} |\n|${'--|'.repeat(header.split('|').length)}\n| ${row} |\n## Findings`;
+  const led = (header, row) => `## Tasks\n- [ ] **T-1** x — \`REVIEWED\`\n## Review ledger\n| ${header} |\n|${'--|'.repeat(header.split('|').length)}\n| ${row} |\n## Findings`;
   const ev = (md, head = HEAD) => evaluateLedgerCurrency(parseTasks(md), parseReviewLedger(md), head);
 
   it('F-001: a dropped mandatory-reviewer column fails (not silently exempt)', () => {

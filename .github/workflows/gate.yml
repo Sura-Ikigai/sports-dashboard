@@ -52,8 +52,8 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       # --- project dependencies ---
-      # checks/ needs no install: run-gate and both meta-checks import only node: builtins
-      # and ./lib. checks/package.json exists solely to run the checks' own vitest suite.
+      # run-gate and both meta-checks import only node: builtins and ./lib, so the gate itself needs
+      # no install here -- but the meta-unit check runs `npm --prefix checks ci`, which does.
       - name: Install frontend deps
         working-directory: frontend
         run: npm ci

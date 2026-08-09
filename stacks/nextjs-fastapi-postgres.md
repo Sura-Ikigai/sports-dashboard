@@ -52,7 +52,14 @@ required-gates:
     - { id: fe-unit,      run: "cd frontend && npm test",         blocking: true }
     - { id: be-lint,      run: "cd backend && ruff check .",      blocking: true }
     - { id: be-unit,      run: "cd backend && pytest",            blocking: true }
+    - { id: meta-unit,    run: "npm --prefix checks ci && npm --prefix checks test", blocking: true }
 ```
+
+<!-- meta-unit guards the gate's OWN logic (F-014). The two meta-checks are what make the gate
+     self-guarding; their fixture tests are the only thing guarding *them*, and they ran nowhere until
+     an edit to checks/lib/tracker.mjs (F-018) proved the point by breaking two fixtures that no CI
+     would have caught. -->
+
 
 <!-- Checks to ADD as the project earns them (declare only what is installed — an undeclared gate is
      honest, a declared-but-missing one fails `gate-completeness` and is what canon exists to prevent):
