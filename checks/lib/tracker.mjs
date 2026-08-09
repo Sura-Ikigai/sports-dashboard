@@ -81,7 +81,7 @@ function parseCell(raw) {
 }
 
 /**
- * Core rule (SYSTEM.md §5.4, grill-me Q7). For every task at REVIEWED:
+ * Core rule (SYSTEM.md §5.4, grill-me Q7). For every task at REVIEWED or DONE:
  *   - each MANDATORY reviewer must be PRESENT in the ledger and `pass` (never absent/na/pending/fail),
  *   - every applicable reviewer's ✅ must reference `codeHead` (the current code tip), compared by
  *     SHA prefix (git may abbreviate %h to more than 7 chars in larger repos).
@@ -90,13 +90,24 @@ function parseCell(raw) {
  */
 export function evaluateLedgerCurrency(tasks, ledger, codeHead, opts = {}) {
   const mandatory = (opts.mandatory ?? ['security-auditor', 'logic-reviewer']).map((s) => s.toLowerCase());
-  // REVIEWED only — NOT DONE (F-018). REVIEWED means "passed review, awaiting merge", so its ✅ must
-  // reflect the code about to merge; that is the stale-review case this check exists to catch. DONE
-  // means "merged/shipped" — frozen history that later, unrelated work must not retroactively
-  // invalidate. Gating DONE made the check unusable past the first phase: every completed task went
-  // stale on the next commit anywhere in the repo, so N done tasks demanded N re-reviews per commit.
-  // If DONE code is later modified, that is a NEW task carrying its own review, not a re-review here.
-  const gated = new Set(['REVIEWED']);
+  // Two independent rules, deliberately scoped differently (F-018 + F-019).
+  //
+  // VERDICT applies to REVIEWED *and* DONE: a ledger row must exist, every mandatory reviewer must be
+  // present as a column, and every applicable cell must be a ✅ carrying some SHA. None of that
+  // depends on the code tip — a DONE task holding a ⛔, a pending cell, or no row at all is a broken
+  // invariant at any commit.
+  //
+  // CURRENCY (does that SHA still equal the code tip) applies to REVIEWED only. REVIEWED means
+  // "passed review, awaiting merge", so its ✅ must reflect the code about to merge — the stale-review
+  // case this check exists to catch. DONE means "merged/shipped": frozen history that later unrelated
+  // work must not retroactively invalidate. (F-018: gating DONE on currency made the check unusable
+  // past a project's first phase — every completed task's ✅ expired on the next commit anywhere, so N
+  // done tasks meant N re-reviews per commit. F-019: but dropping DONE from the gate *entirely* went
+  // too far — it left canon's "never DONE until REVIEWED" with no mechanical enforcement at all, and
+  // created a one-word bypass, since a REVIEWED task failing on a stale review could be cleared by
+  // simply advancing it to DONE.)
+  const gated = new Set(['REVIEWED', 'DONE']);
+  const currencyGated = new Set(['REVIEWED']);
   const byTask = Object.fromEntries(ledger.rows.map((r) => [r.task, r.cells]));
   const head = codeHead ? String(codeHead).toLowerCase() : null;
   const failures = [];
@@ -115,7 +126,7 @@ export function evaluateLedgerCurrency(tasks, ledger, codeHead, opts = {}) {
       if (cell.mark === 'na') { if (isMandatory) failures.push({ task: t.id, reviewer: name, reason: `mandatory reviewer marked n/a on a ${t.status} task` }); continue; }
       if (cell.mark !== 'pass') { failures.push({ task: t.id, reviewer: name, reason: `${cell.mark} on a ${t.status} task (must be ✅)` }); continue; }
       if (!cell.sha) { failures.push({ task: t.id, reviewer: name, reason: '✅ carries no commit SHA (cannot prove the review is current)' }); continue; }
-      if (head && !(cell.sha.startsWith(head) || head.startsWith(cell.sha))) {
+      if (currencyGated.has(t.status) && head && !(cell.sha.startsWith(head) || head.startsWith(cell.sha))) {
         failures.push({ task: t.id, reviewer: name, reason: `✅ at ${cell.sha} but code tip is ${head} — code changed after review, re-review needed` });
       }
     }

@@ -31,9 +31,11 @@ Making the gate a *structural* contract, not a human rule. This is the mechanica
 
 Running `checks/run-gate.mjs` = the deterministic lane of the gate:
 - `gate-completeness` — every manifest reviewer is installed + every check script is present.
-- `review-ledger-current` — every REVIEWED/DONE task has each required reviewer ✅ **at the current code
-  tip** (a ✅ at a stale SHA fails → re-review). This is how the *reviewer* gate becomes machine-checked
-  without running an LLM in CI.
+- `review-ledger-current` — every REVIEWED and DONE task has each required reviewer present and ✅ with
+  a SHA; and for `REVIEWED` specifically, that ✅ must be **at the current code tip** (a stale SHA fails
+  → re-review). `DONE` is frozen history: exempt from the currency comparison, but not from the verdict
+  (F-018/F-019 — gating DONE on currency expired every completed review on the next commit anywhere).
+  This is how the *reviewer* gate becomes machine-checked without running an LLM in CI.
 - every deterministic `checks:` entry in the stack manifest (typecheck, lint, unit, rls-deny,
   rls-coverage, a11y, perf, …).
 

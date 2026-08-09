@@ -65,12 +65,40 @@ describe('review-ledger-current', () => {
     expect(r.ok).toBe(true);
   });
 
-  // F-018: DONE is frozen history. Gating it made the check unusable past the first phase --
-  // every completed task went stale on the next commit anywhere in the repo.
-  it('does NOT gate a DONE task whose ✅ is at an older SHA (frozen history)', () => {
+  // F-018: CURRENCY is not checked for DONE -- it is frozen history. Gating it made the check
+  // unusable past the first phase: every completed task went stale on the next commit anywhere.
+  it('does NOT flag a DONE task whose ✅ is at an older SHA (frozen history)', () => {
     const r = evalFixture(tracker({ status: 'DONE', cells: [`✅ ${OLD}`, `✅ ${OLD}`, `✅ ${OLD}`] }));
     expect(r.ok).toBe(true);
     expect(r.failures).toEqual([]);
+  });
+
+  // F-019: but VERDICT is still enforced for DONE. Dropping DONE from the gate entirely left
+  // "never DONE until REVIEWED" unenforced, and made `DONE` a one-word escape from a stale-review
+  // failure. These three must fail regardless of SHA currency.
+  it('fails a DONE task with a mandatory reviewer still pending', () => {
+    const r = evalFixture(tracker({ status: 'DONE', cells: ['pending', `✅ ${OLD}`, `✅ ${OLD}`] }));
+    expect(r.ok).toBe(false);
+    expect(r.failures[0]).toMatchObject({ task: 'T-001', reviewer: 'security-auditor' });
+  });
+
+  it('fails a DONE task carrying a ⛔ verdict', () => {
+    const r = evalFixture(tracker({ status: 'DONE', cells: [`✅ ${OLD}`, '⛔ authz hole', `✅ ${OLD}`] }));
+    expect(r.ok).toBe(false);
+    expect(r.failures[0]).toMatchObject({ task: 'T-001', reviewer: 'logic-reviewer' });
+  });
+
+  it('fails a DONE task with no Review-ledger row at all', () => {
+    const md = `## Tasks\n- [ ] **T-77** shipped somehow — \`DONE\`\n\n## Review ledger\n\n| Task | security-auditor | logic-reviewer | notes |\n|------|---|---|---|\n\n## Findings\n`;
+    const r = evalFixture(md);
+    expect(r.ok).toBe(false);
+    expect(r.failures[0]).toMatchObject({ task: 'T-77', reviewer: '(ledger)' });
+  });
+
+  it('fails a DONE task whose ✅ carries no SHA at all', () => {
+    const r = evalFixture(tracker({ status: 'DONE', cells: ['✅', `✅ ${OLD}`, `✅ ${OLD}`] }));
+    expect(r.ok).toBe(false);
+    expect(r.failures[0].reason).toMatch(/no commit SHA/);
   });
 
   it('fails a ✅ with no SHA (cannot prove currency)', () => {

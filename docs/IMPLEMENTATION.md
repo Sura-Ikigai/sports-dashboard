@@ -20,15 +20,18 @@
 ## Current state
 
 **State now:** PLAN-v1 is ACTIVE and Phase 1 is decomposed into T-005..T-010, but **Phase 1 has not
-started** — attempting it exposed F-018, a canon bug that made the gate unusable past a project's first
-phase. That is fixed and promoted to canon (`be5f6dc`), and the three deferred findings whose triggers
-fired alongside it (F-014, F-016, F-017) are closed. Because all of that changed T-001's own deliverable,
-**T-001 is back at `BUILT` and owes review round 3** at the current SHA.
+started.** Attempting it exposed F-018 — `review-ledger-current` gated `DONE` on SHA currency, so any
+commit expired every completed task's review and the check was unusable past a project's first phase.
+The first fix over-corrected (F-019): it removed `DONE` from the gate entirely, which also dropped
+*verdict* enforcement and opened a one-word bypass. Both are now fixed and promoted to canon
+(`be5f6dc`, `6f49f29`): verdict applies to `REVIEWED` and `DONE`, currency to `REVIEWED` only. F-014,
+F-016, F-017 and F-020..F-023 are closed alongside. The gate runs **8 checks**. All of this changed
+T-001's own deliverable, so **T-001 is at `BUILT` and owes review round 4**.
 
 **Next action:** Re-review T-001 (`security-auditor`, then `logic-reviewer`) at the current code tip.
 On ✅✅ → `REVIEWED` → merge this phase to `main` → `DONE`. Only then does Phase 1 open, on its own
-branch, starting with T-005. Phase 1 cannot start before that merge: T-001 sitting at `REVIEWED` is
-gated, so T-005's first code commit would fail the gate — which is the phase discipline working, not a
+branch, starting with T-005. Phase 1 cannot start before that merge — a `REVIEWED` task is currency-
+gated, so T-005's first code commit would fail the gate. That is the phase discipline working, not a
 defect.
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
@@ -349,7 +352,7 @@ defect.
 > retire it rather than harden it. And `frontend/.gitignore` has `.env*` with no `!.env.example`
 > negation, asymmetric with the root fix; pre-existing, cosmetic until someone adds that file.
 
-### Review round 3 pending — T-001 @ (post-F-018 SHA)
+### Review round 3 — T-001 @ fef3dc8 (logic ✅ · security ⛔ — the F-018 fix was over-scoped)
 
 - **F-018** (canon, HIGH) — `review-ledger-current` gated every `REVIEWED` **and `DONE`** task against
   the repo's *current* code tip, so any commit anywhere invalidated every completed task's review at
@@ -369,6 +372,36 @@ defect.
   than contradicting it; mechanical a11y/perf is stated as in-lane, and the reference to non-existent
   "a11y check evidence" is gone.
 
+- **F-019** (security, MEDIUM) — **The F-018 fix removed too much.** `evaluateLedgerCurrency` did two
+  independent jobs for gated tasks: *verdict* (a ledger row exists, every mandatory reviewer is present,
+  every applicable cell is a ✅ with a SHA) and *currency* (that SHA still equals the code tip). Only
+  currency is meaningless for frozen history; verdict never depended on the code tip at all. Dropping
+  `DONE` from the gated set entirely removed both — leaving canon's "never `DONE` until `REVIEWED`" with
+  **no mechanical enforcement anywhere** (the auditor traced it: `gate-completeness` ignores statuses,
+  neither hook reads them, and branch protection's only status-aware check is this one). It also opened a
+  one-word bypass: a `REVIEWED` task failing on a stale review could be cleared by editing its status to
+  `DONE` — a change that moves *forward* along the intended state machine and was the cheapest way to
+  make the gate green. Demonstrated with fixtures: `DONE` + all-pending, `DONE` + `⛔`, and `DONE` with no
+  ledger row all passed. Remediation: keep `DONE` gated for verdict; scope only the currency comparison
+  to `REVIEWED`; four regression tests added. Status: FIXED, promoted to canon as `6f49f29`.
+- **F-020** (docs, LOW) — Three places still asserted the pre-F-018 guarantee, including
+  `review-ledger-current`'s **success message**, which printed a claim the check no longer made — the
+  operator-facing statement of what the gate proved. Also its module header and `BRANCH-PROTECTION.md`,
+  the document a human reads to decide the gate is sufficient. Status: FIXED (all three now state the
+  verdict/currency split).
+- **F-021** (deps, MEDIUM) — vitest was pinned to 2.1.9 while this project's own Future-hardening item
+  specified the frontend's 4.1.10, leaving two vitest majors in one repo and 5 npm advisories (1 critical,
+  1 high) on the committed lockfile. Not reachable as configured — every advisory needs a listening
+  dev/UI server and `vitest run` starts none — but it was the wrong version to pin to. Status: FIXED,
+  now 4.1.10 matching the frontend; `npm audit` reports **0 vulnerabilities**.
+- **F-022** (docs, LOW) — `.claude/CANON-VERSION` was re-stamped but its trailing prose still named the
+  previous SHA as "the SHA stamped above". Status: FIXED — it now lists all three canon contributions.
+- **F-023** (docs, LOW) — F-017 enumerated three lines and fixed exactly those; the same contradiction
+  survived in two it did not name: the agent's frontmatter `description` (what the agent picker surfaces)
+  and its "What you do NOT do" section, where a prohibition reads as more binding than corrected prose.
+  Status: FIXED. Lesson: a finding that enumerates line numbers gets fixed at those line numbers — state
+  the *claim* to eliminate, not its coordinates.
+
 ## Future hardening (review output → next-cycle backlog)
 
 - Install Playwright and declare the `a11y` check; tune `checks/reference/perf-budgets.json` for this
@@ -377,8 +410,8 @@ defect.
   insufficient once historical games are queryable.
 - The APScheduler sync runs in-process in the API container; a second replica would double-sync. Move
   to a single scheduled worker before scaling out.
-- Wire the gate's own tests (F-014): generate `checks/package-lock.json`, pin vitest to the frontend's
-  `4.1.10`, and add `- { id: meta-unit, run: "npm --prefix checks ci && npm --prefix checks test" }`.
+- ~~Wire the gate's own tests (F-014)~~ — **done** in the F-018 cycle: lockfile committed, vitest
+  pinned to 4.1.10 (matching the frontend), `meta-unit` declared and running. The gate runs 8 checks.
 - `gate.yml` pins Node 22 while the legacy `ci.yml` pins Node 20. Resolves itself when F-007 retires
   `ci.yml`; until then two workflows run every check on different Node majors.
 - Constrain T-002's store location: acceptance says "the store is gitignored", but only `data/`,

@@ -2,9 +2,11 @@
 // review-ledger-current — a required CI check (SYSTEM.md §5.4, grill-me Q7).
 //
 // Makes the LLM reviewer gate falsifiable WITHOUT running an LLM in CI: it does not judge review
-// quality, it enforces that a review of the CURRENT code exists. For every task at REVIEWED/DONE,
-// each mandatory reviewer must be ✅ and every ✅ must reference the current code tip. A ✅ at an
-// older SHA means the code changed after the review → stale → fail (re-review).
+// quality, it enforces that a review exists and, where it still can, that it covers the current code.
+// For every task at REVIEWED or DONE, each mandatory reviewer must be present and ✅ with a SHA.
+// Additionally, for REVIEWED only, that ✅ must reference the current code tip — a ✅ at an older SHA
+// means the code changed after the review → stale → fail (re-review). DONE is frozen history and is
+// exempt from the currency comparison, but not from the verdict (F-018, F-019).
 //
 // Usage:  node checks/review-ledger-current.mjs [--tracker docs/IMPLEMENTATION.md] [--code-head <sha>]
 // Exit 0 = clean; exit 1 = one or more stale/missing reviews (prints them).
@@ -35,7 +37,7 @@ const ledger = parseReviewLedger(md);
 const { ok, failures } = evaluateLedgerCurrency(tasks, ledger, codeHead);
 
 if (ok) {
-  console.log(`✓ review-ledger-current: all REVIEWED/DONE tasks reviewed at current code tip ${codeHead ?? '(none)'}.`);
+  console.log(`✓ review-ledger-current: REVIEWED tasks reviewed at current code tip ${codeHead ?? '(none)'}; DONE tasks carry a complete ✅ verdict.`);
   process.exit(0);
 }
 console.error(`✗ review-ledger-current: ${failures.length} stale/missing review(s) (code tip ${codeHead ?? '(none)'}):`);

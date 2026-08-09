@@ -6,11 +6,14 @@
 #
 # Factory: ~/Desktop/LabRoomV2.0/Client Projects/Dev-System
 
-stamped-from:    be5f6dc8a899debdb753e846f9efbeb946755b9a
-last-reconciled: be5f6dc8a899debdb753e846f9efbeb946755b9a
+stamped-from:    6f49f29b23c4656d8b5072467dc9e26a94a68c1e
+last-reconciled: 6f49f29b23c4656d8b5072467dc9e26a94a68c1e
 stamped-date:    2026-08-09
 
-# This project is gated by `stacks/nextjs-fastapi-postgres.md`, authored at instantiation because no
-# existing overlay matched (canon had Supabase variants only; this project runs plain Postgres with
-# no RLS). It was promoted to the factory as Dev-System/main 8398baa, which is the SHA stamped above
-# — so /reconcile-canon reads the overlay as canon, not as project-local drift.
+# Canon contributions promoted FROM this project (all on Dev-System/main, so /reconcile-canon reads
+# them as canon rather than project-local drift):
+#   8398baa  stacks/nextjs-fastapi-postgres.md — authored at instantiation; canon had Supabase
+#            variants only, and this project runs plain Postgres with no RLS.
+#   be5f6dc  checks/lib/tracker.mjs — review-ledger-current currency rule (F-018).
+#   6f49f29  checks/ — restore verdict enforcement on DONE; scope only currency (F-019).
+# The SHA stamped above is the most recent of these.

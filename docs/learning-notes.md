@@ -33,6 +33,20 @@ should inherit from the factory.
   (F-009), so every project stamped from it runs arbitrary manifest `run:` commands alongside a
   `GITHUB_TOKEN` on disk — in a job whose own header comment asserts it holds no secrets. The comment
   documents an intent the file does not implement. This is canon-level and inherited by every stack.
+- **`review-ledger-current` conflated two rules, and both fixes to it were wrong before they were
+  right.** The check enforced *verdict* (a row exists, mandatory reviewers present, cells are ✅) and
+  *currency* (the ✅'s SHA equals the code tip) through one gated-status set. Only currency is
+  meaningless for shipped work, but the first fix removed the whole status from the set and took
+  verdict with it (F-018 → F-019), leaving canon's central rule unenforced and creating a bypass where
+  advancing a task's status *forward* cleared a live gate failure. Open fork for canon: this suggests a
+  general shape — when a check enforces two invariants with different scopes, the scope belongs on the
+  invariant, not on the record it inspects. Worth auditing `rls-coverage` and `perf-budgets` for the
+  same conflation.
+- **A finding that names line numbers gets fixed at those line numbers.** F-017 enumerated three
+  contradicting lines; all three were fixed and the same contradiction survived in two places it had not
+  named — including the agent's frontmatter `description`, which is what the picker surfaces (F-023).
+  Open fork: reviewer agents should be instructed to state the *claim* to eliminate and let the builder
+  find every instance, rather than handing over coordinates that read as an exhaustive list.
 - **The review commit must be `docs/`-only.** `review-ledger-current` computes the code tip as
   `git log -1 -- . ':(exclude)docs/'`, so bundling any non-docs edit with the ledger write invalidates
   the ✅ being written, and fixing a reviewer's LOW findings in the same breath as recording their ✅

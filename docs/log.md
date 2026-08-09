@@ -21,7 +21,16 @@ Newest entry on top. Keep it lean — a few lines per session; git history carri
   gated status, and no CI anywhere would have caught them.
 - F-016 (`models/` → `/models/`, anchored) and F-017 (stale `ui-ux-reviewer` lines) also closed.
 - T-001 → `BUILT`: its deliverable changed after review, which is exactly what that transition means.
-- Ended at: T-001 owes review round 3. Phase 1 opens only after this phase merges to `main` — the
+- Round 3 review: logic ✅, **security ⛔ — the F-018 fix was over-scoped (F-019).**
+  `evaluateLedgerCurrency` did two independent jobs; only *currency* was meaningless for frozen
+  history, but removing `DONE` from the gate dropped *verdict* too. That left "never `DONE` until
+  `REVIEWED`" with no mechanical enforcement anywhere, and opened a one-word bypass: a `REVIEWED` task
+  failing on a stale review could be cleared by editing its status to `DONE`. The auditor demonstrated
+  it with fixtures. Corrected: verdict gates `REVIEWED`+`DONE`, currency gates `REVIEWED` only;
+  promoted as canon `6f49f29`.
+- Also closed F-020 (the check's own success message asserted a guarantee it no longer made), F-021
+  (vitest 2.1.9 → 4.1.10, matching the frontend; npm audit 5 advisories → 0), F-022, F-023.
+- Ended at: T-001 owes review round 4. Phase 1 opens only after this phase merges to `main` — the
   system correctly refuses to let the next phase start on an unmerged, un-re-reviewed one.
 
 ## 2026-08-09 — PLAN phase: grill-me → PLAN-v1 (Phase 1 = analytical core)
