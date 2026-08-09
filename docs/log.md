@@ -36,8 +36,10 @@ Newest entry on top. Keep it lean — a few lines per session; git history carri
   `parseTasks` fails OPEN on an unparseable status, pre-existing) deferred, since both live in non-docs
   files and fixing them would have invalidated the ✅ being recorded.
 - T-001 → `REVIEWED`. Four rounds, three of them blocking, two of the defects in canon itself.
-- Ended at: T-001 `REVIEWED` at `763101e`. Merge this phase, mark it `DONE`, then Phase 1 opens on its
-  own branch with T-005.
+- Merged the phase to `main` (`23a9a88`) and set T-001 `DONE`. The merge was itself the first real test
+  of the F-018/F-019 fix: the merge commit moved the code tip, and a `DONE` task correctly stayed
+  ungated where it would previously have failed the build.
+- Ended at: Phase 1 open. T-005 next, on `feat/phase-1-analytical-core`.
 
 ## 2026-08-09 — PLAN phase: grill-me → PLAN-v1 (Phase 1 = analytical core)
 

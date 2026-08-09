@@ -19,15 +19,14 @@
 
 ## Current state
 
-**State now:** T-001 (Dev-System instantiation) is **`REVIEWED` at `763101e`** after four review
-rounds — the gate found real defects three times, including two in its own canon (F-018 currency gating
-made the check unusable past phase 1; F-019 the first fix over-corrected and dropped verdict
-enforcement). Both are fixed and promoted to canon (`be5f6dc`, `6f49f29`). The gate runs **8 checks**.
-PLAN-v1 is ACTIVE with Phase 1 decomposed into T-005..T-010, and **Phase 1 has not started**.
+**State now:** **T-001 is `DONE`** — the instantiation phase is merged to `main`. It took four review
+rounds; the gate blocked three times and was right every time, twice finding defects in its own canon
+(F-018, F-019, both promoted back to Dev-System). The gate runs **8 checks**. PLAN-v1 is ACTIVE and
+**Phase 1 is open**: T-005..T-010, offline only — no schema, API, UI or served-image change.
 
-**Next action:** Merge this phase to `main` and set T-001 `DONE`. Then open Phase 1 on its own branch,
-starting with T-005 (`Use the backend-engineer subagent on T-005`). That first non-docs commit fires
-the `next-non-docs-commit` trigger on F-024 and F-025 — close both in that PR.
+**Next action:** T-005 on branch `feat/phase-1-analytical-core`
+(`Use the backend-engineer subagent on T-005`). It is Phase 1's first non-docs commit, so it fires the
+`next-non-docs-commit` trigger on F-024 and F-025 — close both in that PR.
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
 **History:** docs/log.md (append-only, session-by-session)
@@ -54,7 +53,7 @@ the `next-non-docs-commit` trigger on F-024 and F-025 — close both in that PR.
 ## Tasks
 
 ### Dev-System instantiation
-- [ ] **T-001** Instantiate the Dev-System into this repo — `REVIEWED` — owner: `human`
+- [x] **T-001** Instantiate the Dev-System into this repo — `DONE` — owner: `human`
       - acceptance: `.claude/` (5 agents + 2 Stop hooks + settings.json + CANON-VERSION),
         `checks/` + `stacks/nextjs-fastapi-postgres.md`, `docs/` (tracker, log, learning-notes),
         root `CLAUDE.md`, `.github/workflows/gate.yml`; `node checks/run-gate.mjs
