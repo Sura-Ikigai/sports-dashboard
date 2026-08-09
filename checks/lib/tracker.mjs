@@ -1,0 +1,161 @@
+// Pure parsers + evaluators over the Implementation Tracker (docs/IMPLEMENTATION.md).
+// No I/O, no git, no process — so the CI wrappers stay thin and this core is fixture-testable
+// (SYSTEM.md §5.2 deep-module principle: test which outputs a fixture produces, not the parsing).
+
+const STATUS_ENUM = ['BACKLOG', 'PLANNED', 'IN_PROGRESS', 'BUILT', 'REVIEWED', 'DONE'];
+const STATUS_RANK = Object.fromEntries(STATUS_ENUM.map((s, i) => [s, i]));
+
+/**
+ * Parse the "## Tasks" section into [{ id, status }].
+ * A task starts at `**T-NNN**`; its status is the FIRST back-ticked STATUS_ENUM token in the task
+ * block (the header carries it). Requiring back-ticks avoids prose collisions ("the BUILT-vs-DONE
+ * bug"); taking the first avoids acceptance-line mentions ("advance to `REVIEWED`") masking it.
+ */
+export function parseTasks(md) {
+  const section = sliceSection(md, 'Tasks') ?? md; // scope to the Tasks section, not the whole doc
+  const lines = section.split('\n');
+  const tasks = [];
+  let current = null, block = [];
+  const flush = () => {
+    if (current) { current.status = statusFromBlock(block.join('\n')); tasks.push(current); }
+    current = null; block = [];
+  };
+  for (const line of lines) {
+    const idMatch = line.match(/\*\*T-(\d+[a-z]?)\*\*/);
+    if (idMatch) { flush(); current = { id: `T-${idMatch[1]}`, status: null }; }
+    if (current) block.push(line);
+  }
+  flush();
+  return tasks;
+}
+
+function statusFromBlock(text) {
+  // 1) prefer a back-ticked status anywhere in the block (the header carries it; avoids prose).
+  for (const m of text.matchAll(/`([A-Z_]+)`/g)) if (m[1] in STATUS_RANK) return m[1];
+  // 2) F-011 fallback: no back-ticks → scan the HEADER line only (the `**T-NNN**` line, not the
+  //    acceptance continuations) for a bare status word, taking the most-advanced if several appear
+  //    (so "BUILT-vs-DONE … DONE" resolves to DONE). Recovers un-back-ticked statuses without
+  //    reopening the acceptance-line collision F-004 closed.
+  const header = text.split('\n').find((l) => /\*\*T-\d/.test(l)) ?? '';
+  let best = null;
+  for (const s of STATUS_ENUM) if (new RegExp(`\\b${s}\\b`).test(header) && (best === null || STATUS_RANK[s] > STATUS_RANK[best])) best = s;
+  return best;
+}
+
+/**
+ * Parse the "## Review ledger" markdown table into
+ *   { reviewers, rows: [{ task, cells: { <reviewer>: { mark, sha } } }] }
+ * mark ∈ 'pass' | 'fail' | 'na' | 'pending'. sha is the full short SHA a ✅ references (or null).
+ * Reviewer columns = every header column after "Task", dropping a trailing "notes" column ONLY when
+ * it is literally named notes (a ledger without a notes column keeps all its reviewer columns).
+ */
+export function parseReviewLedger(md) {
+  const section = sliceSection(md, 'Review ledger');
+  if (!section) return { reviewers: [], rows: [] };
+  const rows = section.split('\n').filter((l) => l.trim().startsWith('|'));
+  if (rows.length < 2) return { reviewers: [], rows: [] };
+  const header = splitRow(rows[0]).map((h) => h.trim());
+  const lastIsNotes = header[header.length - 1].toLowerCase() === 'notes';
+  const reviewers = header.slice(1, lastIsNotes ? header.length - 1 : header.length).filter(Boolean);
+  const out = [];
+  for (const r of rows.slice(2)) { // skip header + separator
+    const cols = splitRow(r);
+    const task = cols[0].trim().replace(/\*\*/g, '');
+    if (!/^T-/.test(task)) continue; // skip grouped/non-task rows
+    const cells = {};
+    reviewers.forEach((rev, i) => { cells[rev] = parseCell(cols[i + 1] ?? ''); });
+    out.push({ task, cells });
+  }
+  return { reviewers, rows: out };
+}
+
+function parseCell(raw) {
+  const v = raw.trim();
+  if (v.includes('✅')) {
+    const sha = (v.match(/[0-9a-f]{7,40}/i) || [null])[0];
+    return { mark: 'pass', sha: sha ? sha.toLowerCase() : null };
+  }
+  if (v.includes('⛔')) return { mark: 'fail', sha: null };
+  if (/^n\/?a$/i.test(v)) return { mark: 'na', sha: null };
+  return { mark: 'pending', sha: null };
+}
+
+/**
+ * Core rule (SYSTEM.md §5.4, grill-me Q7). For every task at REVIEWED or DONE:
+ *   - each MANDATORY reviewer must be PRESENT in the ledger and `pass` (never absent/na/pending/fail),
+ *   - every applicable reviewer's ✅ must reference `codeHead` (the current code tip), compared by
+ *     SHA prefix (git may abbreviate %h to more than 7 chars in larger repos).
+ * Reviewer-name matching is case-insensitive. Returns { ok, failures: [{ task, reviewer, reason }] }.
+ * NOTE: a null `codeHead` is handled fail-CLOSED by the CLI (review-ledger-current.mjs), not here.
+ */
+export function evaluateLedgerCurrency(tasks, ledger, codeHead, opts = {}) {
+  const mandatory = (opts.mandatory ?? ['security-auditor', 'logic-reviewer']).map((s) => s.toLowerCase());
+  // Two independent rules, deliberately scoped differently (F-018 + F-019).
+  //
+  // VERDICT applies to REVIEWED *and* DONE: a ledger row must exist, every mandatory reviewer must be
+  // present as a column, and every applicable cell must be a ✅ carrying some SHA. None of that
+  // depends on the code tip — a DONE task holding a ⛔, a pending cell, or no row at all is a broken
+  // invariant at any commit.
+  //
+  // CURRENCY (does that SHA still equal the code tip) applies to REVIEWED only. REVIEWED means
+  // "passed review, awaiting merge", so its ✅ must reflect the code about to merge — the stale-review
+  // case this check exists to catch. DONE means "merged/shipped": frozen history that later unrelated
+  // work must not retroactively invalidate. (F-018: gating DONE on currency made the check unusable
+  // past a project's first phase — every completed task's ✅ expired on the next commit anywhere, so N
+  // done tasks meant N re-reviews per commit. F-019: but dropping DONE from the gate *entirely* went
+  // too far — it left canon's "never DONE until REVIEWED" with no mechanical enforcement at all, and
+  // created a one-word bypass, since a REVIEWED task failing on a stale review could be cleared by
+  // simply advancing it to DONE.)
+  const gated = new Set(['REVIEWED', 'DONE']);
+  const currencyGated = new Set(['REVIEWED']);
+  const byTask = Object.fromEntries(ledger.rows.map((r) => [r.task, r.cells]));
+  const head = codeHead ? String(codeHead).toLowerCase() : null;
+  const failures = [];
+  for (const t of tasks) {
+    if (!gated.has(t.status)) continue;
+    const cells = byTask[t.id];
+    if (!cells) { failures.push({ task: t.id, reviewer: '(ledger)', reason: `no Review-ledger row for a ${t.status} task` }); continue; }
+    const present = {};
+    for (const [k, v] of Object.entries(cells)) present[k.toLowerCase()] = { name: k, cell: v };
+    // mandatory reviewers must be PRESENT as columns (a dropped column can't silently exempt one)
+    for (const m of mandatory) {
+      if (!(m in present)) failures.push({ task: t.id, reviewer: m, reason: `mandatory reviewer not present in the Review ledger for a ${t.status} task` });
+    }
+    for (const { name, cell } of Object.values(present)) {
+      const isMandatory = mandatory.includes(name.toLowerCase());
+      if (cell.mark === 'na') { if (isMandatory) failures.push({ task: t.id, reviewer: name, reason: `mandatory reviewer marked n/a on a ${t.status} task` }); continue; }
+      if (cell.mark !== 'pass') { failures.push({ task: t.id, reviewer: name, reason: `${cell.mark} on a ${t.status} task (must be ✅)` }); continue; }
+      if (!cell.sha) { failures.push({ task: t.id, reviewer: name, reason: '✅ carries no commit SHA (cannot prove the review is current)' }); continue; }
+      if (currencyGated.has(t.status) && head && !(cell.sha.startsWith(head) || head.startsWith(cell.sha))) {
+        failures.push({ task: t.id, reviewer: name, reason: `✅ at ${cell.sha} but code tip is ${head} — code changed after review, re-review needed` });
+      }
+    }
+  }
+  return { ok: failures.length === 0, failures };
+}
+
+// ---- small markdown helpers ----
+/** Slice a section body by heading level: ends at the next heading of level <= the section's own.
+ *  F-012: prefer an EXACT (trimmed, case-insensitive) heading match so a "## Subtasks" before
+ *  "## Tasks" can't hijack the slice; fall back to a substring match only if no exact one exists
+ *  (which still tolerates a trailing `<!-- comment -->` on the heading). */
+export function sliceSection(md, heading) {
+  const lines = md.split('\n');
+  const want = heading.trim().toLowerCase();
+  const headings = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(#{2,6})\s+(.*)$/);
+    if (m) headings.push({ i, level: m[1].length, text: m[2].trim().toLowerCase() });
+  }
+  const hit = headings.find((h) => h.text === want) ?? headings.find((h) => h.text.includes(want));
+  if (!hit) return null;
+  let end = lines.length;
+  for (let i = hit.i + 1; i < lines.length; i++) {
+    const m = lines[i].match(/^(#{1,6})\s/);
+    if (m && m[1].length <= hit.level) { end = i; break; }
+  }
+  return lines.slice(hit.i + 1, end).join('\n');
+}
+function splitRow(row) {
+  return row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|');
+}

@@ -1,0 +1,19 @@
+# .claude/CANON-VERSION — Dev-System canon provenance (lockfile)
+#
+# Records which factory canon this project was stamped from, and last reconciled to.
+# Baseline for /reconcile-canon: lets it tell "my project drifted" apart from
+# "canon advanced after I stamped" (SYSTEM.md §1).
+#
+# Factory: ~/Desktop/LabRoomV2.0/Client Projects/Dev-System
+
+stamped-from:    6f49f29b23c4656d8b5072467dc9e26a94a68c1e
+last-reconciled: 6f49f29b23c4656d8b5072467dc9e26a94a68c1e
+stamped-date:    2026-08-09
+
+# Canon contributions promoted FROM this project (all on Dev-System/main, so /reconcile-canon reads
+# them as canon rather than project-local drift):
+#   8398baa  stacks/nextjs-fastapi-postgres.md — authored at instantiation; canon had Supabase
+#            variants only, and this project runs plain Postgres with no RLS.
+#   be5f6dc  checks/lib/tracker.mjs — review-ledger-current currency rule (F-018).
+#   6f49f29  checks/ — restore verdict enforcement on DONE; scope only currency (F-019).
+# The SHA stamped above is the most recent of these.

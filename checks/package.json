@@ -1,0 +1,14 @@
+{
+  "name": "dev-system-checks",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Dev-System canon gate checks (SYSTEM.md \u00a75.4): pure fixture-tested cores (lib/) + thin CLIs. Copied into a project alongside .claude/ at instantiation.",
+  "scripts": {
+    "test": "vitest run",
+    "gate": "node run-gate.mjs"
+  },
+  "devDependencies": {
+    "vitest": "4.1.10"
+  }
+}
