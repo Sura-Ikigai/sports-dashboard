@@ -30,8 +30,14 @@ Newest entry on top. Keep it lean — a few lines per session; git history carri
   promoted as canon `6f49f29`.
 - Also closed F-020 (the check's own success message asserted a guarantee it no longer made), F-021
   (vitest 2.1.9 → 4.1.10, matching the frontend; npm audit 5 advisories → 0), F-022, F-023.
-- Ended at: T-001 owes review round 4. Phase 1 opens only after this phase merges to `main` — the
-  system correctly refuses to let the next phase start on an unmerged, un-re-reviewed one.
+- Round 4 @ `763101e`: **both reviewers ✅.** F-019 verified closed against independent fixtures rather
+  than the repo's own tests; F-020..F-023 closed. Two LOW residuals (F-024 a docstring bullet that
+  still asserts the removed guarantee — the F-023 lesson repeating inside the same cycle; F-025
+  `parseTasks` fails OPEN on an unparseable status, pre-existing) deferred, since both live in non-docs
+  files and fixing them would have invalidated the ✅ being recorded.
+- T-001 → `REVIEWED`. Four rounds, three of them blocking, two of the defects in canon itself.
+- Ended at: T-001 `REVIEWED` at `763101e`. Merge this phase, mark it `DONE`, then Phase 1 opens on its
+  own branch with T-005.
 
 ## 2026-08-09 — PLAN phase: grill-me → PLAN-v1 (Phase 1 = analytical core)
 

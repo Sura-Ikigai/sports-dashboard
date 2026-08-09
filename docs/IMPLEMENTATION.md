@@ -19,20 +19,15 @@
 
 ## Current state
 
-**State now:** PLAN-v1 is ACTIVE and Phase 1 is decomposed into T-005..T-010, but **Phase 1 has not
-started.** Attempting it exposed F-018 — `review-ledger-current` gated `DONE` on SHA currency, so any
-commit expired every completed task's review and the check was unusable past a project's first phase.
-The first fix over-corrected (F-019): it removed `DONE` from the gate entirely, which also dropped
-*verdict* enforcement and opened a one-word bypass. Both are now fixed and promoted to canon
-(`be5f6dc`, `6f49f29`): verdict applies to `REVIEWED` and `DONE`, currency to `REVIEWED` only. F-014,
-F-016, F-017 and F-020..F-023 are closed alongside. The gate runs **8 checks**. All of this changed
-T-001's own deliverable, so **T-001 is at `BUILT` and owes review round 4**.
+**State now:** T-001 (Dev-System instantiation) is **`REVIEWED` at `763101e`** after four review
+rounds — the gate found real defects three times, including two in its own canon (F-018 currency gating
+made the check unusable past phase 1; F-019 the first fix over-corrected and dropped verdict
+enforcement). Both are fixed and promoted to canon (`be5f6dc`, `6f49f29`). The gate runs **8 checks**.
+PLAN-v1 is ACTIVE with Phase 1 decomposed into T-005..T-010, and **Phase 1 has not started**.
 
-**Next action:** Re-review T-001 (`security-auditor`, then `logic-reviewer`) at the current code tip.
-On ✅✅ → `REVIEWED` → merge this phase to `main` → `DONE`. Only then does Phase 1 open, on its own
-branch, starting with T-005. Phase 1 cannot start before that merge — a `REVIEWED` task is currency-
-gated, so T-005's first code commit would fail the gate. That is the phase discipline working, not a
-defect.
+**Next action:** Merge this phase to `main` and set T-001 `DONE`. Then open Phase 1 on its own branch,
+starting with T-005 (`Use the backend-engineer subagent on T-005`). That first non-docs commit fires
+the `next-non-docs-commit` trigger on F-024 and F-025 — close both in that PR.
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
 **History:** docs/log.md (append-only, session-by-session)
@@ -59,7 +54,7 @@ defect.
 ## Tasks
 
 ### Dev-System instantiation
-- [ ] **T-001** Instantiate the Dev-System into this repo — `BUILT` — owner: `human`
+- [ ] **T-001** Instantiate the Dev-System into this repo — `REVIEWED` — owner: `human`
       - acceptance: `.claude/` (5 agents + 2 Stop hooks + settings.json + CANON-VERSION),
         `checks/` + `stacks/nextjs-fastapi-postgres.md`, `docs/` (tracker, log, learning-notes),
         root `CLAUDE.md`, `.github/workflows/gate.yml`; `node checks/run-gate.mjs
@@ -241,7 +236,7 @@ defect.
 
 | Task  | security-auditor | logic-reviewer | ui-ux-reviewer | notes |
 |-------|------------------|----------------|----------------|-------|
-| T-001 | pending          | pending        | n/a            | r1 ⛔⛔@d8e3515 → r2 ✅✅@d0e661d → **reopened**: F-018/F-014/F-016/F-017 changed the deliverable, so round 3 is owed at the new SHA. n/a: no user-facing surface changed |
+| T-001 | ✅ 763101e       | ✅ 763101e     | n/a            | 4 rounds: r1 ⛔⛔@d8e3515 · r2 ✅✅@d0e661d · r3 logic ✅/security ⛔@fef3dc8 (F-019) · r4 ✅✅@763101e. n/a: no user-facing surface changed |
 
 ## Findings (from reviews, append-only)
 
@@ -401,6 +396,37 @@ defect.
   and its "What you do NOT do" section, where a prohibition reads as more binding than corrected prose.
   Status: FIXED. Lesson: a finding that enumerates line numbers gets fixed at those line numbers — state
   the *claim* to eliminate, not its coordinates.
+
+### Review round 4 — T-001 @ 763101e (both reviewers ✅; F-019..F-023 verified closed)
+
+<!-- Verified by independent fixtures run against the committed evaluator, not against the repo's own
+     tests. Two LOW residuals opened; deliberately NOT fixed here — both live in non-docs files, so
+     fixing them would advance the code tip and invalidate the ✅ this round records. -->
+
+- **F-024** (docs, LOW) — The JSDoc header of `evaluateLedgerCurrency` was updated to say "REVIEWED or
+  DONE" but its second bullet was left unscoped, so the docstring still asserts currency applies to
+  DONE — the exact claim F-020 existed to remove, contradicted by the code twenty lines below. This is
+  the **F-023 lesson repeating within the same cycle**, and because the file is byte-identical to canon
+  the inaccuracy is now inherited by every future instantiation. Status: OPEN.
+  revisit-when: `next-non-docs-commit`.
+- **F-025** (logic, LOW) — `parseTasks` fails **OPEN** on an unparseable status: `statusFromBlock`
+  returns `null` for anything outside `STATUS_ENUM`, and `null` is not in the gated set, so a
+  stale-review failure clears if the status is lowercased, misspelled, or deleted. Demonstrated:
+  `` `reviewed` ``, `` `Reviewed` ``, and a removed status word all turn a failing fixture green. Note
+  `BLOCKED` is live vocabulary — `next-command.sh` greps for it — yet is absent from `STATUS_ENUM`, so
+  a `BLOCKED` task is silently ungated. Pre-existing; predates the whole F-018 line. Remediation: fail
+  closed on an unrecognized status, and add `BLOCKED` to the enum as explicitly ungated.
+  Status: OPEN. revisit-when: `next-non-docs-commit`.
+- **Residual bypass, judged and accepted.** Flipping a stale-review `REVIEWED` task to `DONE` still
+  clears currency — but it no longer clears *review*: a complete ledger row with every mandatory
+  reviewer ✅ and a SHA is still required, so a `⛔` or pending task cannot be laundered this way. The
+  auditor's judgment, which I accept: exempting DONE from currency *necessarily* makes declaring DONE
+  an escape from currency; the only real alternatives are re-gating DONE (reopens F-018) or recording a
+  per-task **done-at SHA** and comparing against that instead of the moving tip. The latter is a design
+  addition, not a bug fix — filed in *Future hardening*.
+- **Canon gap noted, not closed:** F-021 was fixed project-locally only. Canon still ships
+  `checks/package.json` with an unpinned `vitest: ^2.1.0` and no lockfile, so every future project
+  inherits the advisory-bearing 2.x range. Belongs in a canon promotion, out of scope for T-001.
 
 ## Future hardening (review output → next-cycle backlog)
 
