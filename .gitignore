@@ -7,3 +7,20 @@ venv/
 .next/
 node_modules/
 .superpowers/
+
+# --- data stores: NEVER commit the historical corpus ---
+# The modeling corpus is multi-GB (the staged Kaggle NBA DB is 2.35 GB). It lives outside the repo
+# and is rebuilt from its source, never versioned here. These patterns are a backstop, not the plan.
+*.sqlite
+*.sqlite3
+*.duckdb
+*.db
+*.db-journal
+*.parquet
+data/
+archive/
+
+# --- local check runs ---
+.pytest_cache/
+.ruff_cache/
+coverage/
