@@ -6,6 +6,37 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-10 — T-006 built: the `features` deep module
+
+- Built `backend/model/features.py` — one interface, `compute_features(history, target, as_of)`,
+  emitting `home_advantage`, `form_diff`, `rest_diff`, `point_diff_diff`. Pure: no I/O, no DB, and no
+  clock (`as_of` is always a parameter, so every number stays reproducible). T-006 → `BUILT`.
+- Honored the security note three independent ways rather than one: the as-of filter runs inside the
+  module at query time (strict `<`); the target is a **scoreless `Matchup`**, so a game's own result is
+  structurally unreachable from its own features rather than merely filtered out; and `as_of` after
+  tip-off raises. D-022 records why splitting the type was worth the small cost at the call site.
+- **Made the module standard-library only (D-021), which CI forced.** `gate.yml` installs
+  `requirements.txt` and never `requirements-train.txt`, so a pandas import in `features.py` would
+  have passed locally and failed in CI — the same split-environment shape as F-037. `dataset.py` is
+  the new seam where pandas meets the pipeline. Verified by running the suite with pandas and numpy
+  blocked at import: 52 passed, 1 skipped, nothing errored.
+- 40 tests, including the leakage property test (200 seeded trials, exact equality) **and a control
+  proving it is not vacuous** — a module that ignored history entirely would pass the leakage test
+  perfectly, so the control asserts a game dated *before* `as_of` does change the output.
+- **Ran it against the real 6,615-game corpus, not just fixtures** — the T-005/F-037 lesson applied
+  without being told to. That is what turned up F-042: the corpus carries **42 team ids, not 30**,
+  because 10 All-Star exhibition games are in it. Feature computation is provably unaffected (zero
+  games mix a phantom id with a real one), but they are 10 junk rows for T-009 to exclude.
+- Closed **F-039** (the trigger this commit fired) and **F-024** — the latter turned out to have been
+  fixed in `32110ce` already, with only the tracker left saying OPEN.
+- **Opened F-043, which blocks a green gate and needs a human call.** Demonstrated with
+  `--code-head deadbee` before committing: this commit moves the repo-wide code tip, so T-005's
+  `REVIEWED` ✅@`8eae86c` is now stale even though T-006 changed nothing about the loader's behavior.
+  This is F-018's failure shape one layer over, and it compounds — once T-006 is `REVIEWED`, T-007's
+  first commit invalidates both. Options are in the finding; the honest fix is the per-task
+  reviewed-at SHA, which F-019 claimed to have filed in *Future hardening* and had not.
+- Ended at: T-006 `BUILT` on `feat/phase-1-analytical-core`. Next is the review gate on T-006.
+
 ## 2026-08-09 — T-005 remediated: F-026..F-034 fixed, awaiting re-review
 
 - Remediated the nine open `backend/model/loader.py` findings from the T-005 review gate

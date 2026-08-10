@@ -1,7 +1,7 @@
 # Implementation Tracker — Sports Dashboard
 
 > Source of truth across sessions. Read this first every session.
-> Last updated: 2026-08-09 by human + Claude (instantiation session)
+> Last updated: 2026-08-10 by Claude (T-006 build session)
 
 ## Status legend
 
@@ -19,16 +19,22 @@
 
 ## Current state
 
-**State now:** **T-005 is `REVIEWED` at `8eae86c`** — the loader works, verified from an empty data
-dir, and its runtime assertions now catch the corruption classes the reviewers demonstrated. It took
-three review rounds: the count assertion was bypassable and count-only (F-026/F-027, both proven with
-corrupted fixtures), then the redirect-allowlist fix broke real downloads because every run hit a
-populated cache (F-037). Phase 1 continues with T-006, the `features` deep module — the task the whole
-plan's credibility rests on.
+**State now:** **T-006 is `BUILT`, awaiting review.** `backend/model/features.py` is the deep module:
+one interface (`compute_features(history, target, as_of)`), standard-library only (D-021), with the
+as-of filter enforced three independent ways — inside the module at query time, structurally (the
+target is a scoreless `Matchup`, so its own result is unreachable), and by refusing `as_of` after
+tip-off (D-022). 40 new tests pass, including the leakage property test *with a control proving it is
+not vacuous*. Verified against the real 6,615-game corpus, not only fixtures: the leakage guarantee
+holds on real games, opening night is predicted rather than dropped, and the signal points the right
+way. T-005 stays `REVIEWED` at `8eae86c`.
 
-**Next action:** T-006 (`Use the backend-engineer subagent on T-006`). It is the analytical core: one
-pure interface, the leakage property test, and the `n/(n+k)` shrinkage boundaries. Its first non-docs
-commit fires the `next-non-docs-commit` trigger on **F-039** — close it there.
+**Next action:** review T-006 (`Use the security-auditor subagent on T-006`, then `logic-reviewer`).
+**Read F-043 first — the gate is red on one known item and it is not a T-006 defect.** This commit
+moved the code tip, so T-005's `REVIEWED` ✅@`8eae86c` is now stale by `review-ledger-current`'s
+currency rule even though nothing in T-006 changed the loader's behavior. That needs a human call
+(merge-and-DONE, or the per-task reviewed-at SHA already filed in *Future hardening*) before the gate
+can be green again. Every other check passes. **F-042** (All-Star games in the corpus) is for T-007/T-009,
+not T-006.
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
 **History:** docs/log.md (append-only, session-by-session)
@@ -51,6 +57,12 @@ commit fires the `next-non-docs-commit` trigger on **F-039** — close it there.
   invariant to defend: adding any stats.nba.com-keyed source reintroduces the join problem (F-005).
 - **Python is pinned at 3.11** across `backend/Dockerfile`, `ci.yml` and `gate.yml`. They move
   together or not at all — a local interpreter that differs from the container is drift. See T-004.
+- **`backend/model/features.py` is standard-library only, and must stay that way** (D-021). CI installs
+  `requirements.txt` and never `requirements-train.txt`, so an import of pandas/numpy there fails
+  `be-unit` in CI while passing locally; and D-016 has Phase 2 importing this module inside the API
+  service, so whatever it imports the served image must carry. `backend/model/dataset.py` is the
+  seam where pandas is allowed to meet the feature pipeline — put frame handling there, never in
+  `features.py`.
 
 ## Tasks
 
@@ -127,14 +139,48 @@ commit fires the `next-non-docs-commit` trigger on **F-039** — close it there.
         and `certifi` added directly to `requirements-train.txt`. Both HIGH findings reproduced against
         the pre-fix code and closed against the fixed code — see Review gate section. F-024/F-025
         (`checks/`) were closed by the main thread, out of this task's scope.
-- [ ] **T-006** `features` deep module + tests — `PLANNED` — owner: `backend-engineer`
+- [ ] **T-006** `features` deep module + tests — `BUILT` — owner: `backend-engineer`
       - acceptance: one interface (history, target game, as-of) → feature mapping; rolling form, rest
         days, season-to-date point differential, home indicator, all as home-minus-away differences
         with `n/(n+k)` shrinkage; module is pure (no I/O, no clock, no DB); golden fixtures pass;
-        **leakage property test passes**; shrinkage boundaries at 0, 1, `k` pass
+        **leakage property test passes**; shrinkage boundaries at 0, 1, `k` pass — **all met**
       - security note: the as-of filter is an integrity control, not a convenience — it is what makes
         every reported number honest. Enforce it inside the module, never delegate to callers, so no
         future call site can opt out.
+      - outcome: `backend/model/features.py` — one public interface,
+        `compute_features(history, target, as_of)`, returning a mapping keyed by exactly
+        `FEATURE_NAMES` = `home_advantage`, `form_diff`, `rest_diff`, `point_diff_diff`. Pure: no I/O,
+        no DB, and **no clock** — `as_of` is always a parameter, never `datetime.now()`, so every
+        number is reproducible. Standard-library only (D-021); `backend/model/dataset.py` is the new
+        pandas seam converting the loader's frame to `Game` records.
+      - **the security note, honored three independent ways** (one filter is a thing code can forget):
+        (1) the filter lives inside the module and runs at query time in `GameHistory._records_before`,
+        strict `<` not `<=`, with no flag, no alternate entry point and no other code path that reads
+        a game dated at or after `as_of`; (2) the target is a **scoreless `Matchup`**, so a completed
+        game's own result is not merely filtered out of its own features but structurally unreachable
+        (`Game.matchup` is a one-way door) — a `Game` passed as target raises; (3) `as_of` after
+        tip-off raises `FeatureLeakageError`, making D-010's "never re-predict a finished game"
+        mechanical. The index holds no as-of state, so passing a prebuilt `GameHistory` is exactly
+        equivalent to passing the raw sequence (asserted both directions).
+      - tests: 40 in `backend/tests/test_features.py`, stdlib-only so they run in CI. Golden fixture
+        hand-computed and written as literals (`form_diff` 0.125, `rest_diff` 3.0, `point_diff_diff`
+        6.0). The leakage property test runs 200 seeded trials injecting 1–8 games dated at/after
+        `as_of` into shuffled histories and asserts **exact** equality — plus a **control asserting a
+        game dated *before* `as_of` DOES change the output**, without which a module that ignored
+        history entirely would pass the leakage test perfectly. Boundaries at n=0 (prior exactly), n=1
+        (w=1/6), n=k=5 (exactly halfway between observation and prior), plus monotonicity in n.
+        Also: home/away swap negates every difference, the window caps *both* the average and the
+        shrinkage count, and season scoping holds. Full suite 52 passed, ruff clean.
+      - **verified against the real corpus, not only fixtures** (the T-005/F-037 lesson): all 6,615
+        games load and produce complete, finite, correctly-ordered vectors in ~0.1s; the leakage
+        guarantee re-checked on 133 real games against a manually past-truncated history, exact
+        equality every time; `home_advantage` is 0.0 for exactly the 19 neutral-site games; 2026
+        opening night is *predicted*, at home-court advantage alone with every difference 0.0 (D-015
+        working as intended, user story 12); and the signal points the right way — mean `form_diff`
+        +0.043 when the home team wins vs −0.058 when it loses, `point_diff_diff` +1.89 vs −2.44.
+      - **not a T-006 defect, but found by it: F-042** (10 All-Star exhibition games in the corpus)
+        and **F-043** (this commit makes T-005's review stale by the gate's currency rule). Read both
+        before reviewing.
 - [ ] **T-007** `splits` fold generator + tests — `PLANNED` — owner: `backend-engineer`
       - acceptance: yields exactly the three expanding-window folds (22-23→24, 22-24→25, 22-25→26);
         tests assert every fold's training seasons precede its test season and no season appears on
@@ -277,6 +323,44 @@ commit fires the `next-non-docs-commit` trigger on **F-039** — close it there.
   explicit `ssl.create_default_context(cafile=certifi.where())` — `certifi` is already a transitive
   `requirements.txt` dependency (via `httpx`), so this added nothing to the served image; verification
   is unchanged, only the CA source is made explicit. (Supersedes nothing.)
+
+- **D-020** 2026-08-10 — **T-006 feature definitions the plan left open.** (1) **Rolling form is
+  season-scoped**, over a 10-game window. Last season describes a different roster, and scoping it
+  this way is also what makes D-015's cold start recur every autumn rather than only in 2022 — which
+  is what D-015's own cost estimate ("~16% of every season, including all of opening month") assumes.
+  The window caps the shrinkage count too, not just the average, so 15 straight wins is n=10, not
+  n=15. (2) **Season-to-date point differential uses every game of the season so far**, not a window —
+  the plan's wording, and deliberately the slower-moving counterpart to form. (3) **Rest days are
+  measured to tip-off, not to `as_of`, and capped at 5 days.** Measured on the real corpus: median gap
+  2.0 days, p95 3.9, max 10.0 (the All-Star break), only 2.3% of gaps reach 5. Past that point extra
+  days are schedule structure rather than rest. The cap also removes the empty case — a season opener's
+  "no previous game" and an offseason gap both land on the cap, which reads as fully rested. Measuring
+  to tip-off is what makes D-012's "a prediction six days out has a rest feature that is *wrong*, not
+  merely stale" visibly true; measuring from `as_of` would hide it behind a self-consistent number.
+  (4) **`home_advantage` is 0.0 at a neutral site** — 19 real games, all regular season, spread across
+  all five seasons, so the feature is genuinely non-constant rather than an intercept in disguise.
+  (5) **A tied final score is refused as corrupt input**: NBA games cannot tie, none of the 6,615 do
+  (verified), and the bare `home_score > away_score` the loader uses would silently score a tie as a
+  home loss and bias every form feature that team appears in. (Supersedes nothing.)
+- **D-021** 2026-08-10 — **`features.py` is standard-library only; `dataset.py` is the pandas seam.**
+  Two independent constraints force it, and either alone would be sufficient. CI (`gate.yml`) installs
+  `requirements.txt` and never `requirements-train.txt`, so a pandas import in the feature module fails
+  `be-unit` in CI while passing locally — the split-environment failure class that cost T-005 a review
+  round (F-037). And D-016 has Phase 2 importing this module inside the FastAPI service, so whatever it
+  imports the served image must carry; a heavy feature module creates pressure to write a lighter second
+  copy for serving, which is exactly the train/serve skew D-011 removed. Rather than leave the seam
+  implicit, `backend/model/dataset.py` exists to hold it: `games_from_frame` / `load_games` convert the
+  loader's frame to `Game` records and are the only place the two worlds meet. (Supersedes nothing.)
+- **D-022** 2026-08-10 — **The target is a scoreless `Matchup`, and an `as_of` after tip-off is
+  refused.** The plan said "target game", which would naturally have been the completed `Game` record.
+  Splitting the type is what turns the no-leakage guarantee from a filter into a structural property:
+  the target's own result is not reachable from inside the feature computation at all, so no bug can
+  leak it, and the same type is equally constructible for a game played in 2022 and one tipping off
+  next Tuesday — which is what lets training and inference call one function (D-011). Refusing
+  `as_of > target.date` makes D-010's "a model that re-predicts a finished game uses information that
+  did not exist" mechanical rather than remembered. Cost: T-009 calls `compute_training_features`
+  (`as_of` = the game's own tip-off, no parameter to get wrong) or `game.matchup` explicitly.
+  (Supersedes nothing.)
 
 ## Review ledger
 
@@ -626,6 +710,51 @@ commit fires the `next-non-docs-commit` trigger on **F-039** — close it there.
 - **F-041** — FIXED in this commit. The empty-dir requirement had landed in the Findings section rather
   than in T-005's `acceptance:` bullet, where a builder would actually read it. Now in both.
 
+### T-006 build session (2026-08-10) — findings opened by building, not by a review
+
+- **F-039** — **CLOSED** in the T-006 commit, as its `next-non-docs-commit` trigger required. The
+  loader's module-level security note no longer restates the allowlist's contents; it points at
+  `_ALLOWED_DOWNLOAD_HOSTS` as the authoritative list and records *why* restating it is how the note
+  came to name a host GitHub had stopped using. Fixing the claim rather than the coordinates, per the
+  F-023 lesson.
+- **F-024** — **CLOSED, and it was already fixed before this session.** The JSDoc of
+  `evaluateLedgerCurrency` was correctly scoped in `32110ce` ("fix(canon): … scope JSDoc (F-024)"),
+  but the finding was left reading `Status: OPEN` here. Verified against the committed file: the
+  header now states the verdict/currency split and matches the code. The tracker was stale, not the
+  code. Lesson: a finding closed in a commit message is not closed until the ledger says so.
+- **F-042** (data, MEDIUM) — **The corpus contains 10 All-Star exhibition games.** Not a T-006 defect;
+  found while verifying it against real data. The five seasons carry **42 distinct team ids, not 30**.
+  Exactly 30 ids play ≥82 games per season; 12 phantom ids appear in 1–3 games each, all dated
+  All-Star weekend, with tell-tale scores (2024's 211–186; the 2025/2026 mini-tournament formats at
+  41–32, 42–35, 21–47). They are `season_type = 2` upstream, which is why T-005's pinned counts
+  include them. **Feature computation is provably unaffected**: phantom and real ids do not overlap,
+  and **zero games mix a phantom with a real id**, so no NBA team's form, rest or point differential
+  reads an All-Star result. The exposure is downstream — these become 10 training/evaluation rows
+  (0.15%) whose features are all-priors and whose labels are coin flips, in T-009's headline numbers.
+  Remediation: exclude them in T-007/T-009, not here. The separation is unambiguous (≥82 games vs ≤3,
+  no overlap in any season), so a per-season minimum-games threshold is safe. Do **not** filter inside
+  `loader.py` or `dataset.py` without deliberately re-baselining `EXPECTED_COMPLETED_COUNTS` — the
+  6,615 count is a pinned tripwire and silently changing what it counts defeats it. Status: OPEN.
+  revisit-when: `T-007` (fold generation) — whichever of T-007/T-009 lands first owns the filter.
+- **F-043** (gate tooling / process, MEDIUM) — **`review-ledger-current`'s currency rule does not
+  survive a multi-task branch: F-018's failure shape, one layer over.** Demonstrated before committing,
+  with `node checks/review-ledger-current.mjs --code-head deadbee`: both of T-005's ✅@`8eae86c` fail
+  as stale. The check compares every `REVIEWED` task's ✅ against a **repo-wide** code tip, so any
+  non-docs commit anywhere invalidates it — including one that touches no file T-005 owns. Phase 1
+  lands T-005…T-009 on one branch, so this compounds exactly as F-018 did: once T-006 is `REVIEWED`,
+  T-007's first commit invalidates both, and so on. The escape valve D-018 leaves is flipping a task
+  to `DONE`, which is exempt from currency — but `DONE` means "merged/shipped", and T-005 is not
+  merged, so writing it would put a false claim in the source of truth. **This is the residual F-019
+  already identified**: exempting DONE from currency necessarily makes declaring DONE the escape, and
+  the real fix is a per-task **reviewed-at/done-at SHA** compared against that task's own last-touched
+  commit rather than the moving tip — already filed in *Future hardening*, and now with a second,
+  sharper motivation than the bypass it was filed for. Needs a human call; options in order of
+  honesty: (a) implement the per-task SHA (canon change, fixes it for every project stamped from this
+  canon); (b) merge the T-005 work to `main` and flip it `DONE`, matching T-001's precedent
+  (`23a9a88` merge → `8ef637b` DONE) — correct but front-loads a merge mid-phase; (c) accept a red
+  `review-ledger-current` for the rest of Phase 1, which trains the team to ignore the one check that
+  makes the reviewer gate falsifiable, and is the worst option. Status: OPEN, **blocking a green gate**.
+
 ## Future hardening (review output → next-cycle backlog)
 
 - Install Playwright and declare the `a11y` check; tune `checks/reference/perf-budgets.json` for this
@@ -641,6 +770,18 @@ commit fires the `next-non-docs-commit` trigger on **F-039** — close it there.
 - Constrain T-002's store location: acceptance says "the store is gitignored", but only `data/`,
   `models/` and the listed extensions are. Require the store under `data/` so the claim is structural
   rather than dependent on remembering to add an extension.
+- **Per-task reviewed-at SHA in `review-ledger-current`** (canon). F-019 recorded this as "filed in
+  *Future hardening*" but it was never actually written down here — noticed while opening F-043, and
+  a reminder that "filed" is a claim the ledger has to be able to back. Compare a task's ✅ against
+  the last commit touching **that task's own files**, rather than against the repo-wide code tip.
+  Closes two things at once: the residual bypass F-019 accepted (declaring `DONE` escapes currency),
+  and F-043 (on a multi-task branch, every task's review goes stale on the next unrelated commit —
+  F-018's shape, one layer over). Canon-level: every project stamped from this canon has it.
+- **`backend/model/dataset.py` is covered only by tests that skip in CI** (D-021 — pandas is
+  training-only). `backend/tests/test_dataset.py` pins the field mapping locally and skips in CI;
+  verified by running the suite with pandas/numpy blocked (52 passed, 1 skipped). Same accepted
+  exposure PLAN-v1 records for `loader.py`. Revisit if the gate ever installs the training
+  requirements, or if the adapter grows logic beyond a field-by-field conversion.
 
 ---
 

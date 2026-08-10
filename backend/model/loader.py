@@ -15,10 +15,13 @@ docs/IMPLEMENTATION.md "Review gate -- T-005 @ 32110ce", F-026..F-034):
   - Bytes are verified -- size bound, header sanity, then content hash -- *before* the CSV parser
     ever sees them, for both a fresh download and a previously-cached file. The size cap is enforced
     via `Path.stat()` on the cached path too, before anything is read into memory (F-031).
-  - The redirect GitHub issues for release assets (github.com -> objects.githubusercontent.com) is
-    required and followed, but the final response URL's scheme and host are checked against an
-    explicit allowlist, so a redirect to plain `http://` or an unexpected host cannot pass silently
-    (F-032).
+  - The redirect GitHub issues for release assets (github.com -> a CDN host, observed 2026-08-09 as
+    release-assets.githubusercontent.com) is required and followed, but the final response URL's
+    scheme and host are checked against an explicit allowlist, so a redirect to plain `http://` or
+    an unexpected host cannot pass silently (F-032). The authoritative list is
+    `_ALLOWED_DOWNLOAD_HOSTS` below, with the reasoning for how to change it -- do not restate the
+    host set here, which is how this note came to name a host GitHub had already stopped using
+    (F-037, F-039).
   - `season` is validated against the pinned `SEASONS` tuple before it can shape a URL or a path, and
     the resolved destination path is asserted to stay inside the data dir before any write (F-033).
   - Every completed-game frame is verified -- pinned count AND `game_id` uniqueness -- inside
