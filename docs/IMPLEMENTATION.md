@@ -19,7 +19,8 @@
 
 ## Current state
 
-**State now:** **T-005 is `REVIEWED` at `34759ed` (✅✅)** — both reviewers re-reviewed it after
+**State now:** **F-042 is closed** — `backend/model/corpus.py` curates the corpus to 6,605
+modeling games (D-025), verified. **T-005 is `REVIEWED` at `34759ed` (✅✅)** — both reviewers re-reviewed it after
 `406dd09` touched `loader.py`, proved the change AST-identical once docstrings are stripped, and
 security re-ran the download from a genuinely empty dir anyway. **T-006 is `BUILT` and remediated,
 awaiting re-review.** Round 1 was ⛔⛔ and both verdicts were earned: security showed the target's own
@@ -30,9 +31,10 @@ are addressed, and the fix is verified by re-running the reviewers' own mutation
 caught**. Suite 58 → 79. Real-corpus numbers unchanged to the digit.
 
 **Next action:** re-review T-006 (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
-against the remediation. Then **F-042** (exclude the 10 All-Star games) before T-007 begins — note
-**D-024/F-057**, which corrects D-020(4): once F-042's filter lands, `home_advantage` is 1.0 in
-2,642 of fold 1's 2,643 rows, so its coefficient is not identifiable in the early folds.
+against the remediation, then **T-007** (`Use the backend-engineer subagent on T-007`). F-042 is
+closed ahead of T-007 as planned, so the fold generator can build on a clean 6,605-game corpus.
+T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.556%) and **D-024/F-057**
+(`home_advantage` is not identifiable in fold 1 — 1 neutral game in 2,643 rows).
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
 **History:** docs/log.md (append-only, session-by-session)
@@ -400,6 +402,37 @@ against the remediation. Then **F-042** (exclude the 10 All-Star games) before T
   because the number was never broken down per season or checked against the known-contaminated ids
   the *same session* had just found (F-042). A count is not a distribution.
 
+- **D-025** 2026-08-10 — **F-042's exhibition filter identifies by games-played, is verified rather
+  than trusted, and excludes by default.** Three choices, each with a discarded alternative:
+  (1) **Not a hardcoded list** of the ten `game_id`s or twelve team ids. That would be exact today
+  and silently wrong at D-017's retrain, when a new season brings its own All-Star game with fresh
+  ids and a list would pass it through with no signal. Games-played separates the populations by
+  **3 versus 82**, so a threshold of 20 sits nowhere near either edge and keeps working for seasons
+  nobody has downloaded. (2) **Verified, not trusted**: after filtering, every season must be left
+  with exactly 30 team ids, and every pinned season must shed exactly its pinned count; an unpinned
+  season is refused outright (F-028's lesson). If upstream's shape changes — expansion, a shortened
+  season, a new exhibition format — the assertion fires instead of the model training on the wrong
+  rows. (3) **Excluded by default** (`load_games(include_exhibitions=False)`). The two populations
+  are indistinguishable downstream: an All-Star row has ordinary-looking features and a coin-flip
+  label, so a caller who forgets a flag gets a contaminated evaluation and *no symptom*. The safe set
+  is the one you get without asking. The filter lives in a new **standard-library-only**
+  `backend/model/corpus.py` rather than in `dataset.py` specifically so its tests run in CI (D-021) —
+  it decides what T-009 trains on, and `dataset.py`'s tests skip where pandas is absent.
+  **The loader is deliberately NOT changed**: `EXPECTED_COMPLETED_COUNTS` still pins 6,615, because
+  those counts are the tripwire proving the download is intact, and quietly changing what they count
+  would defeat them. 6,615 is the *verified* corpus; 6,605 is the *modeling* corpus. (Supersedes
+  nothing; implements F-042.)
+- **D-026** 2026-08-10 — **The home-court baseline on the modeling corpus is 55.53%, not 55.56%.**
+  D-007 measured 55.556% over 6,615 games; that set included F-042's ten All-Star exhibitions. Over
+  the curated 6,605 it is **55.534%** (per season: 2022 .5480, 2023 .5811, 2024 .5474, 2025 .5450,
+  2026 .5552). The difference is 0.02pp and changes no conclusion — D-007's structural finding (a
+  ~4-point break at the COVID seasons, and 58% being an artifact of a bygone era) stands untouched.
+  It is recorded because D-008 makes "log loss beating a **constant 55.56% predictor**" half of the
+  ship criterion, so T-008/T-009 need to know which constant to use and to say which corpus produced
+  it. **Use 55.534%**, the rate of the set the model is actually evaluated on, and state it. An
+  unreproducible number in a portfolio artifact is exactly what T-010's acceptance forbids.
+  (Refines D-007/D-008; supersedes neither.)
+
 ## Review ledger
 
 | Task  | security-auditor | logic-reviewer | ui-ux-reviewer | notes |
@@ -420,18 +453,17 @@ against the remediation. Then **F-042** (exclude the 10 All-Star games) before T
      so — and until this table said so, "closed" was invisible to anyone who had not read the whole
      document. Adding a finding, or changing one's status, means updating this row too. -->
 
-**Open / accepted — the live set (6):**
+**Open / accepted — the live set (5):**
 
 | ID | Sev | Area | Status | Fires when |
 |----|-----|------|--------|-----------|
 | **F-001** | HIGH | security | ACCEPTED — no authorization boundary exists anywhere in the app | `first-user-scoped-data` |
-| **F-042** | MEDIUM | data | OPEN — 10 All-Star exhibition games in the corpus | **`T-007`** (next task) |
+| **F-057** | MEDIUM | data/design | OPEN — `home_advantage` collinear with the intercept in early folds (see D-024) | `T-009` |
 | **F-015** | LOW | ops | ACCEPTED — `ui-ux-reviewer` declared but not mechanically enforced | `reconcile-canon` |
 | **F-006** | LOW | ops | OPEN — `docker-compose.prod.yaml` is a 0-byte file | — |
 | **F-007** | LOW | ops | OPEN — `ci.yml` duplicates every gate check | — |
-| **F-057** | MEDIUM | data/design | OPEN — `home_advantage` collinear with the intercept in early folds (see D-024) | `T-009` |
 
-**Closed (54):** F-044 · F-045 · F-046 · F-047 · F-048 · F-049 · F-050 (T-006 security review, all FIXED in remediation) · F-051 · F-052 · F-053 · F-054 · F-055 · F-056 · F-058 · F-059 · F-060 (T-006 logic review, all FIXED; every surviving mutation re-run and now caught) · F-002 · F-003 · F-004 · F-005 (all CLOSED as moot or designed out by D-004/D-005) ·
+**Closed (55):** F-042 (FIXED — `corpus.py`, D-025) · F-044 · F-045 · F-046 · F-047 · F-048 · F-049 · F-050 (T-006 security review, all FIXED in remediation) · F-051 · F-052 · F-053 · F-054 · F-055 · F-056 · F-058 · F-059 · F-060 (T-006 logic review, all FIXED; every surviving mutation re-run and now caught) · F-002 · F-003 · F-004 · F-005 (all CLOSED as moot or designed out by D-004/D-005) ·
 F-008 · F-009 · F-010 · F-011 · F-012 · F-013 (FIXED @ `d0e661d`, T-001 round 1) · F-014 · F-016 ·
 F-017 (CLOSED, T-001 round 3) · F-018 (FIXED, canon `be5f6dc`) · F-019 (FIXED, canon `6f49f29`) ·
 F-020 · F-021 · F-022 · F-023 (FIXED @ `763101e`; F-021 project-local only — canon still ships the
@@ -816,6 +848,14 @@ F-026 · F-027 · F-028 · F-029 · F-030 · F-031 · F-032 · F-033 · F-034 (F
   `loader.py` or `dataset.py` without deliberately re-baselining `EXPECTED_COMPLETED_COUNTS` — the
   6,615 count is a pinned tripwire and silently changing what it counts defeats it. Status: OPEN.
   revisit-when: `T-007` (fold generation) — whichever of T-007/T-009 lands first owns the filter.
+  Status: **FIXED 2026-08-10**, ahead of T-007 as intended. New standard-library-only
+  `backend/model/corpus.py` identifies exhibition ids by games-played per season and verifies the
+  result (every season must keep exactly 30 team ids; every pinned season must shed exactly its
+  pinned count; an unpinned season is refused). `dataset.load_games` excludes by default. Design
+  reasoning and the rejected alternatives are in **D-025**; the baseline shift it causes is
+  **D-026**. Verified on the real corpus: 6,615 → **6,605**, exactly 10 removed, per season
+  `{2022:1, 2023:1, 2024:1, 2025:3, 2026:4}`, **42 distinct team ids → 30**, and exactly 30 per
+  season. 12 new tests in `backend/tests/test_corpus.py`, which run in CI.
 - **F-043** (gate tooling / process, MEDIUM) — **`review-ledger-current`'s currency rule does not
   survive a multi-task branch: F-018's failure shape, one layer over.** Demonstrated before committing,
   with `node checks/review-ledger-current.mjs --code-head deadbee`: both of T-005's ✅@`8eae86c` fail

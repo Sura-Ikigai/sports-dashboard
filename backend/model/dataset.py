@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .corpus import exclude_exhibitions
 from .features import Game
 from .loader import DEFAULT_DATA_DIR, SEASONS, load_completed_games
 
@@ -112,7 +113,24 @@ def _game_from_row(row) -> Game:
 
 
 def load_games(
-    seasons: tuple[int, ...] = SEASONS, data_dir: Path = DEFAULT_DATA_DIR
+    seasons: tuple[int, ...] = SEASONS,
+    data_dir: Path = DEFAULT_DATA_DIR,
+    *,
+    include_exhibitions: bool = False,
 ) -> list[Game]:
-    """Load the pinned seasons through the loader (with all its verification) as `Game` records."""
-    return games_from_frame(load_completed_games(seasons, data_dir))
+    """Load the pinned seasons through the loader (with all its verification) as `Game` records.
+
+    **Excludes All-Star exhibition games by default** (F-042): the source mixes 10 of them into the
+    2022-2026 schedules as `season_type = 2`, so the verified corpus is 6,615 games and the modeling
+    corpus is **6,605**. Curation lives in `corpus.exclude_exhibitions`, which verifies the result
+    rather than trusting it.
+
+    The default is exclusion on purpose. The two populations are indistinguishable downstream -- an
+    All-Star row has ordinary-looking features and a coin-flip label -- so a caller who forgets the
+    flag gets a quietly contaminated evaluation and no symptom. The safe set is the one you get
+    without asking; `include_exhibitions=True` returns the raw verified corpus, and is for auditing
+    the loader's pinned counts (which *do* include them, deliberately -- see `corpus`), not for
+    modeling.
+    """
+    games = games_from_frame(load_completed_games(seasons, data_dir))
+    return games if include_exhibitions else exclude_exhibitions(games)

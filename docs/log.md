@@ -6,6 +6,27 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-10 — F-042 closed: the corpus is curated before T-007 starts
+
+- New standard-library-only `backend/model/corpus.py` removes the 10 All-Star exhibition games the
+  source mixes in as `season_type = 2`. **6,615 verified → 6,605 modeling games**, 42 distinct team
+  ids → 30, exactly 30 per season. 12 tests, and they run in CI — the module is stdlib-only on purpose
+  (D-021), because it decides what T-009 trains on and `dataset.py`'s tests skip where pandas is absent.
+- Identification is by games-played per season, not a hardcoded list of ids (D-025). A list would be
+  exact today and silently wrong at D-017's retrain, when a new season brings its own All-Star game
+  with fresh ids. The populations differ by **3 games versus 82**, so the threshold is nowhere near
+  either edge — and the result is *verified* (30 teams per season, pinned per-season counts, unpinned
+  seasons refused) rather than trusted.
+- Excluded **by default**, which was the real decision. An All-Star row has ordinary-looking features
+  and a coin-flip label, so a caller who forgets a flag gets a contaminated evaluation and no symptom.
+- The loader is deliberately untouched: `EXPECTED_COMPLETED_COUNTS` still pins 6,615, because those
+  counts are the tripwire proving the download is intact. 6,615 is the verified corpus; 6,605 is the
+  modeling corpus, and the two now have names.
+- **Caught a number that would have gone unreproducible:** D-007's 55.556% baseline was measured over
+  the uncurated 6,615. On the 6,605 the model is actually evaluated on it is **55.534%** (D-026).
+  0.02pp, changes no conclusion — but D-008 makes "beat a constant 55.56% predictor" half the ship
+  criterion, so T-008/T-009 need to know which constant and say which corpus produced it.
+
 ## 2026-08-10 — T-006 reviewed (⛔⛔), remediated; T-005 re-reviewed (✅✅)
 
 - Ledger audit first: F-024/F-032/F-035 all had a status true in the code and wrong or absent here.
