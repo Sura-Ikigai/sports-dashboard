@@ -19,29 +19,17 @@
 
 ## Current state
 
-**State now:** **T-001 is `DONE`** — the instantiation phase is merged to `main`. It took four review
-rounds; the gate blocked three times and was right every time, twice finding defects in its own canon
-(F-018, F-019, both promoted back to Dev-System). The gate runs **8 checks**. PLAN-v1 is ACTIVE and
-**Phase 1 is open**: T-005..T-010, offline only — no schema, API, UI or served-image change.
+**State now:** Phase 1 is underway on `feat/phase-1-analytical-core`. T-005 (loader) is `BUILT` and
+**blocked at the review gate**: security ✅, logic ⛔. Two HIGH findings, both demonstrated by corrupting
+fixtures rather than argued — the count assertion that stands in for T-005's test suite is (F-026)
+bypassable via `load_season`, and (F-027) count-only, so dropping one game while duplicating another
+passes silently. Security passed but raised F-030 MEDIUM: the upstream release tag's **assets are
+mutable**, so "pinned" does not mean reproducible — which matters most at T-009. F-035 is a regression
+from my own F-025 fix. 11 findings open: F-026..F-036.
 
-**T-005 is `BUILT`** on `feat/phase-1-analytical-core`: `backend/model/loader.py` downloads the five
-pinned season CSVs (release tag `espn_nba_schedules`) into the gitignored `data/raw/nba_schedules/`,
-normalizes them to a completed-game collection, and verifies per-season counts before returning —
-2022→1324, 2023→1321, 2024→1320, 2025→1324, 2026→1326 (6,615 total), all matching. Ran for real; gate
-is green at 8/8. Not yet reviewed. `backend/requirements-train.txt` is new (D-016): pandas/numpy/
-python-dateutil/six, pinned exactly, never installed into the served image (`backend/requirements.txt`
-is untouched). `backend/model/__init__.py` is deliberately empty so importing the package never pulls
-in these training-only deps.
-
-**Scope note — F-024/F-025 NOT closed here.** This commit fires the `next-non-docs-commit` trigger on
-F-024 and F-025 (both live in `checks/lib/tracker.mjs`), but the backend-engineer session that built
-T-005 was explicitly scoped to `backend/model/` only and told not to touch `checks/`. Both findings
-remain `OPEN`; whoever picks up next should close them (or explicitly re-defer with a reason) before
-or alongside T-005's review.
-
-**Next action:** review T-005 (`security-auditor` + `logic-reviewer`; the security note is the loader's
-network+parsing path — see its module docstring for how each point was honored), then either continue
-with T-006 (`features` module) or close F-024/F-025 first.
+**Next action:** Builder remediates F-026..F-034 in `backend/model/loader.py`
+(`Use the backend-engineer subagent on T-005 remediation`); F-035/F-036 are in `checks/` and are the
+main thread's. Then both reviewers re-run — T-005 cannot advance while logic is ⛔.
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
 **History:** docs/log.md (append-only, session-by-session)
@@ -282,6 +270,7 @@ with T-006 (`features` module) or close F-024/F-025 first.
 
 | Task  | security-auditor | logic-reviewer | ui-ux-reviewer | notes |
 |-------|------------------|----------------|----------------|-------|
+| T-005 | ✅ 32110ce       | ⛔ F-026/F-027 | n/a            | loader's count assertion is bypassable (`load_season`) and count-only (drop+dup passes). Security ✅ with F-030 MEDIUM on source mutability |
 | T-001 | ✅ 763101e       | ✅ 763101e     | n/a            | 4 rounds: r1 ⛔⛔@d8e3515 · r2 ✅✅@d0e661d · r3 logic ✅/security ⛔@fef3dc8 (F-019) · r4 ✅✅@763101e. n/a: no user-facing surface changed |
 
 ## Findings (from reviews, append-only)
@@ -474,6 +463,63 @@ with T-006 (`features` module) or close F-024/F-025 first.
 - **Canon gap noted, not closed:** F-021 was fixed project-locally only. Canon still ships
   `checks/package.json` with an unpinned `vitest: ^2.1.0` and no lockfile, so every future project
   inherits the advisory-bearing 2.x range. Belongs in a canon promotion, out of scope for T-001.
+
+### Review gate — T-005 @ 32110ce (security ✅ · logic ⛔)
+
+<!-- T-005 stays BUILT. Per SYSTEM.md §5.4 the builder remediates and the reviewers re-run. Both HIGH
+     findings were demonstrated by corrupting fixtures, not reasoned about — that is why they landed. -->
+
+- **F-026** (logic, HIGH) — **The count assertion is bypassable.** `verify_completed_counts` is called
+  only from `load_completed_games`; `load_season` — the function that downloads, parses and normalizes
+  a season — never calls it. Any caller doing `loader.load_season(2022)`, which T-006/T-009 or an
+  ad-hoc script would do naturally, gets **zero verification**. Demonstrated: a file truncated by ~300
+  lines returned 1,266 games with no exception and no warning. The module docstring and the T-005
+  outcome note both claim the counts are re-asserted "on every run"; they are not.
+  Remediation: verify inside `load_season` so no path can obtain data without it firing.
+- **F-027** (logic, HIGH) — **"Right count, wrong rows" passes.** Verification is count-only; nothing
+  asserts `game_id` uniqueness. Demonstrated: a 2022 file with one real completed game dropped and
+  another duplicated in its place — net count unchanged at 1,324 — passed with no exception, one real
+  game silently missing. This is the exact failure the tripwire exists to catch, and it is the reason a
+  count is a weak substitute for a test. Remediation: assert `game_id` uniqueness per season before
+  counting.
+- **F-028** (logic, MEDIUM) — A season absent from `EXPECTED_COMPLETED_COUNTS` is silently unverified:
+  the raising loop iterates `expected.items()`, so an unpinned season contributes nothing to check.
+  `seasons=(2021,)` loads 1,172 rows with no signal. Not live today, but D-017's 2026-27 retrain adds a
+  season and nothing keeps the two structures in sync. Remediation: fail when `actual` carries a season
+  `expected` does not.
+- **F-029** (logic, LOW) — `_validate_header` decodes with `errors="strict"`, so a non-UTF-8 response
+  raises `UnicodeDecodeError` rather than the module's own `LoaderVerificationError`. Fails loudly,
+  wrong type.
+- **F-030** (supply-chain, MEDIUM) — **The release tag is stable but its assets are mutable, so the
+  source is not pinned in the sense the code claims.** The auditor queried the GitHub API: the release
+  dates from 2023-03-04, but `nba_schedule_2022.csv` — a completed historical season — carries
+  `updated_at 2026-07-29`. sportsdataverse uses one release per dataset as a rolling CDN. A re-upload
+  that corrects a score or team ID while leaving row counts identical passes **silently**, and that is
+  the likeliest form of upstream revision. This directly defeats PLAN-v1 user story 20 (re-running
+  months later reproduces the same numbers) and matters most at T-009, where the headline numbers are
+  produced. Remediation: record a SHA-256 per season file and verify before parsing — that pins content
+  rather than a filename. If deferred, correct the docstring so "pinned" is not read as "immutable".
+- **F-031** (input validation, LOW) — The size cap is not enforced on the cached path: only 8,192 header
+  bytes are read and length-checked, so an oversized file already on disk short-circuits straight into
+  the parser. The download path is correct (bounded read before anything touches disk).
+- **F-032** (network, LOW) — Redirects are followed without asserting the final scheme/host; a redirect
+  to `http://` would silently drop TLS. Reachability is low (requires controlling GitHub's TLS-verified
+  response) and the redirect itself is required, so it cannot simply be disabled.
+- **F-033** (input validation, LOW) — `season` is unvalidated and the `url.startswith(...)` guard that
+  looks like it prevents redirection does not — a `..` segment passes it. Not exploitable today (the
+  fixed filename prefix makes every traversal hit a non-directory, and `season` only ever comes from
+  the module-level tuple), but the comment advertises a control that does not work.
+- **F-034** (deps, LOW) — `certifi` is imported directly but declared only transitively via
+  `requirements.txt`; a direct import should be a declared dependency.
+- **F-035** (gate tooling, LOW) — **Regression introduced by my own F-025 fix.** `parseTasks` starts a
+  task block on *any* `**T-NNN**` match, including a bold cross-reference in prose, producing a phantom
+  task with a null status — which now hard-fails the gate. Before F-025 the phantom was silently
+  ungated. The current tracker is clean, so this is latent, but a maintainer writing "depends on
+  **T-001**" in an acceptance bullet would hit a confusing block. Direction of failure is right, the
+  diagnostic is wrong. Remediation: anchor the task-header match to the start of a list item.
+- **F-036** (gate tooling, LOW) — `knownUngated` hand-duplicates `STATUS_ENUM` minus `gated`; adding a
+  status to the enum without editing the literal hard-fails every task at that status. Fail-closed, but
+  a trap. Remediation: derive it. Status: FIXED, canon c513a52.
 
 ## Future hardening (review output → next-cycle backlog)
 

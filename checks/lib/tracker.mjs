@@ -21,7 +21,11 @@ export function parseTasks(md) {
     current = null; block = [];
   };
   for (const line of lines) {
-    const idMatch = line.match(/\*\*T-(\d+[a-z]?)\*\*/);
+    // F-035: anchor to the START of a checkbox list item. Matching `**T-NNN**` anywhere made a bold
+    // cross-reference in prose ("depends on **T-001** landing first") open a phantom task block with a
+    // null status — harmless while unknown statuses were ignored, but a hard gate failure once F-025
+    // made them fail closed. The header must BE a task line, not merely mention one.
+    const idMatch = line.match(/^\s*-\s*\[[ xX]\]\s*\*\*T-(\d+[a-z]?)\*\*/);
     if (idMatch) { flush(); current = { id: `T-${idMatch[1]}`, status: null }; }
     if (current) block.push(line);
   }
@@ -123,7 +127,10 @@ export function evaluateLedgerCurrency(tasks, ledger, codeHead, opts = {}) {
   // matches, so without this a stale-review failure disappears the moment the status is lowercased,
   // misspelled, or deleted — the cheapest possible way to turn the gate green. If we cannot tell
   // whether a review is required, we must not assume it isn't.
-  const knownUngated = new Set(['BACKLOG', 'PLANNED', 'IN_PROGRESS', 'BUILT', 'BLOCKED']);
+  // F-036: derived, not hand-listed — a status added to STATUS_ENUM without editing a literal here
+  // would hard-fail every task at that status. 'BLOCKED' is appended because it is an orthogonal flag
+  // that lives outside the lifecycle enum (SYSTEM.md §3.1).
+  const knownUngated = new Set([...STATUS_ENUM.filter((s) => !gated.has(s)), 'BLOCKED']);
   const failures = [];
   for (const t of tasks) {
     if (!gated.has(t.status) && !knownUngated.has(t.status)) {

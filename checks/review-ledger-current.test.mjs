@@ -107,6 +107,27 @@ describe('review-ledger-current', () => {
     expect(r.failures[0].reason).toMatch(/no commit SHA/);
   });
 
+  // F-035: a bold cross-reference in prose must not open a phantom task block. Before the anchor fix
+  // this produced {id:'T-001', status:null}, which F-025's fail-closed rule turned into a hard gate
+  // failure on a perfectly valid tracker.
+  it('does not treat a bold **T-NNN** cross-reference in prose as a task header', () => {
+    const md = `## Tasks
+- [ ] **T-042** real task — \`BUILT\` — owner: \`backend-engineer\`
+      - acceptance: works
+      - blocked on: **T-001** landing first
+
+## Review ledger
+
+| Task | security-auditor | logic-reviewer | notes |
+|------|---|---|---|
+
+## Findings
+`;
+    const ids = parseTasks(md).map((t) => t.id);
+    expect(ids).toEqual(['T-042']);
+    expect(evaluateLedgerCurrency(parseTasks(md), parseReviewLedger(md), 'a1b2c3d').ok).toBe(true);
+  });
+
   // F-025: an unrecognized status must not be a way to make a stale review vanish.
   it('fails CLOSED on a status that does not parse to a known value', () => {
     for (const bad of ['reviewed', 'Reviewed', 'SHIPPED']) {

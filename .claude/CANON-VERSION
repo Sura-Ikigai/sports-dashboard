@@ -6,8 +6,8 @@
 #
 # Factory: ~/Desktop/LabRoomV2.0/Client Projects/Dev-System
 
-stamped-from:    d8b7a8a1c932d23008f1ad7e84485466fb75459e
-last-reconciled: d8b7a8a1c932d23008f1ad7e84485466fb75459e
+stamped-from:    c513a528eab6546559e518373a9691965b9b7e2a
+last-reconciled: c513a528eab6546559e518373a9691965b9b7e2a
 stamped-date:    2026-08-09
 
 # Canon contributions promoted FROM this project (all on Dev-System/main, so /reconcile-canon reads
@@ -18,3 +18,4 @@ stamped-date:    2026-08-09
 #   6f49f29  checks/ — restore verdict enforcement on DONE; scope only currency (F-019).
 #   d8b7a8a  checks/ — fail closed on unrecognized task status (F-025); JSDoc scope (F-024).
 # The SHA stamped above is the most recent of these.
+#   c513a52  checks/ — anchor task-header match (F-035); derive knownUngated (F-036).

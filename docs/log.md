@@ -43,7 +43,18 @@ Newest entry on top. Keep it lean — a few lines per session; git history carri
   than its LOW severity suggested: `gated` was an exact uppercase match and an unparsed status
   returned `null`, so lowercasing or deleting a status word made a stale-review failure vanish. Now
   fails closed, with `BLOCKED` recognized as a known-but-ungated flag. Promoted to canon `d8b7a8a`.
-- Ended at: T-005 `BUILT`, gate green at 8 checks. Next is the review gate on T-005.
+- **Review gate on T-005: security ✅, logic ⛔.** The logic reviewer earned it — it did not reason about
+  the count assertion, it corrupted files and watched what happened. Truncating a season by ~300 lines
+  and calling `load_season` directly returned 1,266 games with no error (F-026: verification lives only
+  in `load_completed_games`). Dropping one real game while duplicating another kept the count at exactly
+  1,324 and passed silently (F-027). This is the cost of the plan's decision not to unit-test the
+  loader, arriving on schedule.
+- Security ✅ but flagged F-030: the upstream release **tag** is stable while its **assets are mutable** —
+  a completed 2021-22 season's file was re-uploaded 2026-07-29. "Pinned by tag" is not reproducible, and
+  PLAN-v1 user story 20 assumed it was. A content hash is the fix, and it matters most at T-009.
+- F-035 is a regression from my own F-025 fix: `parseTasks` treats any bold `**T-NNN**` in prose as a
+  task header, and a phantom task with a null status now hard-fails the gate rather than being ignored.
+- Ended at: T-005 `BUILT` and blocked. 11 findings open (F-026..F-036).
 
 ## 2026-08-09 — Phase 1 blocked by a canon bug (F-018); fixed and promoted
 
