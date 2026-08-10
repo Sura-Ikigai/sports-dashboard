@@ -63,11 +63,24 @@ _REPO = "sportsdataverse-data"
 RELEASE_TAG = "espn_nba_schedules"
 _RELEASE_BASE_URL = f"https://github.com/{_OWNER}/{_REPO}/releases/download/{RELEASE_TAG}"
 
-# F-032: GitHub redirects release-asset downloads to objects.githubusercontent.com for the actual
-# bytes -- that redirect is required, so it cannot simply be disabled. Instead the final response URL
-# (after urllib follows it) is checked against this allowlist and against https, so a redirect to an
-# unexpected host or a scheme downgrade can't pass silently.
-_ALLOWED_DOWNLOAD_HOSTS: frozenset[str] = frozenset({"github.com", "objects.githubusercontent.com"})
+# F-032: GitHub redirects release-asset downloads to a CDN host for the actual bytes -- that redirect
+# is required, so it cannot simply be disabled. Instead the final response URL (after urllib follows
+# it) is checked against this allowlist and against https, so a redirect to an unexpected host or a
+# scheme downgrade can't pass silently.
+#
+# F-037: this list is OBSERVED, not assumed -- the first version guessed `objects.githubusercontent.com`
+# and shipped broken, because every local run hit the populated `data/` cache and the download path
+# never executed. Verified by live download on 2026-08-09: github.com/releases/download/... redirects
+# to release-assets.githubusercontent.com. GitHub has moved this host before (objects.* -> release-
+# assets.*), so when this check fires the correct response is to OBSERVE the new host and record it
+# here with a date -- never to paste in whatever appeared, and never to delete the check.
+_ALLOWED_DOWNLOAD_HOSTS: frozenset[str] = frozenset(
+    {
+        "github.com",
+        "release-assets.githubusercontent.com",  # observed 2026-08-09
+        "objects.githubusercontent.com",  # prior host; kept so older/mirrored links still resolve
+    }
+)
 
 SEASONS: tuple[int, ...] = (2022, 2023, 2024, 2025, 2026)
 
@@ -213,7 +226,15 @@ def _validate_content_hash(raw: bytes, season: int, *, source: str) -> None:
     corrected score, a swapped team id) while row counts stay identical. This is the actual content
     pin `EXPECTED_SHA256` exists for."""
     actual_hash = hashlib.sha256(raw).hexdigest()
-    expected_hash = EXPECTED_SHA256[season]  # season already validated against SEASONS by this point
+    # F-038: guard the lookup. A season can be in SEASONS and EXPECTED_COMPLETED_COUNTS but miss a
+    # hash; a bare KeyError fails closed but reads as a bug rather than as "pin a hash first" -- the
+    # same inconsistency F-028 and F-029 fixed in the other two verification paths.
+    if season not in EXPECTED_SHA256:
+        raise LoaderVerificationError(
+            f"season {season} has no pinned SHA-256 in EXPECTED_SHA256 -- add one (computed from a "
+            f"download whose row counts you have verified by hand) before loading it."
+        )
+    expected_hash = EXPECTED_SHA256[season]
     if actual_hash != expected_hash:
         raise LoaderVerificationError(
             f"{source} for season {season} has SHA-256 {actual_hash}, but EXPECTED_SHA256 pins "

@@ -557,7 +557,7 @@ T-005 cannot advance past `BUILT` until logic clears — this thread does not se
   response) and the redirect itself is required, so it cannot simply be disabled.
   Status: **FIXED**. After `urlopen` follows redirects, the final response URL (`response.geturl()`) is
   parsed and checked: scheme must be `https`, host must be in a new `_ALLOWED_DOWNLOAD_HOSTS` allowlist
-  (`github.com`, `objects.githubusercontent.com` — the actual GitHub → release-CDN redirect chain).
+  (`github.com`, `objects.githubusercontent.com` — the redirect chain — a host I ASSUMED rather than observed, which is exactly how F-037 shipped.
   Either check failing raises `LoaderVerificationError` before the response body is read.
 - **F-033** (input validation, LOW) — `season` is unvalidated and the `url.startswith(...)` guard that
   looks like it prevents redirection does not — a `..` segment passes it. Not exploitable today (the
@@ -583,6 +583,33 @@ T-005 cannot advance past `BUILT` until logic clears — this thread does not se
 - **F-036** (gate tooling, LOW) — `knownUngated` hand-duplicates `STATUS_ENUM` minus `gated`; adding a
   status to the enum without editing the literal hard-fails every task at that status. Fail-closed, but
   a trap. Remediation: derive it. Status: FIXED, canon c513a52.
+
+### Re-review — T-005 @ e2d2558 (both reviewers ⛔ on the same regression)
+
+- **F-026, F-027 — CLOSED and independently verified.** The logic reviewer did not accept that the
+  count/uniqueness checks were fixed just because the new SHA-256 layer caught its fixtures: it
+  *neutralised the hash layer* (repinning the hash to the corrupted file's own value) and re-ran, proving
+  `_verify_season` catches both a truncated season (`got 1319, expected 1324`) and the drop-one/dup-one
+  case (`1 duplicate game_id ... {'401360941': 2}`) on its own. That matters because a legitimate
+  upstream refresh will require re-baselining the hashes, and the count logic must still stand.
+- **F-028, F-029, F-030, F-031, F-033, F-034 — CLOSED**, each verified against the running code.
+- **F-037** (availability / control integrity, HIGH) — **The F-032 redirect allowlist named a host
+  GitHub no longer uses.** Release assets now redirect to `release-assets.githubusercontent.com`, not
+  `objects.githubusercontent.com`, so `download_season_csv` refused every real download. Both reviewers
+  reproduced it live and independently. It shipped because `data/` was already populated, so **the
+  download path never executed** in any local run, in the builder's own testing, or in the gate — and
+  the gate structurally cannot see it, since nothing outside `loader.py` calls the loader. The host I
+  put in the F-032 write-up was assumed, not observed. Status: FIXED — allowlist now records the
+  observed host with the date it was observed, and the prior host is retained. **Verified the only way
+  that counts: a real download into an empty directory** (2023 → 1,776,788 bytes → hash-verified →
+  1,321 completed games).
+- **F-038** (error handling, LOW) — `EXPECTED_SHA256[season]` was indexed unguarded, so a season with
+  counts but no pinned hash raised a bare `KeyError` instead of an actionable error — the same
+  inconsistency F-028/F-029 fixed in the other two verification paths. Status: FIXED.
+
+> **Acceptance note added for T-005, from the auditor's observation:** "gate green" is not evidence the
+> download works. The loader is invoked by nothing outside itself, and every local run hits the cache.
+> Any change to the download path must be verified by a run against an **empty** data dir.
 
 ## Future hardening (review output → next-cycle backlog)
 
