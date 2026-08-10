@@ -389,6 +389,38 @@ it should be cheap. The gate is red on exactly that and nothing else; every othe
 | T-005 | ✅ 8eae86c       | ✅ 8eae86c     | n/a            | 3 rounds: ✅/⛔ @32110ce (F-026/F-027 HIGH) · ⛔⛔ @e2d2558 (F-037 broke real downloads) · ✅✅ @8eae86c. n/a: no user-facing surface |
 | T-001 | ✅ 763101e       | ✅ 763101e     | n/a            | 4 rounds: r1 ⛔⛔@d8e3515 · r2 ✅✅@d0e661d · r3 logic ✅/security ⛔@fef3dc8 (F-019) · r4 ✅✅@763101e. n/a: no user-facing surface changed |
 
+## Findings — status index
+
+<!-- DERIVED VIEW, not history. The entries below this table are append-only and stay as written;
+     this index is the one place that may be rewritten, and it is what you read to answer "is F-0NN
+     still open?" without reading 43 entries in order.
+
+     It exists because the ledger failed that question three times in one session (2026-08-10):
+     F-024 was fixed in `32110ce` and still read OPEN; F-032 and F-035 were fixed and carried no
+     `Status:` line at all. A finding closed in a commit message is not closed until the ledger says
+     so — and until this table said so, "closed" was invisible to anyone who had not read the whole
+     document. Adding a finding, or changing one's status, means updating this row too. -->
+
+**Open / accepted — the live set (5):**
+
+| ID | Sev | Area | Status | Fires when |
+|----|-----|------|--------|-----------|
+| **F-001** | HIGH | security | ACCEPTED — no authorization boundary exists anywhere in the app | `first-user-scoped-data` |
+| **F-042** | MEDIUM | data | OPEN — 10 All-Star exhibition games in the corpus | **`T-007`** (next task) |
+| **F-015** | LOW | ops | ACCEPTED — `ui-ux-reviewer` declared but not mechanically enforced | `reconcile-canon` |
+| **F-006** | LOW | ops | OPEN — `docker-compose.prod.yaml` is a 0-byte file | — |
+| **F-007** | LOW | ops | OPEN — `ci.yml` duplicates every gate check | — |
+
+**Closed (38):** F-002 · F-003 · F-004 · F-005 (all CLOSED as moot or designed out by D-004/D-005) ·
+F-008 · F-009 · F-010 · F-011 · F-012 · F-013 (FIXED @ `d0e661d`, T-001 round 1) · F-014 · F-016 ·
+F-017 (CLOSED, T-001 round 3) · F-018 (FIXED, canon `be5f6dc`) · F-019 (FIXED, canon `6f49f29`) ·
+F-020 · F-021 · F-022 · F-023 (FIXED @ `763101e`; F-021 project-local only — canon still ships the
+unpinned range) · F-024 (CLOSED @ `32110ce`, recorded 2026-08-10) · F-025 (FIXED, canon) ·
+F-026 · F-027 · F-028 · F-029 · F-030 · F-031 · F-032 · F-033 · F-034 (FIXED across `e2d2558`/
+`8eae86c`, T-005 remediation) · F-035 · F-036 (FIXED, canon `c513a52`) · F-037 · F-038 (FIXED @
+`8eae86c`) · F-039 (CLOSED @ `406dd09`) · F-040 · F-041 (FIXED @ `55dc586`) · F-043 (FIXED @
+`34759ed`; **canon promotion still pending** — see *Future hardening*).
+
 ## Findings (from reviews, append-only)
 
 <!-- F-001..F-007 are from the instantiation audit (2026-08-09), not from a gate review — recorded
@@ -661,6 +693,10 @@ it should be cheap. The gate is red on exactly that and nothing else; every othe
   see F-037, which is how that shipped broken.** The allowlist now carries the observed
   `release-assets.githubusercontent.com` (recorded with its observation date) plus `github.com` and the
   prior `objects.githubusercontent.com`.
+  Status: **FIXED** at `8eae86c`, but only after F-037 corrected it — the control shipped in
+  `e2d2558` refused every real download. Recorded here because this entry had carried no `Status:`
+  line at all until the 2026-08-10 ledger audit: a finding whose remediation is described in prose
+  but never given a status reads as done to a writer and as unresolved to a reader.
 - **F-033** (input validation, LOW) — `season` is unvalidated and the `url.startswith(...)` guard that
   looks like it prevents redirection does not — a `..` segment passes it. Not exploitable today (the
   fixed filename prefix makes every traversal hit a non-directory, and `season` only ever comes from
@@ -682,6 +718,10 @@ it should be cheap. The gate is red on exactly that and nothing else; every othe
   ungated. The current tracker is clean, so this is latent, but a maintainer writing "depends on
   **T-001**" in an acceptance bullet would hit a confusing block. Direction of failure is right, the
   diagnostic is wrong. Remediation: anchor the task-header match to the start of a list item.
+  Status: **FIXED**, canon `c513a52` — the same commit as F-036. Verified at the 2026-08-10 ledger
+  audit against the running code: `parseTasks` matches `/^\s*-\s*\[[ xX]\]\s*\*\*T-(\d+[a-z]?)\*\*/`,
+  and `checks/review-ledger-current.test.mjs` carries the regression test. This entry had carried no
+  `Status:` line until that audit, even though the canon commit message names the fix.
 - **F-036** (gate tooling, LOW) — `knownUngated` hand-duplicates `STATUS_ENUM` minus `gated`; adding a
   status to the enum without editing the literal hard-fails every task at that status. Fail-closed, but
   a trap. Remediation: derive it. Status: FIXED, canon c513a52.
@@ -832,5 +872,8 @@ it should be cheap. The gate is red on exactly that and nothing else; every othe
 2. **Write on completion.** When you finish a task you MUST: set the task's status, OVERWRITE *Current
    state*, append any *Decisions* or *Findings*, append one line to `docs/log.md` (the chronology), and
    `git commit` the change. (Enforced by a Stop hook.) Narrative goes in `log.md`, not *Current state*.
-3. **Append-only logs stay append-only.** Decisions and findings are superseded, never erased.
+3. **Append-only logs stay append-only.** Decisions and findings are superseded, never erased. The
+   one exception is the *Findings — status index*, which is a derived view and is rewritten in place:
+   every new finding gets a row, and every status change updates one. A finding closed in a commit
+   message is not closed until the ledger says so (F-024, F-032, F-035 each proved this).
 4. **One tracker per project, committed to git.** The git history is the versioning of this state.
