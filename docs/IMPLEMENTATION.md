@@ -19,17 +19,22 @@
 
 ## Current state
 
-**State now:** Phase 1 is underway on `feat/phase-1-analytical-core`. T-005 (loader) is `BUILT` and
-**blocked at the review gate**: security ✅, logic ⛔. Two HIGH findings, both demonstrated by corrupting
-fixtures rather than argued — the count assertion that stands in for T-005's test suite is (F-026)
-bypassable via `load_season`, and (F-027) count-only, so dropping one game while duplicating another
-passes silently. Security passed but raised F-030 MEDIUM: the upstream release tag's **assets are
-mutable**, so "pinned" does not mean reproducible — which matters most at T-009. F-035 is a regression
-from my own F-025 fix. 11 findings open: F-026..F-036.
+**State now:** Phase 1 is underway on `feat/phase-1-analytical-core`. T-005 (loader) is `BUILT`,
+remediated, and **awaiting re-review** — F-026..F-034 are fixed in `backend/model/loader.py` (F-035/
+F-036 in `checks/` were already fixed by the main thread). Both HIGH findings were re-demonstrated
+against the pre-fix code (`git show 32110ce:backend/model/loader.py`) to confirm the exact fixtures
+still reproduce them, then run again against the fixed code to confirm both now raise: F-026
+(`load_season` bypassing verification — truncated-file fixture, was 1,266 games/no exception, now
+raises before returning) and F-027 (count-only verification — drop-one/duplicate-one fixture that held
+the count at 1,324, now raises before returning). Each was additionally isolated at the specific layer
+its finding named (the count/uniqueness assertion inside `_verify_season`), independent of the new
+F-030 content-hash check that also happens to catch both. F-028 (unpinned season silently unverified)
+verified closed at two layers; F-029/F-031/F-032/F-033/F-034 (LOW) all fixed — see the Review gate
+section below for what changed in each. Full gate green, 8/8. `git status` clean; no `data/` files
+were modified (corrupted fixtures live only under the scratch dir used for the repro, never committed).
 
-**Next action:** Builder remediates F-026..F-034 in `backend/model/loader.py`
-(`Use the backend-engineer subagent on T-005 remediation`); F-035/F-036 are in `checks/` and are the
-main thread's. Then both reviewers re-run — T-005 cannot advance while logic is ⛔.
+**Next action:** Re-run both reviewers (security-auditor + logic-reviewer) against this remediation.
+T-005 cannot advance past `BUILT` until logic clears — this thread does not self-grant `REVIEWED`.
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
 **History:** docs/log.md (append-only, session-by-session)
@@ -105,16 +110,24 @@ main thread's. Then both reviewers re-run — T-005 cannot advance while logic i
         `RELEASE_TAG = "espn_nba_schedules"`; downloads verify a header/size sanity check on raw bytes
         before pandas ever parses them, write via temp-file + atomic rename, and skip re-download when
         a valid cached file already exists (idempotent). Parsing uses pandas' text CSV reader with
-        every column typed `str` — never pickle/yaml/eval. `verify_completed_counts` re-asserts all
-        five pinned counts on every run and raises `LoaderIntegrityError` (not a warning) on any
-        mismatch — the tripwire standing in for the test suite this module deliberately doesn't have
-        (Testing Decisions, PLAN-current.md). Ran for real: 2022→1324, 2023→1321, 2024→1320,
-        2025→1324, 2026→1326, 6,615 total — all match. New training-only deps (pandas, numpy,
-        python-dateutil, six) pinned exactly in new `backend/requirements-train.txt`;
+        every column typed `str` — never pickle/yaml/eval. Ran for real: 2022→1324, 2023→1321,
+        2024→1320, 2025→1324, 2026→1326, 6,615 total — all match. New training-only deps (pandas,
+        numpy, python-dateutil, six, certifi) pinned exactly in new `backend/requirements-train.txt`;
         `backend/requirements.txt` unchanged. `data/raw/nba_schedules/` confirmed gitignored via
         `git check-ignore`; `git status` stays clean after running the loader. Gate green, 8/8.
-        Not reviewed yet. F-024/F-025 NOT closed — out of this task's scope (`checks/` untouched); see
-        Current state.
+        **Remediated post-review (F-026..F-034, see Review gate section below):**
+        `load_season` — not just `load_completed_games` — now calls `_verify_season` directly, which
+        asserts both the pinned count *and* `game_id` uniqueness per season and refuses any season
+        absent from `EXPECTED_COMPLETED_COUNTS` outright, so no call path can obtain unverified data.
+        A new `EXPECTED_SHA256` dict pins per-season content hashes (computed from the files that
+        produced the verified 6,615-game count) and is checked before parsing on both the download and
+        cached-file paths, closing the "tag is stable but assets are mutable" gap. Also: size cap
+        enforced via `stat()` on the cached path, redirect final URL checked against an
+        https+host-allowlist, `season` validated against `SEASONS` with the resolved destination path
+        asserted inside the data dir, non-UTF-8 header decode now raises the module's own error type,
+        and `certifi` added directly to `requirements-train.txt`. Both HIGH findings reproduced against
+        the pre-fix code and closed against the fixed code — see Review gate section. F-024/F-025
+        (`checks/`) were closed by the main thread, out of this task's scope.
 - [ ] **T-006** `features` deep module + tests — `PLANNED` — owner: `backend-engineer`
       - acceptance: one interface (history, target game, as-of) → feature mapping; rolling form, rest
         days, season-to-date point differential, home indicator, all as home-minus-away differences
@@ -476,20 +489,43 @@ main thread's. Then both reviewers re-run — T-005 cannot advance while logic i
   lines returned 1,266 games with no exception and no warning. The module docstring and the T-005
   outcome note both claim the counts are re-asserted "on every run"; they are not.
   Remediation: verify inside `load_season` so no path can obtain data without it firing.
+  Status: **FIXED**. `load_season` now calls a new `_verify_season` (count + `game_id` uniqueness,
+  F-027/F-028) directly before returning, so every path — `load_completed_games`'s loop and any direct
+  caller — is verified identically. Reproduced against the pre-fix code (`git show 32110ce`) on a
+  truncated 2022 fixture: 1,266 games, no exception, same as the original finding. Against the fixed
+  code the same fixture now raises before returning: caught first by the new `EXPECTED_SHA256` content
+  check (F-030) inside `download_season_csv`, and independently by `_verify_season`'s own count check
+  when exercised directly (bypassing the download/hash layer) — `LoaderIntegrityError: season 2022:
+  got 1266 completed games, expected 1324`. Module docstring corrected to describe the real call graph.
 - **F-027** (logic, HIGH) — **"Right count, wrong rows" passes.** Verification is count-only; nothing
   asserts `game_id` uniqueness. Demonstrated: a 2022 file with one real completed game dropped and
   another duplicated in its place — net count unchanged at 1,324 — passed with no exception, one real
   game silently missing. This is the exact failure the tripwire exists to catch, and it is the reason a
   count is a weak substitute for a test. Remediation: assert `game_id` uniqueness per season before
   counting.
+  Status: **FIXED**. `_verify_season` asserts `game_id` uniqueness (via `value_counts()`) before the
+  count comparison. Reproduced the exact fixture against pre-fix code: dropped game_id `401361042`,
+  duplicated game_id `401360941` in its place, count held at 1,324 — `load_completed_games` (the old
+  code's only verified path) passed it silently. Against the fixed code the same fixture now raises:
+  caught first by the `EXPECTED_SHA256` content check (F-030), and independently by `_verify_season`'s
+  uniqueness assertion when exercised directly — `LoaderIntegrityError: season 2022: 1 duplicate
+  game_id value(s) ... {'401360941': 2}`.
 - **F-028** (logic, MEDIUM) — A season absent from `EXPECTED_COMPLETED_COUNTS` is silently unverified:
   the raising loop iterates `expected.items()`, so an unpinned season contributes nothing to check.
   `seasons=(2021,)` loads 1,172 rows with no signal. Not live today, but D-017's 2026-27 retrain adds a
   season and nothing keeps the two structures in sync. Remediation: fail when `actual` carries a season
   `expected` does not.
+  Status: **FIXED**, at two independent layers. `_verify_season` refuses any season not present in
+  `EXPECTED_COMPLETED_COUNTS` before checking counts/uniqueness (`load_season(2021)` now raises
+  `LoaderIntegrityError`, tested against the real leftover `data/raw/nba_schedules/nba_schedule_2021.csv`
+  on disk). `verify_completed_counts` independently rejects any season present in `actual` but absent
+  from `expected` (`set(actual) - set(expected)`), so a hand-built `actual` dict is covered too, not
+  only the `load_season` call path.
 - **F-029** (logic, LOW) — `_validate_header` decodes with `errors="strict"`, so a non-UTF-8 response
   raises `UnicodeDecodeError` rather than the module's own `LoaderVerificationError`. Fails loudly,
   wrong type.
+  Status: **FIXED**. The decode is wrapped in `try/except UnicodeDecodeError`, re-raised as
+  `LoaderVerificationError` with `from exc` preserving the original traceback.
 - **F-030** (supply-chain, MEDIUM) — **The release tag is stable but its assets are mutable, so the
   source is not pinned in the sense the code claims.** The auditor queried the GitHub API: the release
   dates from 2023-03-04, but `nba_schedule_2022.csv` — a completed historical season — carries
@@ -499,18 +535,45 @@ main thread's. Then both reviewers re-run — T-005 cannot advance while logic i
   months later reproduces the same numbers) and matters most at T-009, where the headline numbers are
   produced. Remediation: record a SHA-256 per season file and verify before parsing — that pins content
   rather than a filename. If deferred, correct the docstring so "pinned" is not read as "immutable".
+  Status: **FIXED**. New `EXPECTED_SHA256` dict (next to `EXPECTED_COMPLETED_COUNTS`) pins a SHA-256
+  per season, computed from the five files on disk that produced the verified 6,615-game count
+  (`8cd13a11…`, `71aad62f…`, `ae89a6e5…`, `a7a5b660…`, `5a4a7473…` for 2022–2026 respectively). Checked
+  in `_validate_content_hash`, called from `download_season_csv` on **both** the fresh-download and
+  cached-file paths, before parsing. A mismatch raises `LoaderVerificationError` with a message that
+  states plainly this is not transient, must not be retried or silently re-baselined, and that
+  `EXPECTED_SHA256`/`EXPECTED_COMPLETED_COUNTS` must be updated deliberately by a human after
+  re-verifying the new content. Both HIGH repros (F-026/F-027) are in fact caught by this check first,
+  ahead of the count/uniqueness assertions, since both corruptions change file bytes. Docstring rewritten
+  to state what "pinned" now actually means (content, not just tag/filename).
 - **F-031** (input validation, LOW) — The size cap is not enforced on the cached path: only 8,192 header
   bytes are read and length-checked, so an oversized file already on disk short-circuits straight into
   the parser. The download path is correct (bounded read before anything touches disk).
+  Status: **FIXED**. `download_season_csv`'s cached-file branch now calls `dest.stat().st_size` and
+  raises before reading anything into memory if it exceeds `_MAX_DOWNLOAD_BYTES`; only then is the full
+  file read (needed anyway for the F-030 content-hash check, which requires the full bytes, not a
+  header peek). The now-unused `_HEADER_PEEK_BYTES` constant was removed.
 - **F-032** (network, LOW) — Redirects are followed without asserting the final scheme/host; a redirect
   to `http://` would silently drop TLS. Reachability is low (requires controlling GitHub's TLS-verified
   response) and the redirect itself is required, so it cannot simply be disabled.
+  Status: **FIXED**. After `urlopen` follows redirects, the final response URL (`response.geturl()`) is
+  parsed and checked: scheme must be `https`, host must be in a new `_ALLOWED_DOWNLOAD_HOSTS` allowlist
+  (`github.com`, `objects.githubusercontent.com` — the actual GitHub → release-CDN redirect chain).
+  Either check failing raises `LoaderVerificationError` before the response body is read.
 - **F-033** (input validation, LOW) — `season` is unvalidated and the `url.startswith(...)` guard that
   looks like it prevents redirection does not — a `..` segment passes it. Not exploitable today (the
   fixed filename prefix makes every traversal hit a non-directory, and `season` only ever comes from
   the module-level tuple), but the comment advertises a control that does not work.
+  Status: **FIXED**. New `_validate_season` rejects any `season` not in `SEASONS`, called once at the
+  top of `download_season_csv` (the single choke point both `load_season` and any direct caller go
+  through). The ineffective `url.startswith(...)` check was removed and replaced in `_dest_path` with
+  an assertion on the *resolved* path (`resolved_dest.is_relative_to(resolved_data_dir)`) — the check
+  that actually proves the write stays inside the data dir, rather than one that only looked like it
+  did. Verified `load_season(1999)` (outside `SEASONS`) is rejected before any URL/path is built.
 - **F-034** (deps, LOW) — `certifi` is imported directly but declared only transitively via
   `requirements.txt`; a direct import should be a declared dependency.
+  Status: **FIXED**. Added `certifi==2026.6.17` to `backend/requirements-train.txt`, pinned to the
+  exact version already resolved transitively in `backend/requirements.txt` (via `httpx`) — adds
+  nothing to the served image, only makes the training-side dependency explicit.
 - **F-035** (gate tooling, LOW) — **Regression introduced by my own F-025 fix.** `parseTasks` starts a
   task block on *any* `**T-NNN**` match, including a bold cross-reference in prose, producing a phantom
   task with a null status — which now hard-fails the gate. Before F-025 the phantom was silently

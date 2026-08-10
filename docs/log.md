@@ -6,6 +6,35 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-09 — T-005 remediated: F-026..F-034 fixed, awaiting re-review
+
+- Remediated the nine open `backend/model/loader.py` findings from the T-005 review gate
+  (F-026..F-034; F-035/F-036 were `checks/` and already fixed by the main thread). Both HIGH findings
+  verified closed with before/after reproductions in a scratch dir (real `data/` files never touched,
+  only copies): F-026 (`load_season` returned unverified data — truncated-2022 fixture went from
+  1,266 games/no exception to a hard raise) and F-027 (count-only check passed a drop-one/duplicate-one
+  fixture that held the count at 1,324 — now raises). Each also isolated at the specific layer its
+  finding named (`_verify_season`'s count/uniqueness assertion), independent of the new content-hash
+  check that catches both first in the normal call path.
+- `load_season` now calls a new `_verify_season` directly (count + `game_id` uniqueness + refusing any
+  season absent from `EXPECTED_COMPLETED_COUNTS`), closing F-026/F-027/F-028 on the one function every
+  caller goes through. New `EXPECTED_SHA256` dict pins a per-season SHA-256, computed from the files on
+  disk that produced the verified 6,615-game count, checked before parsing on both the download and
+  cached-file paths (F-030 — the release tag was stable but assets were mutable). Size cap now enforced
+  via `stat()` before the cached file is read (F-031); redirect final URL checked against an
+  https+host allowlist (F-032); `season` validated against `SEASONS` with the resolved destination
+  path asserted inside the data dir, replacing an ineffective `startswith` guard (F-033); non-UTF-8
+  header decode now raises `LoaderVerificationError` instead of a raw `UnicodeDecodeError` (F-029);
+  `certifi` added directly to `requirements-train.txt`, pinned to the version already resolved in the
+  served image (F-034).
+- Module docstring and T-005's tracker outcome corrected — they previously claimed counts were
+  re-asserted "on every run," which F-026 showed was false for `load_season`.
+- Ran the loader for real against the five pinned seasons: 2022→1324, 2023→1321, 2024→1320, 2025→1324,
+  2026→1326, 6,615 total, all matching (and now all content-hash verified). Gate green, 8/8. `git
+  status` clean.
+- Ended at: T-005 `BUILT`, remediation complete, awaiting re-review. Review ledger not touched by this
+  session — re-review is the next action, not a self-grant.
+
 ## 2026-08-09 — T-005: historical data loader built
 
 - `backend/model/loader.py` downloads the five pinned season CSVs (`espn_nba_schedules` release tag)
