@@ -93,9 +93,15 @@ function parseCell(raw) {
 /**
  * Core rule (SYSTEM.md §5.4, grill-me Q7). For every task at REVIEWED or DONE:
  *   - each MANDATORY reviewer must be PRESENT in the ledger and `pass` (never absent/na/pending/fail),
- *   - and for REVIEWED ONLY (F-018/F-024), every applicable reviewer's ✅ must reference `codeHead`
- *     (the current code tip), compared by SHA prefix (git may abbreviate %h to more than 7 chars in
- *     larger repos). DONE is frozen history: exempt from currency, never from the verdict.
+ *   - and for REVIEWED ONLY (F-018/F-024), every applicable reviewer's ✅ must still be current.
+ *     DONE is frozen history: exempt from currency, never from the verdict.
+ *
+ * Currency is measured one of two ways (F-043):
+ *   - PER TASK, when `opts.staleAt` is supplied: has anything touched *this task's own files* since
+ *     its ✅? That is the question the check means to ask, and the only one that survives a branch
+ *     carrying several tasks — see the CLI, which derives file ownership from git.
+ *   - REPO-WIDE fallback, comparing against `codeHead` by SHA prefix (git may abbreviate %h to more
+ *     than 7 chars in larger repos). Stricter, and what runs when ownership cannot be established.
  * A task whose status does not parse to a known value fails CLOSED (F-025) — an unrecognized status
  * must never be a way to make a stale review disappear.
  * Reviewer-name matching is case-insensitive. Returns { ok, failures: [{ task, reviewer, reason }] }.
@@ -110,7 +116,7 @@ export function evaluateLedgerCurrency(tasks, ledger, codeHead, opts = {}) {
   // depends on the code tip — a DONE task holding a ⛔, a pending cell, or no row at all is a broken
   // invariant at any commit.
   //
-  // CURRENCY (does that SHA still equal the code tip) applies to REVIEWED only. REVIEWED means
+  // CURRENCY (has the reviewed code changed since) applies to REVIEWED only. REVIEWED means
   // "passed review, awaiting merge", so its ✅ must reflect the code about to merge — the stale-review
   // case this check exists to catch. DONE means "merged/shipped": frozen history that later unrelated
   // work must not retroactively invalidate. (F-018: gating DONE on currency made the check unusable
@@ -119,6 +125,15 @@ export function evaluateLedgerCurrency(tasks, ledger, codeHead, opts = {}) {
   // too far — it left canon's "never DONE until REVIEWED" with no mechanical enforcement at all, and
   // created a one-word bypass, since a REVIEWED task failing on a stale review could be cleared by
   // simply advancing it to DONE.)
+  //
+  // F-043: comparing against a repo-wide tip made currency compound across a multi-task branch —
+  // Phase 1 lands five tasks on one branch, so T-006's first commit invalidated T-005's ✅ despite
+  // changing nothing T-005 owns, and once T-006 was REVIEWED, T-007 would have invalidated both.
+  // That is F-018's failure shape one layer over, and it has the same root cause both times: a
+  // moving repo-wide tip standing in for per-task provenance. `opts.staleAt(taskId, sha)` supplies
+  // the real answer (null = still current, otherwise the SHA that touched this task's files after
+  // the review). Injected, not computed here, so this core stays free of git — the CLI owns I/O.
+  const staleAt = typeof opts.staleAt === 'function' ? opts.staleAt : null;
   const gated = new Set(['REVIEWED', 'DONE']);
   const currencyGated = new Set(['REVIEWED']);
   const byTask = Object.fromEntries(ledger.rows.map((r) => [r.task, r.cells]));
@@ -155,12 +170,47 @@ export function evaluateLedgerCurrency(tasks, ledger, codeHead, opts = {}) {
       if (cell.mark === 'na') { if (isMandatory) failures.push({ task: t.id, reviewer: name, reason: `mandatory reviewer marked n/a on a ${t.status} task` }); continue; }
       if (cell.mark !== 'pass') { failures.push({ task: t.id, reviewer: name, reason: `${cell.mark} on a ${t.status} task (must be ✅)` }); continue; }
       if (!cell.sha) { failures.push({ task: t.id, reviewer: name, reason: '✅ carries no commit SHA (cannot prove the review is current)' }); continue; }
-      if (currencyGated.has(t.status) && head && !(cell.sha.startsWith(head) || head.startsWith(cell.sha))) {
+      if (!currencyGated.has(t.status)) continue;
+      if (staleAt) {
+        // Per-task (F-043): only a commit touching THIS task's files makes its review stale.
+        const offender = staleAt(t.id, cell.sha);
+        if (offender) {
+          failures.push({ task: t.id, reviewer: name, reason: `✅ at ${cell.sha} but ${offender} touched this task's files afterwards — code changed after review, re-review needed` });
+        }
+      } else if (head && !(cell.sha.startsWith(head) || head.startsWith(cell.sha))) {
         failures.push({ task: t.id, reviewer: name, reason: `✅ at ${cell.sha} but code tip is ${head} — code changed after review, re-review needed` });
       }
     }
   }
   return { ok: failures.length === 0, failures };
+}
+
+/**
+ * Which task, if any, does a commit SUBJECT claim ownership of (F-043)? Pure, so the attribution
+ * rule is fixture-testable while git stays in the CLI.
+ *
+ *   "T-006: features deep module"        -> 'T-006'
+ *   "fix(T-005): correct the allowlist"  -> 'T-005'
+ *   "review(T-005): record verdicts"     -> null   (process, not product — see below)
+ *   "docs(review): T-001 REVIEWED"       -> null
+ *   "chore: instantiate the Dev-System"  -> null
+ *
+ * Subject only, never the body: commit bodies routinely discuss other tasks, so body matching would
+ * hand a task ownership of files it never touched.
+ *
+ * PROCESS_TYPES record process rather than product, and are excluded on evidence, not taste: a
+ * `review(T-005):` commit in this repo's history also carried gate-tooling fixes, so attributing it
+ * would have made T-005 "own" checks/lib/tracker.mjs — reintroducing the false-positive class F-043
+ * exists to remove. It also matches the convention already documented in log.md: a review commit
+ * must be docs/-only.
+ */
+export const PROCESS_TYPES = new Set(['review', 'docs']);
+
+export function taskIdFromSubject(subject) {
+  const m = String(subject ?? '').match(/^(?:([a-z]+)\()?(T-\d{3})\)?\s*:/i);
+  if (!m) return null;
+  if (m[1] && PROCESS_TYPES.has(m[1].toLowerCase())) return null;
+  return m[2].toUpperCase();
 }
 
 // ---- small markdown helpers ----

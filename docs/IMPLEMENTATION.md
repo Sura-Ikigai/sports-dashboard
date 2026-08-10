@@ -28,13 +28,15 @@ not vacuous*. Verified against the real 6,615-game corpus, not only fixtures: th
 holds on real games, opening night is predicted rather than dropped, and the signal points the right
 way. T-005 stays `REVIEWED` at `8eae86c`.
 
-**Next action:** review T-006 (`Use the security-auditor subagent on T-006`, then `logic-reviewer`).
-**Read F-043 first — the gate is red on one known item and it is not a T-006 defect.** This commit
-moved the code tip, so T-005's `REVIEWED` ✅@`8eae86c` is now stale by `review-ledger-current`'s
-currency rule even though nothing in T-006 changed the loader's behavior. That needs a human call
-(merge-and-DONE, or the per-task reviewed-at SHA already filed in *Future hardening*) before the gate
-can be green again. Every other check passes. **F-042** (All-Star games in the corpus) is for T-007/T-009,
-not T-006.
+**F-043 is FIXED** (D-023): `review-ledger-current` now asks currency **per task** — has anything
+touched *this task's own files* since its ✅ — instead of against a repo-wide moving tip, so reviews
+no longer compound-expire across a multi-task branch. Not yet promoted to canon.
+
+**Next action:** the review gate, on **two** tasks. `Use the security-auditor subagent on T-006`, then
+`logic-reviewer`; and **re-review T-005**, whose ✅ is now genuinely — not spuriously — stale, because
+`406dd09` edited `backend/model/loader.py` for the F-039 docstring fix. That is one docstring diff, so
+it should be cheap. The gate is red on exactly that and nothing else; every other check passes.
+**F-042** (10 All-Star games in the corpus) is for T-007/T-009, not T-006.
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
 **History:** docs/log.md (append-only, session-by-session)
@@ -361,6 +363,24 @@ not T-006.
   did not exist" mechanical rather than remembered. Cost: T-009 calls `compute_training_features`
   (`as_of` = the game's own tip-off, no parameter to get wrong) or `game.matchup` explicitly.
   (Supersedes nothing.)
+
+- **D-023** 2026-08-10 — **Per-task review currency is derived from git, not declared in the tracker,
+  and process commits do not claim ownership** (the two forks F-043's fix ran into). (1) A
+  hand-maintained `files:` field per task was rejected: narrowing it narrows the gate, so it would be
+  a new bypass of exactly the kind F-019 and F-025 already had to close. Deriving ownership from
+  commit history can't be gamed by editing a document. Attribution reads the commit **subject** only —
+  bodies routinely discuss other tasks, and the commit that opened F-043 names T-005, T-006, T-007 and
+  T-009 in its body, so body matching would have handed T-005 ownership of files it never touched.
+  (2) `review(...)` and `docs(...)` subjects are excluded, on evidence rather than taste: `0c3b8a9`
+  (`review(T-005): record gate verdicts; fix F-035/F-036`) also touched `checks/lib/tracker.mjs` and
+  `.claude/CANON-VERSION`, so attributing it would have made T-005 own the gate's own source — and
+  the F-043 fix, which edits that file, would then have invalidated T-005's review. The remedy would
+  have reintroduced the false positive it exists to remove. This also matches a convention the project
+  had already written down in `log.md`: a review commit must be `docs/`-only. Note what the rule does
+  **not** need: later commits need no attribution at all. A task's own commits establish its file set;
+  git then answers whether anything touched those files since, however it was labelled. A task with no
+  attributable commits falls back to the stricter repo-wide rule rather than being exempted.
+  (Supersedes nothing; implements the *Future hardening* item F-019 filed and F-043 sharpened.)
 
 ## Review ledger
 
@@ -753,7 +773,19 @@ not T-006.
   canon); (b) merge the T-005 work to `main` and flip it `DONE`, matching T-001's precedent
   (`23a9a88` merge → `8ef637b` DONE) — correct but front-loads a merge mid-phase; (c) accept a red
   `review-ledger-current` for the rest of Phase 1, which trains the team to ignore the one check that
-  makes the reviewer gate falsifiable, and is the worst option. Status: OPEN, **blocking a green gate**.
+  makes the reviewer gate falsifiable, and is the worst option.
+  **Status: FIXED — option (a), chosen by the human.** `evaluateLedgerCurrency` now accepts an
+  injected `opts.staleAt(taskId, sha)` and asks, per task, whether any commit has touched *that task's
+  own files* since its ✅. The repo-wide comparison survives as the fallback and under `--repo-wide`.
+  The evaluator stays pure — git lives in the CLI, which derives ownership from commit **subjects**
+  (`T-006: …`, `fix(T-005): …`), never bodies. 9 new fixture tests; 53 pass, including all 44
+  pre-existing, so the change is backward-compatible. See **D-023** for the two forks this exposed.
+  **Consequence to read before re-reviewing:** the gate is *still* red on T-005, and now correctly so.
+  `406dd09` edited `backend/model/loader.py` (the F-039 docstring fix), a file T-005 owns, so its
+  review is genuinely stale rather than spuriously stale — F-039's own entry predicted exactly this
+  cost. The complaint changed from "the tip moved" to "`406dd09` touched this task's files", which is
+  a true and specific statement. T-005 needs a cheap re-review (one docstring diff); T-006 needs its
+  first. **Not yet promoted to canon** — see *Future hardening*.
 
 ## Future hardening (review output → next-cycle backlog)
 
@@ -770,13 +802,22 @@ not T-006.
 - Constrain T-002's store location: acceptance says "the store is gitignored", but only `data/`,
   `models/` and the listed extensions are. Require the store under `data/` so the claim is structural
   rather than dependent on remembering to add an extension.
-- **Per-task reviewed-at SHA in `review-ledger-current`** (canon). F-019 recorded this as "filed in
-  *Future hardening*" but it was never actually written down here — noticed while opening F-043, and
-  a reminder that "filed" is a claim the ledger has to be able to back. Compare a task's ✅ against
-  the last commit touching **that task's own files**, rather than against the repo-wide code tip.
-  Closes two things at once: the residual bypass F-019 accepted (declaring `DONE` escapes currency),
-  and F-043 (on a multi-task branch, every task's review goes stale on the next unrelated commit —
-  F-018's shape, one layer over). Canon-level: every project stamped from this canon has it.
+- ~~Per-task reviewed-at SHA in `review-ledger-current`~~ — **done** in the T-006 cycle (F-043, D-023).
+  F-019 had recorded it as "filed in *Future hardening*" when it was never actually written down here
+  — a reminder that "filed" is a claim the ledger has to be able to back.
+- **Promote the F-043 fix to canon, then re-stamp `.claude/CANON-VERSION`.** `checks/lib/tracker.mjs`,
+  `checks/review-ledger-current.mjs` and `checks/review-ledger-current.test.mjs` are now ahead of
+  canon `c513a52`. Every project stamped from this canon carries the compounding bug, so this belongs
+  upstream like F-018/F-019/F-025/F-035/F-036 did. **Deliberately not done in this session:** the
+  factory is `~/Desktop/LabRoomV2.0/Client Projects/Dev-System` (verified clean at `c513a52`), a
+  different repo outside this project — a promotion is a decision to make on purpose, not a side
+  effect of a build session. Note `Sports/Dev-System/` is a *stale copy* at `bd58a22`, not the
+  factory; do not promote there.
+- **Residual bypass F-019 named is now narrower but not gone.** Flipping a stale `REVIEWED` task to
+  `DONE` still escapes currency, since DONE remains exempt by design (F-018). What changed is that the
+  incentive largely evaporates: currency now only fires when the task's *own* files changed, which is
+  a real re-review rather than an accident of someone else's commit. Closing it fully still needs a
+  recorded done-at SHA per task.
 - **`backend/model/dataset.py` is covered only by tests that skip in CI** (D-021 — pandas is
   training-only). `backend/tests/test_dataset.py` pins the field mapping locally and skips in CI;
   verified by running the suite with pandas/numpy blocked (52 passed, 1 skipped). Same accepted

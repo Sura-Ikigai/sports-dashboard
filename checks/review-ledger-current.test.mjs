@@ -1,7 +1,7 @@
 // Fixture tests for the review-ledger-current core (SYSTEM.md §5.2 — test which outputs a fixture
 // produces, not the parsing internals).  Run with: vitest run
 import { describe, it, expect } from 'vitest';
-import { parseTasks, parseReviewLedger, evaluateLedgerCurrency } from './lib/tracker.mjs';
+import { parseTasks, parseReviewLedger, evaluateLedgerCurrency, taskIdFromSubject } from './lib/tracker.mjs';
 
 const HEAD = 'a1b2c3d';
 const OLD = '9999999';
@@ -185,5 +185,92 @@ describe('review-ledger-current — reviewer-finding regressions', () => {
   it('F-012: a decoy "## Subtasks" heading before "## Tasks" does not hijack the slice', () => {
     const md = '## Subtasks legend\n- [ ] **T-7** decoy — `BACKLOG`\n## Tasks\n- [ ] **T-8** real — `DONE`\n## Decisions';
     expect(parseTasks(md).find((t) => t.id === 'T-8')?.status).toBe('DONE');
+  });
+});
+
+// F-043: currency asked PER TASK — has anything touched *this task's* files since its ✅ — instead
+// of against a repo-wide moving tip. The evaluator stays pure: `staleAt` is injected, so these
+// fixtures describe git's answer without running git.
+describe('review-ledger-current — F-043 per-task currency', () => {
+  const two = (s1, sha1, s2, sha2) =>
+    `## Tasks
+- [ ] **T-005** loader — \`${s1}\` — owner: \`backend-engineer\`
+- [ ] **T-006** features — \`${s2}\` — owner: \`backend-engineer\`
+
+## Review ledger
+
+| Task  | security-auditor | logic-reviewer | notes |
+|-------|------------------|----------------|-------|
+| T-005 | ✅ ${sha1} | ✅ ${sha1} | |
+| T-006 | ✅ ${sha2} | ✅ ${sha2} | |
+
+## Findings
+`;
+  const ev = (md, staleAt) =>
+    evaluateLedgerCurrency(parseTasks(md), parseReviewLedger(md), HEAD, { staleAt });
+
+  it('a commit touching only ANOTHER task’s files leaves this review current', () => {
+    const md = two('REVIEWED', OLD, 'REVIEWED', HEAD);
+    // git says: nothing has touched T-005's files since OLD; T-006 is at the tip.
+    const r = ev(md, () => null);
+    expect(r.ok).toBe(true);
+    // ...whereas the repo-wide rule fails T-005 purely because the tip moved. This is F-043.
+    const repoWide = evaluateLedgerCurrency(parseTasks(md), parseReviewLedger(md), HEAD);
+    expect(repoWide.ok).toBe(false);
+    expect(repoWide.failures.every((f) => f.task === 'T-005')).toBe(true);
+  });
+
+  it('a commit touching THIS task’s files does make the review stale', () => {
+    const r = ev(two('REVIEWED', OLD, 'BUILT', HEAD), (taskId) => (taskId === 'T-005' ? HEAD : null));
+    expect(r.ok).toBe(false);
+    expect(r.failures).toHaveLength(2); // both reviewers on T-005
+    expect(r.failures[0].reason).toMatch(/touched this task's files afterwards/);
+    expect(r.failures[0].reason).toMatch(/code changed after review/);
+  });
+
+  it('does not compound: two REVIEWED tasks stay green when neither is touched', () => {
+    const r = ev(two('REVIEWED', OLD, 'REVIEWED', OLD), () => null);
+    expect(r.ok).toBe(true);
+  });
+
+  it('still exempts DONE from currency, and still enforces its verdict', () => {
+    expect(ev(two('DONE', OLD, 'BUILT', HEAD), () => HEAD).ok).toBe(true);
+    const noRow = `## Tasks\n- [ ] **T-005** loader — \`DONE\`\n## Review ledger\n\n| Task | security-auditor | logic-reviewer |\n|--|--|--|\n| T-009 | ✅ ${HEAD} | ✅ ${HEAD} |\n## Findings`;
+    expect(ev(noRow, () => null).ok).toBe(false);
+  });
+
+  it('falls back to the repo-wide rule when staleAt is not supplied', () => {
+    const r = evaluateLedgerCurrency(parseTasks(two('REVIEWED', OLD, 'BUILT', HEAD)), parseReviewLedger(two('REVIEWED', OLD, 'BUILT', HEAD)), HEAD);
+    expect(r.ok).toBe(false);
+    expect(r.failures[0].reason).toMatch(/code tip is/);
+  });
+});
+
+// The attribution rule that decides which files a task owns. Pure, so it is testable without git.
+describe('taskIdFromSubject — commit-subject attribution (F-043)', () => {
+  it('claims a task from a build or fix subject', () => {
+    expect(taskIdFromSubject('T-006: features deep module')).toBe('T-006');
+    expect(taskIdFromSubject('fix(T-005): correct the redirect allowlist')).toBe('T-005');
+    expect(taskIdFromSubject('feat(T-012): add the thing')).toBe('T-012');
+  });
+
+  it('does NOT claim from process commits, which record process rather than product', () => {
+    // Evidenced by this repo: `review(T-005): record gate verdicts; fix F-035/F-036` also touched
+    // checks/lib/tracker.mjs, so attributing it would make T-005 own the gate's own source.
+    expect(taskIdFromSubject('review(T-005): record gate verdicts (security ✅, logic ⛔)')).toBeNull();
+    expect(taskIdFromSubject('docs(T-005): tidy the tracker')).toBeNull();
+    expect(taskIdFromSubject('docs(review): T-001 REVIEWED @ 763101e')).toBeNull();
+  });
+
+  it('does not claim from a subject that merely mentions a task', () => {
+    expect(taskIdFromSubject('chore: prepare for T-006')).toBeNull();
+    expect(taskIdFromSubject('fix(canon): fail closed on unrecognized status (F-025)')).toBeNull();
+    expect(taskIdFromSubject('Merge phase: Dev-System instantiation + PLAN-v1')).toBeNull();
+  });
+
+  it('is robust to empty, missing and non-string input', () => {
+    expect(taskIdFromSubject('')).toBeNull();
+    expect(taskIdFromSubject(undefined)).toBeNull();
+    expect(taskIdFromSubject(null)).toBeNull();
   });
 });

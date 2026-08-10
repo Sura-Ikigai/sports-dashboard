@@ -6,6 +6,29 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-10 — F-043 fixed: review currency is now per-task, not repo-wide
+
+- Human picked the hard option: fix the rule rather than work around it. `evaluateLedgerCurrency`
+  now takes an injected `staleAt(taskId, sha)` and asks whether anything touched *that task's own
+  files* since its ✅. Repo-wide comparison kept as the fallback and behind `--repo-wide`. The
+  evaluator stays pure; git lives in the CLI, per the pure-core/thin-shell split the gate is built on.
+- Ownership is derived from git, not declared in the tracker (D-023) — a hand-maintained `files:`
+  field would narrow the gate by editing a document, which is the bypass shape F-019 and F-025 both
+  had to close. Attribution reads commit **subjects** only; the F-043 commit's own body names four
+  tasks, which is exactly why bodies can't be trusted.
+- Two things caught by testing the fix against real history rather than reasoning about it: `review(…)`
+  and `docs(…)` commits had to be excluded from attribution, because `0c3b8a9` (`review(T-005)`)
+  bundled gate-tooling fixes — so T-005 would have "owned" `checks/lib/tracker.mjs`, and this very fix
+  would have invalidated T-005's review. The remedy would have reintroduced the bug it removes.
+- 9 new fixture tests, 53 pass including all 44 pre-existing — the change is backward-compatible.
+- **The gate is still red on T-005, and now correctly.** `406dd09` edited `loader.py` for the F-039
+  docstring fix, a file T-005 owns, so its review is genuinely stale. F-039's own entry predicted that
+  cost. The complaint went from "the tip moved" to "`406dd09` touched this task's files" — a true and
+  specific statement instead of a spurious one. T-005 needs a cheap re-review; T-006 needs its first.
+- Not promoted to canon: the factory is a separate repo under `Client Projects/`, and a promotion is a
+  decision to make deliberately rather than as a side effect. Filed in *Future hardening* with the
+  warning that `Sports/Dev-System/` is a stale copy at `bd58a22`, not the factory.
+
 ## 2026-08-10 — T-006 built: the `features` deep module
 
 - Built `backend/model/features.py` — one interface, `compute_features(history, target, as_of)`,
