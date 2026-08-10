@@ -1,0 +1,10 @@
+# Training-only dependencies for backend/model/ (D-016, docs/plans/PLAN-current.md).
+#
+# Never installed into the served image -- backend/requirements.txt stays untouched by this file.
+# Install alongside backend/requirements.txt, in the same venv, only when running backend/model/
+# code offline (the loader today; features/estimator in later Phase 1 tasks). Pinned exactly, same
+# discipline as requirements.txt.
+numpy==2.4.6
+pandas==3.0.5
+python-dateutil==2.9.0.post0
+six==1.17.0

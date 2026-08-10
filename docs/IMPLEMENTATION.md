@@ -24,9 +24,24 @@ rounds; the gate blocked three times and was right every time, twice finding def
 (F-018, F-019, both promoted back to Dev-System). The gate runs **8 checks**. PLAN-v1 is ACTIVE and
 **Phase 1 is open**: T-005..T-010, offline only — no schema, API, UI or served-image change.
 
-**Next action:** T-005 on branch `feat/phase-1-analytical-core`
-(`Use the backend-engineer subagent on T-005`). It is Phase 1's first non-docs commit, so it fires the
-`next-non-docs-commit` trigger on F-024 and F-025 — close both in that PR.
+**T-005 is `BUILT`** on `feat/phase-1-analytical-core`: `backend/model/loader.py` downloads the five
+pinned season CSVs (release tag `espn_nba_schedules`) into the gitignored `data/raw/nba_schedules/`,
+normalizes them to a completed-game collection, and verifies per-season counts before returning —
+2022→1324, 2023→1321, 2024→1320, 2025→1324, 2026→1326 (6,615 total), all matching. Ran for real; gate
+is green at 8/8. Not yet reviewed. `backend/requirements-train.txt` is new (D-016): pandas/numpy/
+python-dateutil/six, pinned exactly, never installed into the served image (`backend/requirements.txt`
+is untouched). `backend/model/__init__.py` is deliberately empty so importing the package never pulls
+in these training-only deps.
+
+**Scope note — F-024/F-025 NOT closed here.** This commit fires the `next-non-docs-commit` trigger on
+F-024 and F-025 (both live in `checks/lib/tracker.mjs`), but the backend-engineer session that built
+T-005 was explicitly scoped to `backend/model/` only and told not to touch `checks/`. Both findings
+remain `OPEN`; whoever picks up next should close them (or explicitly re-defer with a reason) before
+or alongside T-005's review.
+
+**Next action:** review T-005 (`security-auditor` + `logic-reviewer`; the security note is the loader's
+network+parsing path — see its module docstring for how each point was honored), then either continue
+with T-006 (`features` module) or close F-024/F-025 first.
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
 **History:** docs/log.md (append-only, session-by-session)
@@ -91,13 +106,27 @@ rounds; the gate blocked three times and was right every time, twice finding def
 <!-- Offline only. No schema, API, UI, or served-image change. Answers the one question that can
      invalidate everything downstream: can four pre-game features clear 62% with honest calibration? -->
 
-- [ ] **T-005** Historical data loader — `PLANNED` — owner: `backend-engineer`
+- [ ] **T-005** Historical data loader — `BUILT` — owner: `backend-engineer`
       - acceptance: downloads 2022–2026 season schedules from a pinned upstream release tag into the
         ignored data dir; normalizes to a completed-game collection; per-season counts match
-        (2022 → 1,324; 2026 → 1,326); non-final games excluded; re-running is idempotent
+        (2022 → 1,324; 2026 → 1,326); non-final games excluded; re-running is idempotent — **all met**
       - security note: third-party data over the network into a parsing path. Pin by release tag not a
         moving branch, verify the download before parsing, never use a deserializer that can execute
         code, write only inside the ignored data dir.
+      - outcome: `backend/model/loader.py` (package `__init__.py` deliberately empty, D-016) pins
+        `RELEASE_TAG = "espn_nba_schedules"`; downloads verify a header/size sanity check on raw bytes
+        before pandas ever parses them, write via temp-file + atomic rename, and skip re-download when
+        a valid cached file already exists (idempotent). Parsing uses pandas' text CSV reader with
+        every column typed `str` — never pickle/yaml/eval. `verify_completed_counts` re-asserts all
+        five pinned counts on every run and raises `LoaderIntegrityError` (not a warning) on any
+        mismatch — the tripwire standing in for the test suite this module deliberately doesn't have
+        (Testing Decisions, PLAN-current.md). Ran for real: 2022→1324, 2023→1321, 2024→1320,
+        2025→1324, 2026→1326, 6,615 total — all match. New training-only deps (pandas, numpy,
+        python-dateutil, six) pinned exactly in new `backend/requirements-train.txt`;
+        `backend/requirements.txt` unchanged. `data/raw/nba_schedules/` confirmed gitignored via
+        `git check-ignore`; `git status` stays clean after running the loader. Gate green, 8/8.
+        Not reviewed yet. F-024/F-025 NOT closed — out of this task's scope (`checks/` untouched); see
+        Current state.
 - [ ] **T-006** `features` deep module + tests — `PLANNED` — owner: `backend-engineer`
       - acceptance: one interface (history, target game, as-of) → feature mapping; rolling form, rest
         days, season-to-date point differential, home indicator, all as home-minus-away differences
@@ -230,6 +259,24 @@ rounds; the gate blocked three times and was right every time, twice finding def
   history. If DONE code is later modified, that is a new task with its own review, not a re-review of
   the old one. Promoted to canon (`be5f6dc`) rather than patched locally, because every project stamped
   from this canon has the bug. (Supersedes nothing.)
+
+- **D-019** 2026-08-09 — **T-005 implementation choices the plan left open.** (1) Parses with pandas
+  rather than the stdlib `csv` module — this source's CSVs carry a `highlights` column with embedded
+  newlines *and* Python-repr'd numpy arrays inside quoted fields, and pandas' C parser is the more
+  battle-tested engine for that; it's also what T-006/T-009 will need regardless, so `loader.py`'s
+  "heavy import" is not wasted. (2) Data lands at repo-root `data/raw/nba_schedules/` (not
+  `backend/data/`) — matches CLAUDE.md's framing of `data/` as the historical store's home. (3)
+  Idempotency is cache-then-verify: a valid cached file short-circuits re-download entirely, rather
+  than always re-fetching and overwriting; a corrupted/truncated cache fails loudly instead of
+  silently re-downloading, consistent with "fail hard, don't self-heal quietly." (4) Filtering does
+  **not** split by `season_type` — the pinned expected counts (docs/IMPLEMENTATION.md T-005) are
+  measured across all three (regular/postseason/play-in), so filtering further would fail the count
+  tripwire by construction; `season_type` is carried through unfiltered for T-006+ to use. (5) Hit an
+  environment issue, not a plan gap: the python.org macOS build doesn't read the system keychain, so
+  `urllib`'s default SSL context failed closed with `CERTIFICATE_VERIFY_FAILED`. Fixed by passing an
+  explicit `ssl.create_default_context(cafile=certifi.where())` — `certifi` is already a transitive
+  `requirements.txt` dependency (via `httpx`), so this added nothing to the served image; verification
+  is unchanged, only the CA source is made explicit. (Supersedes nothing.)
 
 ## Review ledger
 

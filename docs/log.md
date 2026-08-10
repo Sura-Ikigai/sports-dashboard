@@ -6,6 +6,26 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-09 — T-005: historical data loader built
+
+- `backend/model/loader.py` downloads the five pinned season CSVs (`espn_nba_schedules` release tag)
+  into gitignored `data/raw/nba_schedules/`, verifies header+size before parsing, parses with pandas
+  (never a code-executing deserializer), and normalizes to a completed-game collection. Ran for real:
+  2022→1324, 2023→1321, 2024→1320, 2025→1324, 2026→1326 — 6,615 total, all matching the pinned
+  expected counts (D-007's figure). `verify_completed_counts` raises hard on any mismatch — the
+  tripwire standing in for the test suite this module deliberately skips (Testing Decisions).
+- New `backend/requirements-train.txt` (D-016): pandas/numpy/python-dateutil/six pinned exactly;
+  `backend/requirements.txt` untouched. `backend/model/__init__.py` left empty on purpose so a future
+  serving-time import of the package never pulls in these training-only deps.
+- Hit a real macOS/python.org SSL gap (default context doesn't read the system keychain) — fixed with
+  an explicit certifi CA bundle, not a verification bypass (D-019).
+- Verified `data/raw/nba_schedules/` is actually gitignored (`git check-ignore`) and `git status` stays
+  clean after running the loader. Gate green, 8/8.
+- **Scope note:** this session was scoped to `backend/model/` only and did not touch `checks/`, so the
+  `next-non-docs-commit` trigger on F-024/F-025 fired but neither was closed — both remain `OPEN`.
+- Ended at: T-005 `BUILT`, not reviewed. Next is review (security-auditor + logic-reviewer), then
+  T-006, and F-024/F-025 still need an owner.
+
 ## 2026-08-09 — Phase 1 blocked by a canon bug (F-018); fixed and promoted
 
 - Tried to start T-005 and found the gate would reject it. `review-ledger-current` gated every
