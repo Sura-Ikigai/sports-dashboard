@@ -6,6 +6,37 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-10 — T-006 reviewed (⛔⛔), remediated; T-005 re-reviewed (✅✅)
+
+- Ledger audit first: F-024/F-032/F-035 all had a status true in the code and wrong or absent here.
+  Added a *Findings — status index* as an explicitly derived view, because with 43 append-only entries
+  "is F-0NN open?" could only be answered by reading the whole document.
+- **T-005 re-review ✅✅ at `34759ed`.** Both reviewers proved `406dd09`'s loader edit is
+  narrative-only — AST identical after stripping docstrings, every code object byte-for-byte the same
+  — and security honored F-041 anyway by re-running the download into an empty temp dir. The F-043
+  fix paid for itself immediately: the remediation commit touches no file T-005 owns, so its ✅ stays
+  current instead of expiring again.
+- **T-006 round 1: ⛔⛔, both earned.** Security found F-044 — the target's own result *was* reachable
+  through `history`; the scoreless `Matchup` closed the direct route only, and the target stayed out
+  of its own features purely because `as_of == target.date`, a caller-side property. With `as_of` an
+  hour later, a 200-80 result moved `point_diff_diff` 6.0 → 32.0. Also F-045 (a consumed generator or
+  a mistyped season silently returns priors — indistinguishable from D-015's cold start), F-046
+  (`load_games((2022,2022))` → 2,648 games, no error), F-047..F-050.
+- **The logic review landed harder, and on the tests rather than the module.** ~60 mutations: 39
+  caught, **7 survived**, three of which change 5,096 / 5,809 / 5,283 of the 6,615 real vectors. The
+  worst was mine twice over: every form fixture was a *uniform* streak, so first-ten and last-ten were
+  identical by construction and **nothing asserted that rolling form is rolling** (F-051, HIGH). And
+  the fixture epoch was midnight, so `test_leakage_a_game_one_microsecond_before_as_of_is_included` —
+  written precisely to catch day-granularity — could not fail (F-054).
+- Remediated all 17. Verified by re-running the reviewers' own mutations rather than by inspection:
+  **10/10 now caught**, two only after a second attempt (the first same-instant fixture still let the
+  sort-tiebreaker mutation through, because two same-instant games inside the window contribute
+  identically however ordered — it only bites when the pair *straddles* the window boundary). Suite
+  58 → 79; real-corpus numbers unchanged to the digit, since the fixes changed what is *refused*.
+- **D-024 supersedes D-020(4)**, which I had gotten factually wrong: 3 of the 19 neutral-site games
+  are All-Star phantoms, and after F-042's exclusion 2022 has *zero*, so fold 1 has 1 neutral game in
+  2,643 rows. `home_advantage` is not identifiable in the early folds. A count is not a distribution.
+
 ## 2026-08-10 — F-043 fixed: review currency is now per-task, not repo-wide
 
 - Human picked the hard option: fix the rule rather than work around it. `evaluateLedgerCurrency`

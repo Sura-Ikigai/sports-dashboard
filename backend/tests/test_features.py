@@ -36,7 +36,12 @@ from model.features import (
 )
 
 SEASON = 2024
-_EPOCH = datetime(2024, 1, 1, tzinfo=UTC)
+# F-054: deliberately NOT midnight. Every `as_of` here is a whole-day offset from this epoch,
+# so a midnight epoch made "truncate as_of to the day" a no-op -- which let a day-granularity
+# as-of filter survive the whole suite, including the microsecond test written to catch it.
+# 5,360 of the 6,615 real games tip off at a non-midnight instant, so 19:00Z is also the
+# realistic choice. Nothing else in the suite depends on the epoch's time-of-day.
+_EPOCH = datetime(2024, 1, 1, 19, 0, tzinfo=UTC)
 
 
 def at(day: float) -> datetime:
@@ -246,11 +251,35 @@ def test_a_completed_game_cannot_be_passed_as_the_target():
 
 
 def _home_streak(wins: int, margin: int, *, start_day: float = 0.0) -> list[Game]:
-    fillers = "CDEFGHIJKLMNOPQ"
+    fillers = "CDEFGHIJKLMNOPQRSTUVWXYZ"
     return [
         game(f"s{i}", start_day + i, "A", fillers[i], 100 + margin, 100)
         for i in range(wins)
     ]
+
+
+def _home_results(results: str, *, margin: int = 10, start_day: float = 0.0) -> list[Game]:
+    """A history for team A from a result string, e.g. "LLLLLWWWWWW" -- oldest first, one game a day.
+
+    Deliberately supports NON-uniform records. Every form fixture used to be a uniform streak, which
+    made the first `FORM_WINDOW` games and the last `FORM_WINDOW` games numerically identical, so
+    nothing in the suite could tell a rolling window from a fixed one (F-051).
+    """
+    fillers = "CDEFGHIJKLMNOPQRSTUVWXYZ"
+    out = []
+    for i, r in enumerate(results):
+        won = r.upper() == "W"
+        out.append(
+            game(
+                f"r{i}",
+                start_day + i,
+                "A",
+                fillers[i % len(fillers)],
+                100 + (margin if won else -margin),
+                100,
+            )
+        )
+    return out
 
 
 def test_shrinkage_at_zero_prior_games_yields_the_priors_exactly():
@@ -483,3 +512,267 @@ def test_to_vector_refuses_a_mapping_that_does_not_match_the_contract():
         to_vector({k: v for k, v in features.items() if k != "rest_diff"})
     with pytest.raises(FeatureInputError, match="unexpected="):
         to_vector({**features, "spread": 1.0})
+
+
+# --- regression tests for the T-006 review gate (F-044..F-060) ------------------------------------
+#
+# Each of these pins something a reviewer demonstrated was unpinned. The logic-reviewer's standard is
+# the one that matters here: a test earns its place only if it FAILS when the module is subtly wrong.
+# The mutation each test kills is named, so a future reader can re-run that mutation to check the
+# test still has teeth.
+
+
+def test_form_is_rolling_not_merely_windowed():
+    """F-051 — kills `[-FORM_WINDOW:]` -> `[:FORM_WINDOW]` (5,096 of 6,615 real vectors differ).
+
+    Every previous form fixture was a uniform streak, so the oldest ten games and the newest ten were
+    numerically identical and nothing asserted *recency*. Here the early record is bad and the late
+    record is good, so reading the window from the wrong end inverts the sign of the feature.
+    """
+    # 11 games: 5 losses, then 6 wins. The last 10 are LLLL WWWWWW -> 6 wins in 10.
+    history = _home_results("LLLLLWWWWWW")
+    features = compute_features(history, matchup("t", 20, "A", "B"), at(20))
+
+    n = FORM_WINDOW
+    observed_last_10 = 6 / 10
+    expected = (n / (n + SHRINKAGE_K)) * observed_last_10 + (
+        SHRINKAGE_K / (n + SHRINKAGE_K)
+    ) * PRIOR_WIN_RATE
+    assert features["form_diff"] == pytest.approx(expected - PRIOR_WIN_RATE)
+    assert features["form_diff"] == pytest.approx(2 / 3 * 0.6 + 1 / 3 * 0.5 - 0.5)
+    assert features["form_diff"] > 0  # the recent record is winning; the oldest ten are 5-5
+
+    # The discriminating assertion: reading the OLDEST ten (LLLLLWWWWW = 5 wins) would give exactly
+    # the prior and a form_diff of 0.0. It must not.
+    assert features["form_diff"] != pytest.approx(0.0)
+
+
+def test_form_window_reads_the_most_recent_games_when_the_record_reverses():
+    """F-051, the mirror case — a good early record and a bad late one must produce a NEGATIVE
+    form_diff. Together with the test above this pins direction as well as magnitude."""
+    history = _home_results("WWWWWLLLLLL")
+    features = compute_features(history, matchup("t", 20, "A", "B"), at(20))
+    assert features["form_diff"] == pytest.approx(2 / 3 * 0.4 + 1 / 3 * 0.5 - 0.5)
+    assert features["form_diff"] < 0
+
+
+def test_season_point_differential_shrinks_on_the_full_season_count():
+    """F-052 — kills both `n = min(len(margins), FORM_WINDOW)` (5,809 real vectors differ) and
+    `n = len(records)` (5,225 differ).
+
+    The old test asserted only a direction (`with_earlier > windowed_only`), which both mutations
+    satisfy. This pins the literal, with a season count deliberately larger than FORM_WINDOW so that
+    capping n at the window is arithmetically distinguishable.
+    """
+    # 12 games at a known mean margin: 12 wins by +10 -> mean +10, n = 12 (not 10).
+    history = _home_streak(12, margin=10)
+    features = compute_features(history, matchup("t", 20, "A", "B"), at(20))
+
+    n = 12
+    assert features["point_diff_diff"] == pytest.approx((n / (n + SHRINKAGE_K)) * 10.0)
+    assert features["point_diff_diff"] == pytest.approx(12 / 17 * 10.0)
+    # If n were capped at FORM_WINDOW it would be 10/15*10 = 6.667; if it counted all seasons it
+    # would still be 12 here, so the prior-season guard below completes the pin.
+    assert features["point_diff_diff"] != pytest.approx(10 / 15 * 10.0)
+
+
+def test_point_differential_count_ignores_other_seasons():
+    """F-052, second half — kills `n = len(records)` (the all-seasons count) specifically, which the
+    single-season fixture above cannot distinguish."""
+    history = [
+        *[game(f"p{i}", -200 + i, "A", "C", 130, 100, season=SEASON - 1) for i in range(8)],
+        *_home_streak(12, margin=10),
+    ]
+    features = compute_features(history, matchup("t", 20, "A", "B"), at(20))
+    # n must be 12 (this season only), not 20 (all seasons).
+    assert features["point_diff_diff"] == pytest.approx(12 / 17 * 10.0)
+    assert features["point_diff_diff"] != pytest.approx(20 / 25 * 10.0)
+
+
+def test_compute_training_features_uses_the_tip_off_instant_exactly():
+    """F-053 — kills `as_of = game.date - 1 day` and `as_of = midnight of the tip-off day`.
+
+    `compute_training_features` is the single entry point T-009 uses for every training row, and no
+    test pinned its `as_of`. The history below contains a game a few HOURS before tip-off, so any
+    coarsening of the as-of moment drops it and changes the answer.
+    """
+    target_game = game("target", 10, "A", "B", 111, 100)
+    hours_before = game("recent", 10 - 3 / 24, "A", "E", 130, 90)  # 3 hours before tip-off
+    history = [*GOLDEN_HISTORY, hours_before, target_game]
+
+    assert compute_training_features(history, target_game) == compute_features(
+        history, target_game.matchup, target_game.date
+    )
+    # ...and that game is genuinely inside the window, so a coarser as_of would be detectable.
+    without_recent = compute_features(
+        [*GOLDEN_HISTORY, target_game], target_game.matchup, target_game.date
+    )
+    assert compute_training_features(history, target_game) != without_recent
+
+
+def test_the_as_of_filter_has_sub_day_granularity():
+    """F-054 — kills truncating `as_of` to midnight (77 real vectors differ).
+
+    The corpus has 83 team-days with two games on the same UTC date, so day-granularity is not a
+    theoretical concern. The fixture epoch is 19:00Z precisely so that this can fail.
+    """
+    earlier_same_day = game("same-day", 10 - 2 / 24, "A", "E", 140, 80)  # 2h before, same UTC date
+    baseline = compute_features(GOLDEN_HISTORY, GOLDEN_TARGET, GOLDEN_AS_OF)
+    with_earlier = compute_features(
+        [*GOLDEN_HISTORY, earlier_same_day], GOLDEN_TARGET, GOLDEN_AS_OF
+    )
+    assert with_earlier != baseline  # it is before as_of, so it must count
+
+    later_same_day = game("later", 10 + 2 / 24, "A", "E", 140, 80)  # 2h after, same UTC date
+    with_later = compute_features([*GOLDEN_HISTORY, later_same_day], GOLDEN_TARGET, GOLDEN_AS_OF)
+    assert with_later == baseline  # after as_of, so it must not — even on the same calendar day
+
+
+def test_to_vector_order_is_pinned_to_literals_not_to_feature_names():
+    """F-055 — kills `to_vector` returning `tuple(features.values())`.
+
+    The old assertion built its expected tuple from FEATURE_NAMES, so both sides moved together and
+    a mapping-order implementation passed. This pins literals in a fixed order and feeds in a
+    deliberately shuffled mapping.
+    """
+    features = compute_features(GOLDEN_HISTORY, GOLDEN_TARGET, GOLDEN_AS_OF)
+    assert to_vector(features) == pytest.approx((1.0, 0.125, 3.0, 6.0))
+
+    shuffled = {k: features[k] for k in reversed(list(features))}
+    assert list(shuffled) != list(FEATURE_NAMES)  # the input really is out of order
+    assert to_vector(shuffled) == pytest.approx((1.0, 0.125, 3.0, 6.0))
+
+
+def test_to_vector_refuses_non_finite_and_non_numeric_values():
+    """F-049 — a NaN reaching the estimator produces NaN coefficients, and the first symptom is a
+    nonsense headline number."""
+    features = compute_features(GOLDEN_HISTORY, GOLDEN_TARGET, GOLDEN_AS_OF)
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(FeatureInputError, match="finite"):
+            to_vector({**features, "rest_diff": bad})
+    with pytest.raises(FeatureInputError, match="real number"):
+        to_vector({**features, "rest_diff": "3.0"})
+
+
+def test_a_game_cannot_contribute_to_its_own_features_even_if_as_of_moves_past_tip_off():
+    """F-044 — the target's own result was reachable through `history`.
+
+    The `Matchup` type closes the direct route; this closes the one the scores actually live on. The
+    exclusion is by `game_id`, so it holds however the caller's timestamps line up.
+    """
+    target_game = game("target", 10, "A", "B", 200, 80)  # a blowout, to make leakage obvious
+    history = [*GOLDEN_HISTORY, target_game]
+
+    honest = compute_training_features(history, target_game)
+    assert honest == pytest.approx(GOLDEN_EXPECTED)
+
+    # A Matchup built by hand, dated microseconds later than the Game in history — the case that
+    # previously let the 200-80 result into its own feature vector.
+    later = Matchup(
+        game_id="target",
+        date=at(10) + timedelta(microseconds=1),
+        season=SEASON,
+        home_id="A",
+        away_id="B",
+    )
+    assert compute_features(history, later, later.date) == pytest.approx(GOLDEN_EXPECTED)
+
+
+def test_duplicate_game_ids_in_history_are_refused():
+    """F-046 — F-027's "right count, wrong rows" one layer downstream. `load_games((2022, 2022))`
+    returned 2,648 games with 1,324 unique ids and no error."""
+    with pytest.raises(FeatureInputError, match="duplicate game_id"):
+        compute_features([*GOLDEN_HISTORY, GOLDEN_HISTORY[0]], GOLDEN_TARGET, GOLDEN_AS_OF)
+
+
+def test_a_one_shot_iterator_is_refused_rather_than_silently_yielding_priors():
+    """F-045 — building the index consumed the generator, so the SECOND call saw an empty history
+    and returned priors with no exception: indistinguishable from a legitimate cold start."""
+    with pytest.raises(FeatureInputError, match="Sequence"):
+        compute_features((g for g in GOLDEN_HISTORY), GOLDEN_TARGET, GOLDEN_AS_OF)
+
+
+def test_mistyped_keys_are_refused_rather_than_missing_every_lookup():
+    """F-045 — a str season or an int team id misses every index lookup and returns priors."""
+    with pytest.raises(FeatureInputError, match="season must be an int"):
+        Matchup(game_id="t", date=at(5), season="2024", home_id="A", away_id="B")
+    with pytest.raises(FeatureInputError, match="home_id must be a str"):
+        Matchup(game_id="t", date=at(5), season=SEASON, home_id=1, away_id="B")
+    with pytest.raises(FeatureInputError, match="season must be an int"):
+        game("g", 0, "A", "B", 110, 100, season="2024")
+
+
+def test_non_integer_scores_are_refused_including_nan():
+    """F-049 — `nan != nan`, so a NaN score sailed straight through the tie check."""
+    with pytest.raises(FeatureInputError, match="home_score must be an int"):
+        Game(
+            game_id="g", date=at(0), season=SEASON, home_id="A", away_id="B",
+            home_score=float("nan"), away_score=float("nan"),
+        )
+    with pytest.raises(FeatureInputError, match="must be an int"):
+        Game(
+            game_id="g", date=at(0), season=SEASON, home_id="A", away_id="B",
+            home_score=110.5, away_score=100,
+        )
+
+
+def test_a_game_history_subclass_cannot_bypass_the_as_of_filter():
+    """F-050 — `isinstance` let a subclass through unwrapped, so overriding `_records_before` in six
+    lines handed back unfiltered history. `of` now demands the exact type."""
+
+    class Unfiltered(GameHistory):
+        def _records_before(self, team, as_of, exclude_game_id):  # noqa: ARG002
+            return self._records.get(team, ())
+
+    leaky = Unfiltered([*GOLDEN_HISTORY, game("future", 30, "A", "E", 200, 80)])
+    # Refused outright, rather than quietly rebuilt: a caller whose override is silently ignored
+    # never learns it does not run.
+    with pytest.raises(FeatureInputError, match="subclasses GameHistory"):
+        compute_features(leaky, GOLDEN_TARGET, GOLDEN_AS_OF)
+
+
+def test_index_is_a_function_of_the_set_of_games_not_their_order():
+    """F-058 — kills dropping the `(date, game_id)` sort tiebreaker.
+
+    The GameHistory docstring claimed the tiebreaker made the index "a pure function of the set of
+    input games ... asserted in the tests", and it was not. Two same-instant games alone are not
+    enough: if both sit inside the form window and share a date they contribute identically however
+    they are ordered, so the features come out the same either way and the mutation survives. That
+    is why the first attempt at this test still let it through.
+
+    The tiebreaker is only observable when two same-instant games STRADDLE the window boundary, so
+    exactly one of them is counted. Below: 11 season games, two of them at the same instant on day 0
+    with opposite results. The window keeps the newest 10, which drops precisely one of that pair —
+    and without a deterministic tiebreaker, which one depends on input order.
+    """
+    pair = [
+        game("z-second", 0, "A", "C", 100, 130),  # a loss, id sorts LAST
+        game("a-first", 0, "A", "D", 130, 100),  # a win, id sorts FIRST
+    ]
+    rest = [game(f"f{i}", 1 + i, "A", "EFGHIJKLM"[i], 130, 100) for i in range(9)]
+    history = [*pair, *rest]
+    target = matchup("t", 20, "A", "B")
+
+    baseline = compute_features(history, target, at(20))
+    rng = random.Random(4242)
+    for _ in range(40):
+        shuffled = list(history)
+        rng.shuffle(shuffled)
+        assert compute_features(shuffled, target, at(20)) == baseline
+
+    # The pair really does straddle the boundary: 11 season games, window keeps 10.
+    assert len(history) == FORM_WINDOW + 1
+    # `a-first` sorts first and is therefore the one dropped, so the window holds 9 wins and 1 loss.
+    assert baseline["form_diff"] == pytest.approx(2 / 3 * 0.9 + 1 / 3 * 0.5 - 0.5)
+
+
+def test_neutral_site_defaults_to_false_on_both_types():
+    """F-059 — the helpers always passed the flag, so flipping the dataclass default to True passed
+    the whole suite."""
+    assert Matchup(game_id="t", date=at(5), season=SEASON, home_id="A", away_id="B").neutral_site is False
+    assert Game(
+        game_id="g", date=at(0), season=SEASON, home_id="A", away_id="B",
+        home_score=110, away_score=100,
+    ).neutral_site is False
+    bare = Matchup(game_id="t", date=at(5), season=SEASON, home_id="A", away_id="B")
+    assert compute_features([], bare, at(5))["home_advantage"] == 1.0

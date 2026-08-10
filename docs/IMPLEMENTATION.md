@@ -19,24 +19,20 @@
 
 ## Current state
 
-**State now:** **T-006 is `BUILT`, awaiting review.** `backend/model/features.py` is the deep module:
-one interface (`compute_features(history, target, as_of)`), standard-library only (D-021), with the
-as-of filter enforced three independent ways — inside the module at query time, structurally (the
-target is a scoreless `Matchup`, so its own result is unreachable), and by refusing `as_of` after
-tip-off (D-022). 40 new tests pass, including the leakage property test *with a control proving it is
-not vacuous*. Verified against the real 6,615-game corpus, not only fixtures: the leakage guarantee
-holds on real games, opening night is predicted rather than dropped, and the signal points the right
-way. T-005 stays `REVIEWED` at `8eae86c`.
+**State now:** **T-005 is `REVIEWED` at `34759ed` (✅✅)** — both reviewers re-reviewed it after
+`406dd09` touched `loader.py`, proved the change AST-identical once docstrings are stripped, and
+security re-ran the download from a genuinely empty dir anyway. **T-006 is `BUILT` and remediated,
+awaiting re-review.** Round 1 was ⛔⛔ and both verdicts were earned: security showed the target's own
+result was reachable through `history` (F-044 — the `Matchup` split closed only the direct route), and
+logic ran ~60 mutations of which **7 survived my test suite**, three changing 5,000+ of the 6,615 real
+feature vectors. The module was largely right; the *tests* were not. All 17 findings (F-044..F-060)
+are addressed, and the fix is verified by re-running the reviewers' own mutations — **10/10 now
+caught**. Suite 58 → 79. Real-corpus numbers unchanged to the digit.
 
-**F-043 is FIXED** (D-023): `review-ledger-current` now asks currency **per task** — has anything
-touched *this task's own files* since its ✅ — instead of against a repo-wide moving tip, so reviews
-no longer compound-expire across a multi-task branch. Not yet promoted to canon.
-
-**Next action:** the review gate, on **two** tasks. `Use the security-auditor subagent on T-006`, then
-`logic-reviewer`; and **re-review T-005**, whose ✅ is now genuinely — not spuriously — stale, because
-`406dd09` edited `backend/model/loader.py` for the F-039 docstring fix. That is one docstring diff, so
-it should be cheap. The gate is red on exactly that and nothing else; every other check passes.
-**F-042** (10 All-Star games in the corpus) is for T-007/T-009, not T-006.
+**Next action:** re-review T-006 (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
+against the remediation. Then **F-042** (exclude the 10 All-Star games) before T-007 begins — note
+**D-024/F-057**, which corrects D-020(4): once F-042's filter lands, `home_advantage` is 1.0 in
+2,642 of fold 1's 2,643 rows, so its coefficient is not identifiable in the early folds.
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
 **History:** docs/log.md (append-only, session-by-session)
@@ -382,11 +378,34 @@ it should be cheap. The gate is red on exactly that and nothing else; every othe
   attributable commits falls back to the stricter repo-wide rule rather than being exempted.
   (Supersedes nothing; implements the *Future hardening* item F-019 filed and F-043 sharpened.)
 
+- **D-024** 2026-08-10 — **`home_advantage` is near-collinear with the intercept in the early folds.
+  Supersedes D-020(4).** D-020(4) justified the neutral-site feature with "19 real games, all regular
+  season, spread across all five seasons, so the feature is genuinely non-constant rather than an
+  intercept in disguise." The logic reviewer checked that claim against the corpus and it is wrong on
+  both counts; re-verified independently here:
+  - **3 of the 19 neutral games involve F-042's All-Star phantom ids**, so they are not all regular
+    season, and they disappear the moment F-042's filter lands.
+  - After that exclusion the per-season counts are `{2023: 1, 2024: 3, 2025: 6, 2026: 6}` — **2022 has
+    zero**, so they are not spread across all five seasons either. PLAN-v1's **first training fold
+    (2022–23) contains exactly 1 neutral game in 2,643 rows**: `home_advantage` is `1.0` in
+    2,642 of 2,643.
+  A column that constant is near-perfectly collinear with the intercept, so its fitted coefficient is
+  unstable and essentially arbitrary — which directly undermines T-010's acceptance ("records which
+  features carried signal, via coefficients and their direction"). **This is not a T-006 code change**
+  — the feature is computed correctly and is genuinely informative by the later folds. It is a
+  constraint on T-009/T-010: report the coefficient with its uncertainty and say plainly that the
+  early folds cannot identify it, or fold `home_advantage` into the intercept for those folds. What
+  must not happen is quoting a home-court coefficient from fold 1 as if it meant something.
+  Lesson worth keeping: D-020(4) cited a real number (19) and drew a wrong conclusion from it,
+  because the number was never broken down per season or checked against the known-contaminated ids
+  the *same session* had just found (F-042). A count is not a distribution.
+
 ## Review ledger
 
 | Task  | security-auditor | logic-reviewer | ui-ux-reviewer | notes |
 |-------|------------------|----------------|----------------|-------|
-| T-005 | ✅ 8eae86c       | ✅ 8eae86c     | n/a            | 3 rounds: ✅/⛔ @32110ce (F-026/F-027 HIGH) · ⛔⛔ @e2d2558 (F-037 broke real downloads) · ✅✅ @8eae86c. n/a: no user-facing surface |
+| T-006 | pending          | pending        | n/a            | r1 ⛔⛔ @34759ed: security F-044 (target's own result reachable via `history`) · logic F-051 HIGH (7 mutations survived; 3 change 5,000+ real vectors). Remediated — awaiting re-review. n/a: offline module, no user-facing surface |
+| T-005 | ✅ 34759ed       | ✅ 34759ed     | n/a            | 4 rounds: ✅/⛔ @32110ce (F-026/F-027 HIGH) · ⛔⛔ @e2d2558 (F-037 broke real downloads) · ✅✅ @8eae86c · re-review ✅✅ @34759ed after `406dd09` touched loader.py (F-039 docstring; both reviewers proved it AST-identical, security re-ran the download from an empty dir). n/a: no user-facing surface |
 | T-001 | ✅ 763101e       | ✅ 763101e     | n/a            | 4 rounds: r1 ⛔⛔@d8e3515 · r2 ✅✅@d0e661d · r3 logic ✅/security ⛔@fef3dc8 (F-019) · r4 ✅✅@763101e. n/a: no user-facing surface changed |
 
 ## Findings — status index
@@ -401,7 +420,7 @@ it should be cheap. The gate is red on exactly that and nothing else; every othe
      so — and until this table said so, "closed" was invisible to anyone who had not read the whole
      document. Adding a finding, or changing one's status, means updating this row too. -->
 
-**Open / accepted — the live set (5):**
+**Open / accepted — the live set (6):**
 
 | ID | Sev | Area | Status | Fires when |
 |----|-----|------|--------|-----------|
@@ -410,8 +429,9 @@ it should be cheap. The gate is red on exactly that and nothing else; every othe
 | **F-015** | LOW | ops | ACCEPTED — `ui-ux-reviewer` declared but not mechanically enforced | `reconcile-canon` |
 | **F-006** | LOW | ops | OPEN — `docker-compose.prod.yaml` is a 0-byte file | — |
 | **F-007** | LOW | ops | OPEN — `ci.yml` duplicates every gate check | — |
+| **F-057** | MEDIUM | data/design | OPEN — `home_advantage` collinear with the intercept in early folds (see D-024) | `T-009` |
 
-**Closed (38):** F-002 · F-003 · F-004 · F-005 (all CLOSED as moot or designed out by D-004/D-005) ·
+**Closed (54):** F-044 · F-045 · F-046 · F-047 · F-048 · F-049 · F-050 (T-006 security review, all FIXED in remediation) · F-051 · F-052 · F-053 · F-054 · F-055 · F-056 · F-058 · F-059 · F-060 (T-006 logic review, all FIXED; every surviving mutation re-run and now caught) · F-002 · F-003 · F-004 · F-005 (all CLOSED as moot or designed out by D-004/D-005) ·
 F-008 · F-009 · F-010 · F-011 · F-012 · F-013 (FIXED @ `d0e661d`, T-001 round 1) · F-014 · F-016 ·
 F-017 (CLOSED, T-001 round 3) · F-018 (FIXED, canon `be5f6dc`) · F-019 (FIXED, canon `6f49f29`) ·
 F-020 · F-021 · F-022 · F-023 (FIXED @ `763101e`; F-021 project-local only — canon still ships the
@@ -826,6 +846,192 @@ F-026 · F-027 · F-028 · F-029 · F-030 · F-031 · F-032 · F-033 · F-034 (F
   cost. The complaint changed from "the tip moved" to "`406dd09` touched this task's files", which is
   a true and specific statement. T-005 needs a cheap re-review (one docstring diff); T-006 needs its
   first. **Not yet promoted to canon** — see *Future hardening*.
+
+### Review gate — T-006 @ 34759ed (security ⛔) · T-005 re-review @ 34759ed (security ✅)
+
+<!-- T-006 stays BUILT; per SYSTEM.md §5.4 the builder remediates and the reviewer re-runs. Every
+     finding below was reproduced by the auditor with a runnable script, not argued — F-044, F-045,
+     F-046, F-048, F-049 and F-050 are all marked CONFIRMED with output. -->
+
+- **T-005 re-review: ✅.** The auditor did not take "it's only a docstring" on faith. It stripped
+  docstrings and compared ASTs, then compared every code object in the module recursively: the sole
+  difference in `406dd09` is the module docstring string constant, with `download_season_csv`,
+  `_validate_header`, `_validate_content_hash`, `_verify_season` and `load_season` byte-for-byte
+  identical. It then honored F-041 anyway and ran the download path against a genuinely **empty**
+  temp dir — 2023 → 1,776,788 bytes → hash matched the pin → 1,321 completed; 2024 → 1,320 — leaving
+  the real corpus read-only and byte-identical. Also confirmed the new docstring is *accurate*: it
+  stops restating the host set and points at `_ALLOWED_DOWNLOAD_HOSTS`.
+- **F-044** (integrity/leakage, MEDIUM) — **CONFIRMED. The target's own result IS reachable through
+  `history`.** T-006's security note claims the scoreless `Matchup` makes it "unreachable by any bug".
+  That closes the *direct* door only: the scores live in `history`, and `compute_features` never
+  compares `target.game_id` against the filtered window. The only thing keeping a target out of its
+  own features is the *coincidence* that `Matchup.date` equals its `Game.date` — a caller-side data
+  property, which is exactly the delegation the security note forbids. Demonstrated: with the target
+  in history as a 200–80 blowout and `as_of` one hour after tip-off, `point_diff_diff` moves 6.0 →
+  32.0. Not hypothetical via the new seam either — `to_pydatetime()` truncates nanoseconds, so a
+  caller using the frame's own `Timestamp` as `as_of` is already past `Game.date` (the pinned corpus
+  is minute-precision, so it does not fire today). Remediation: refuse or drop records whose
+  `game_id == target.game_id`, and correct the docstring's claim.
+- **F-045** (integrity, MEDIUM) — **CONFIRMED. A total lookup miss is indistinguishable from D-015's
+  legitimate cold start.** Three triggers, none of which raises: a one-shot iterator (the declared
+  `Iterable[Game]`) reused across calls returns priors on the second call; `Matchup.season` as `"2024"`
+  vs `Game.season` as `2024`; team ids typed `str` in history and `int` in the target. Each silently
+  yields `form_diff 0.0, point_diff_diff 0.0` — byte-identical to what opening night legitimately
+  produces, because D-015 deliberately removed the dropped-games symptom that would have exposed it.
+  Failure scenario: T-009's headline reads "four features carry no signal, no-ship" when the truth is
+  "the pipeline is broken" — the exact silent failure PLAN-v1 §2 exists to design out. Remediation:
+  type `history` as `Sequence[Game]` (or refuse a consumed iterator) and validate season/team-id types
+  at the boundary. **Do not simply refuse unknown teams** — that would break the genuine cold start.
+- **F-046** (integrity, MEDIUM) — **CONFIRMED. Nothing asserts `game_id` uniqueness across the
+  *combined* collection.** T-005 checks per season; `verify_completed_counts` keys `actual` by season,
+  so a repeated season collapses to one key and passes. Demonstrated on the real corpus:
+  `load_games((2022, 2022))` → **2,648 games, 1,324 unique ids, no error**, and a target's
+  `point_diff_diff` shifts 4.400 → 4.755. This is F-027's "right count, wrong rows" one layer
+  downstream, and `GameHistory`'s docstring claims it is "a pure function of the **set** of input
+  games" when it is a function of the multiset. Remediation: assert uniqueness in
+  `GameHistory.__init__` — it already iterates every game, and it is the only place covering every
+  path in. Scope note from the auditor: `verify_completed_counts` is byte-identical to what was
+  reviewed at `8eae86c`, so this does **not** reopen T-005; it is filed against T-006 because
+  `dataset.load_games` is the new entry point that surfaces it.
+- **F-047** (integrity, LOW) — missing check CONFIRMED, exploit PLAUSIBLE. `date` is **tip-off**, not
+  completion, so the contract "games completed strictly before `as_of`" is really "games that tipped
+  off before". `Game` carries no status field. Harmless in Phase 1 — the auditor measured every
+  consecutive-game gap in the corpus (min 0.50h, median 48h) and all seven sub-12h gaps belong to
+  F-042's All-Star phantom ids, never a real team. But D-011 puts one `games` table behind training
+  and inference, and the app's enum is `scheduled|live|final`; a Phase-2 caller that forgets to filter
+  `status == 'final'` feeds a live partial score into a "pre-game" vector. Remediation: state it as a
+  precondition, or give `Game` a final-only construction path so Phase 2 cannot forget.
+- **F-048** (input validation, LOW) — **CONFIRMED.** `dataset.games_from_frame` coerces with bare
+  `bool()`/`int()`/`str()` despite claiming "no reinterpretation": `neutral_site` as the *string*
+  `'False'` becomes `True`, a float score `118.9` truncates to `118`, and a plain-`str` date column
+  dies with a raw `AttributeError`. The inverted `neutral_site` matters most — it would make
+  `home_advantage` a constant `0.0` and silently delete the model's only guaranteed feature, and
+  `test_neutral_site_survives_as_a_real_bool` only exercises `True`. Nothing is wrong at `34759ed`
+  (the loader emits a real bool); this is a gap in the seam that exists to *be* the trust boundary.
+- **F-049** (input validation, LOW) — **CONFIRMED.** `Game.__post_init__` validates awareness,
+  self-play and ties but not that scores are numbers. `float('nan')` scores pass the tie check
+  because `nan != nan`; `to_vector` then propagates NaN and inf, and accepts the string `"3.0"`. Not
+  reachable from the loader path (`.astype(int)` raises on NaN — verified). Remediation: require
+  integral scores; assert `math.isfinite` in `to_vector`.
+- **F-050** (integrity, LOW) — **CONFIRMED.** `GameHistory.of` uses `isinstance`, so a **subclass** is
+  returned unwrapped and `compute_features` calls its `_records_before`. A 6-line subclass overriding
+  that method leaks a future game — the literal counterexample to the docstring's "no code path in
+  this module reads a game dated at or after `as_of`". Remediation: `type(history) is cls`.
+
+> **What the auditor tried to break and could not** — recorded because it is as load-bearing as the
+> findings. It neutered `_records_before` in memory two ways (`bisect_right`, and no filter at all)
+> and re-ran the suite: **both mutations were caught by the leakage property test**, so that test is
+> not vacuous and the builder's control is genuine. Timezone handling survived re-expressing `as_of`,
+> the target and the whole history in `+05:00` — bit-identical output. `GameHistory` genuinely holds
+> no as-of state (prebuilt index ≡ raw sequence across 14 real games). Leakage re-derived
+> independently on 133 real corpus games: 0 mismatches. D-021 verified *faithfully* — the auditor
+> noted pytest 9.1's `importorskip` defaults to `ModuleNotFoundError`, blocked pandas/numpy/pyarrow/
+> dateutil/six, and got **52 passed, 1 skipped**; importing `model.features` loads **zero**
+> site-packages modules. No pickle/yaml/eval/subprocess/network/filesystem access in either new
+> module. T-005's verification chain is not weakened by the new entry point: `(1999,)`, `(2021,)` and
+> `(2027,)` all raise before any URL or path is built. Cost is linear and flat (~0.06–0.10 µs/game;
+> a full T-009-shaped pass over 6,615 games takes 0.12 s, 0 non-finite vectors).
+
+> **Noted for later, not filed as findings:** `_form`/`_season_point_diff` re-scan the team's whole
+> filtered history per call (`[r for r in records if r.season == season]`), which partly negates the
+> bisect `GameHistory` justifies itself with — measured harmless, an efficiency/altitude call. The
+> `max(gap, 0.0)` clamp in `_rest_days` is unreachable dead code, since
+> `records[-1].date < as_of ≤ target.date` guarantees a positive gap. And `backend/models.py`
+> (SQLAlchemy) vs `backend/model/` (this package) is a one-character import-path collision that will
+> bite when Phase 2 imports both into the FastAPI service — pre-existing, out of T-006's scope.
+
+### Review gate — T-006 @ 34759ed (logic ⛔) — mutation testing found the tests, not the module
+
+<!-- The logic-reviewer's verdict is worth reading in full: the MODULE passed every acceptance
+     criterion it could independently verify, including recomputing the golden fixture by hand. What
+     failed was the TEST SUITE. It ran ~60 mutations; 39 were caught, 7 survived, and 3 of the
+     survivors change 5,096 / 5,809 / 5,283 of the 6,615 real feature vectors while every test still
+     passes. PLAN-v1's Testing Decisions is the standard: "the tests that matter are the ones that
+     would fail if the module were subtly wrong in the ways this domain fails." -->
+
+- **F-051** (logic/tests, **HIGH**) — **CONFIRMED. Nothing asserted that rolling form is *rolling*.**
+  Reversing the window to the *oldest* `FORM_WINDOW` games (`[-FORM_WINDOW:]` → `[:FORM_WINDOW]`)
+  passed all 46 tests, and changes **5,096 / 6,615** real vectors. Root cause is a fixture flaw, and
+  it is mine: every form fixture was a *uniform* streak (15 straight wins, 10 identical +2s), so the
+  first ten games and the last ten were numerically identical by construction. The feature would have
+  been the opposite of the one T-006's acceptance names, and T-009 would have trained on it silently.
+  Status: **FIXED** — new `_home_results("LLLLLWWWWWW")` helper builds non-uniform records, and two
+  tests pin magnitude *and* direction (a reversed record must flip the sign). Mutation re-run: CAUGHT.
+- **F-052** (logic/tests, MEDIUM) — **CONFIRMED.** The shrinkage count `n` for season-to-date point
+  differential was unpinned: capping it at `FORM_WINDOW` (**5,809** vectors differ) and using the
+  all-seasons record count (**5,225** differ) both passed. The old test asserted only a *direction*
+  (`with_earlier > windowed_only`), which both mutations satisfy. Status: **FIXED** — literals pinned
+  for a 12-game season (`12/17 × mean`), plus a prior-season fixture that separates the all-seasons
+  count specifically. Both mutations re-run: CAUGHT.
+- **F-053** (logic/tests, MEDIUM) — **CONFIRMED.** `compute_training_features`'s `as_of` — the single
+  entry point T-009 uses for *every* training row — was pinned by nothing. Substituting
+  `game.date - 1 day` or midnight-of-tip-off-day both passed, because the golden fixture has no game
+  between day 9 and day 10 and every fixture `as_of` was midnight. Status: **FIXED** — a game three
+  hours before tip-off now sits inside the window, so any coarsening is detectable. Both: CAUGHT.
+- **F-054** (logic/tests, MEDIUM) — **CONFIRMED, and the sharpest of the set: the test written to
+  catch this could not catch it.** `test_leakage_a_game_one_microsecond_before_as_of_is_included`
+  claims to guard against "a coarser day-level comparison", but the whole fixture was anchored at
+  `datetime(2024,1,1)` — midnight — and every `as_of` was a whole-day offset, so truncating `as_of`
+  to midnight was a *no-op for the fixture*. Not theoretical: the corpus has **83 team-days with two
+  games on the same UTC date** and **5,360 / 6,615** games tip off at a non-midnight instant; the
+  mutation changes 77 real vectors. Status: **FIXED** — the fixture epoch is now `19:00Z`, which
+  re-arms the existing microsecond test *and* F-053's mutations, plus an explicit same-UTC-date
+  before/after pair. CAUGHT.
+- **F-055** (logic/tests, MEDIUM) — **CONFIRMED.** `test_to_vector_emits_features_in_the_declared_order`
+  built its expected tuple *from* `FEATURE_NAMES`, so both sides moved together and
+  `tuple(features.values())` passed. Latent today (the dict literal happens to match) but `to_vector`
+  is documented as accepting *any* mapping and T-009's coefficients line up positionally.
+  Status: **FIXED** — asserts hardcoded literals in a fixed order, and feeds in a deliberately
+  reversed mapping. CAUGHT.
+- **F-056** (logic/tests, MEDIUM) — **CONFIRMED.** `dataset.py`'s `season` was not pinned by the test
+  that claims to pin the field mapping: `_frame()` used `season=2022`, so hardcoding `season=2022` in
+  the adapter passed — while changing **5,283 / 6,615** real vectors, because season scoping drives
+  both accumulating features. Status: **FIXED** — fixture moved off 2022, plus a two-row/two-season
+  assertion. CAUGHT.
+- **F-057** (data/design, MEDIUM) — **CONFIRMED, and it corrects a decision.** See **D-024**, which
+  supersedes D-020(4). Not a T-006 code change; a constraint on T-009/T-010. Status: OPEN,
+  revisit-when: `T-009`.
+- **F-058** (docs/tests, LOW) — **CONFIRMED.** `GameHistory`'s docstring said the `(date, game_id)`
+  tiebreaker made the index "a pure function of the *set* of input games ... **asserted in the
+  tests**". It was not asserted — dropping the tiebreaker passed. Status: **FIXED**, and the first
+  fix attempt *also* failed the mutation: two same-instant games both inside the form window
+  contribute identically however they are ordered. The tiebreaker is only observable when a
+  same-instant pair **straddles** the window boundary, so the test now uses 11 season games with the
+  pair at the oldest position. CAUGHT.
+- **F-059** (tests, LOW) — **CONFIRMED.** The `neutral_site` defaults on `Matchup`/`Game` were never
+  exercised (helpers always passed the flag), so flipping the default to `True` passed all 46 tests.
+  Status: **FIXED**. CAUGHT.
+- **F-060** (code hygiene, LOW) — **CONFIRMED.** Two unreachable defensive branches: `_rest_days`'s
+  `max(gap_days, 0.0)` (records are strictly before `as_of ≤ tip_off`, so the gap is always positive)
+  and `_shrink`'s `n <= 0` guard. Status: **FIXED** for the first — removed, with the invariant that
+  actually holds written down instead. **Deliberately kept** for `_shrink`: it is the documented
+  contract ("n=0 → the prior exactly, and `observed` is never read"), so it is a stated behavior
+  rather than dead defense, and callers outside this module may rely on it.
+
+> **What the logic reviewer verified and could not break** — 39 mutations caught, including every
+> sign flip, both season filters, the rest cap, the rest-to-tip-off rule, `k`, the window cap, the
+> home indicator, D-022's Game-as-target refusal, and both adapter id/score swaps. It recomputed the
+> golden fixture by hand and confirmed all three literals. It confirmed the leakage property test
+> catches a leak weighted at **1e-9** and could not construct one the test missed. It re-derived the
+> leakage guarantee on 300 randomly sampled real games: 0 mismatches. Every corpus number in this
+> tracker reproduced to the digit. **One caution it put on its own record:** mutation `P05` is listed
+> as caught but failed on an `AttributeError` from `__slots__`, not on the leakage assertion — it
+> explicitly said not to count that as evidence. That is the standard this project should hold.
+
+### T-006 remediation @ (this commit) — all 10 surviving mutations now caught
+
+- Every finding above and F-044..F-050 is addressed in code or tests. **Verified by re-running the
+  reviewers' own mutations**, not by inspection: a harness applies each of the 10 survivors, runs the
+  suite, and restores the file — **10/10 CAUGHT** (two needed a second attempt: M28, as F-058 records,
+  and N13). Suite grew 58 → 79. Ruff clean. CI simulation with pandas/numpy blocked: 68 passed,
+  1 skipped — D-021 still holds.
+- Real-corpus re-verification after remediation is **unchanged to the digit**: 6,615 games, 19
+  neutral, home win rate 0.55556, `form_diff` +0.0433/−0.0582, `point_diff_diff` +1.8922/−2.4415,
+  leakage exact on 120 sampled real games. The fixes changed what is *refused*, not what is computed.
+- F-046 landed at **two** layers, matching T-005's download/cached-path discipline: `GameHistory`
+  protects the features, `games_from_frame` protects the *count* — without the second,
+  `load_games((2022, 2022))` still returned 2,648 records to anything that merely counted them, and
+  T-009's headline would have quoted a doubled number that never reached a `GameHistory`.
 
 ## Future hardening (review output → next-cycle backlog)
 

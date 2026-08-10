@@ -25,8 +25,8 @@ from model.features import FeatureInputError  # noqa: E402
 def _frame(**overrides) -> pd.DataFrame:
     row = {
         "game_id": "401360941",
-        "date": pd.Timestamp("2022-01-15T19:00:00Z"),
-        "season": 2022,
+        "date": pd.Timestamp("2025-01-15T19:00:00Z"),
+        "season": 2025,
         "season_type": 2,
         "home_id": "19",
         "away_id": "29",
@@ -42,8 +42,8 @@ def _frame(**overrides) -> pd.DataFrame:
 def test_every_field_maps_to_the_right_place():
     (game,) = games_from_frame(_frame())
     assert game.game_id == "401360941"
-    assert game.date == datetime(2022, 1, 15, 19, 0, tzinfo=UTC)
-    assert game.season == 2022
+    assert game.date == datetime(2025, 1, 15, 19, 0, tzinfo=UTC)
+    assert game.season == 2025
     assert game.home_id == "19"
     assert game.away_id == "29"
     assert game.home_score == 118
@@ -78,3 +78,38 @@ def test_game_level_validation_fires_during_conversion():
 def test_conversion_preserves_row_order_and_count():
     frame = pd.concat([_frame(game_id="a"), _frame(game_id="b"), _frame(game_id="c")])
     assert [g.game_id for g in games_from_frame(frame)] == ["a", "b", "c"]
+
+
+def test_season_is_read_from_the_frame_not_assumed():
+    """F-056 — the adapter hardcoding `season=2022` passed the whole suite, because `_frame()`
+    happened to use 2022. Season drives both accumulating features, so a wrong one changed 5,283 of
+    the 6,615 real vectors. Two rows, two seasons, both asserted."""
+    frame = pd.concat([_frame(game_id="a", season=2023), _frame(game_id="b", season=2026)])
+    assert [g.season for g in games_from_frame(frame)] == [2023, 2026]
+
+
+def test_a_non_bool_neutral_site_is_refused_rather_than_coerced():
+    """F-048 — `bool("False")` is True, which would invert the flag on every row and silently make
+    `home_advantage` a constant 0.0."""
+    with pytest.raises(ValueError, match="neutral_site` must be a bool"):
+        games_from_frame(_frame(neutral_site="False"))
+
+
+def test_a_non_integer_score_is_refused_rather_than_truncated():
+    """F-048 — `int(118.9)` silently became 118."""
+    with pytest.raises(ValueError, match="home_score` must be an integer"):
+        games_from_frame(_frame(home_score=118.9))
+
+
+def test_an_unparsed_date_column_fails_with_a_useful_error():
+    """F-048 — this used to die with a bare AttributeError from inside a comprehension."""
+    with pytest.raises(ValueError, match="must be a pandas Timestamp"):
+        games_from_frame(_frame(date="2025-01-15T19:00:00Z"))
+
+
+def test_duplicate_game_ids_across_the_frame_are_refused():
+    """F-046 second layer — `load_games((2022, 2022))` returned 2,648 records with 1,324 unique ids
+    and no error. GameHistory protects the features; this protects the count."""
+    frame = pd.concat([_frame(game_id="dup"), _frame(game_id="dup")])
+    with pytest.raises(ValueError, match="duplicate game_id"):
+        games_from_frame(frame)
