@@ -1091,14 +1091,20 @@ F-026 · F-027 · F-028 · F-029 · F-030 · F-031 · F-032 · F-033 · F-034 (F
 - ~~Per-task reviewed-at SHA in `review-ledger-current`~~ — **done** in the T-006 cycle (F-043, D-023).
   F-019 had recorded it as "filed in *Future hardening*" when it was never actually written down here
   — a reminder that "filed" is a claim the ledger has to be able to back.
-- **Promote the F-043 fix to canon, then re-stamp `.claude/CANON-VERSION`.** `checks/lib/tracker.mjs`,
-  `checks/review-ledger-current.mjs` and `checks/review-ledger-current.test.mjs` are now ahead of
-  canon `c513a52`. Every project stamped from this canon carries the compounding bug, so this belongs
-  upstream like F-018/F-019/F-025/F-035/F-036 did. **Deliberately not done in this session:** the
-  factory is `~/Desktop/LabRoomV2.0/Client Projects/Dev-System` (verified clean at `c513a52`), a
-  different repo outside this project — a promotion is a decision to make on purpose, not a side
-  effect of a build session. Note `Sports/Dev-System/` is a *stale copy* at `bd58a22`, not the
-  factory; do not promote there.
+- ~~Promote the F-043 fix to canon, then re-stamp `.claude/CANON-VERSION`~~ — **done 2026-08-10**,
+  Dev-System `1c52645`, pushed to `origin/main`. Verified in the factory before committing: canon's
+  own suite passes on its **`vitest: ^2.1.0`** range (2.1.9, 53 tests), not merely on this project's
+  4.1.10 pin, and both CLI modes were smoke-tested against the canon repo's own tracker.
+  `checks/package.json` was deliberately **not** promoted — its only diffs are F-021's local vitest
+  pin and a `§`-encoding regression in this project's copy, neither of which belongs in this change.
+- **Promote F-021's vitest pin + lockfile to canon.** Still open, and now the only known canon gap.
+  Canon ships `checks/package.json` with an unpinned `vitest: ^2.1.0` and **no lockfile**, so every
+  project stamped from it inherits the advisory-bearing 2.x range (5 npm advisories, 1 critical, 1
+  high — not reachable as configured, since every one needs a listening dev/UI server and
+  `vitest run` starts none). Fixed project-locally in the F-018 cycle and flagged then as belonging
+  to a canon promotion; deliberately left out of `1c52645` to keep that change to one concern.
+  Also fix the `§` encoding while there. Recorded in `.claude/CANON-VERSION` under
+  "STILL PROJECT-LOCAL".
 - **Residual bypass F-019 named is now narrower but not gone.** Flipping a stale `REVIEWED` task to
   `DONE` still escapes currency, since DONE remains exempt by design (F-018). What changed is that the
   incentive largely evaporates: currency now only fires when the task's *own* files changed, which is

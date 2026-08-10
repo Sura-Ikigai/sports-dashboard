@@ -6,6 +6,21 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-10 — F-043 promoted to canon (Dev-System `1c52645`, pushed)
+
+- Copied the three F-043 files to the factory (`Client Projects/Dev-System`), verified there, committed
+  and pushed to `origin/main`: `bd58a22..1c52645`. `.claude/CANON-VERSION` re-stamped with
+  `last-reconciled: 1c52645`.
+- Verified *in canon*, not by assuming byte-identical files behave identically: canon's suite passes on
+  its own **`vitest: ^2.1.0`** range (resolved 2.1.9, 53 tests) rather than only on this project's
+  4.1.10 pin, and both CLI modes were smoke-tested against the canon repo's own tracker — the new
+  per-task rule and `--repo-wide` both return 0 there.
+- `checks/package.json` deliberately excluded: its only diffs from canon are F-021's project-local
+  vitest pin and a `§`-encoding regression in *our* copy. Promoting F-021 is now the single remaining
+  known canon gap and is filed in *Future hardening* and in `CANON-VERSION` under "STILL PROJECT-LOCAL".
+- Factory left clean (the `node_modules/` installed to run the tests was removed; it is gitignored there
+  anyway). Note again that `Sports/Dev-System/` is a stale checkout, not the factory.
+
 ## 2026-08-10 — F-042 closed: the corpus is curated before T-007 starts
 
 - New standard-library-only `backend/model/corpus.py` removes the 10 All-Star exhibition games the

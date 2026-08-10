@@ -7,8 +7,9 @@
 # Factory: ~/Desktop/LabRoomV2.0/Client Projects/Dev-System
 
 stamped-from:    c513a528eab6546559e518373a9691965b9b7e2a
-last-reconciled: c513a528eab6546559e518373a9691965b9b7e2a
+last-reconciled: 1c52645
 stamped-date:    2026-08-09
+last-reconciled-date: 2026-08-10
 
 # Canon contributions promoted FROM this project (all on Dev-System/main, so /reconcile-canon reads
 # them as canon rather than project-local drift):
@@ -17,5 +18,13 @@ stamped-date:    2026-08-09
 #   be5f6dc  checks/lib/tracker.mjs — review-ledger-current currency rule (F-018).
 #   6f49f29  checks/ — restore verdict enforcement on DONE; scope only currency (F-019).
 #   d8b7a8a  checks/ — fail closed on unrecognized task status (F-025); JSDoc scope (F-024).
-# The SHA stamped above is the most recent of these.
 #   c513a52  checks/ — anchor task-header match (F-035); derive knownUngated (F-036).
+#   1c52645  checks/ — review currency is per-task, not repo-wide (F-043). Pushed to
+#            Dev-System/main 2026-08-10; verified on canon's own vitest ^2.1.0 range (53 tests)
+#            and both CLI modes smoke-tested against the canon repo's own tracker.
+# `last-reconciled` above is the most recent of these.
+#
+# STILL PROJECT-LOCAL, not yet promoted (see docs/IMPLEMENTATION.md, Future hardening):
+#   F-021  checks/package.json pins vitest 4.1.10 here and committed checks/package-lock.json;
+#          canon still ships an unpinned `vitest: ^2.1.0` and no lockfile, so every project
+#          stamped from canon inherits the advisory-bearing 2.x range.
