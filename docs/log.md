@@ -83,7 +83,21 @@ Newest entry on top. Keep it lean — a few lines per session; git history carri
   PLAN-v1 user story 20 assumed it was. A content hash is the fix, and it matters most at T-009.
 - F-035 is a regression from my own F-025 fix: `parseTasks` treats any bold `**T-NNN**` in prose as a
   task header, and a phantom task with a null status now hard-fails the gate rather than being ignored.
-- Ended at: T-005 `BUILT` and blocked. 11 findings open (F-026..F-036).
+- Remediation round 1 (`e2d2558`) closed F-026..F-034 — and both reviewers ⛔'d it again, live, on the
+  same regression: the F-032 redirect allowlist named `objects.githubusercontent.com`, but GitHub now
+  redirects release assets to `release-assets.githubusercontent.com`, so **no real download worked**.
+  It passed everything because `data/` was already populated — the download path never executed in the
+  builder's testing, in local runs, or in the gate, and nothing outside `loader.py` calls the loader.
+  I had assumed that hostname in the F-032 write-up rather than observing it. My own hash check missed
+  it too, because `curl` bypassed the module.
+- The logic reviewer's best move: it refused to accept F-026/F-027 as fixed just because the new
+  SHA-256 layer caught its fixtures, and **neutralised the hash layer** to prove the count and
+  uniqueness assertions stand on their own — which matters, because a legitimate upstream refresh will
+  force a hash re-baseline.
+- Fixed in `8eae86c`, verified the only way that counts: a real download into an **empty** directory.
+  Added that as a standing acceptance constraint on T-005 — "gate green" is not evidence the download
+  works. Final round: **both ✅**. T-005 → `REVIEWED`.
+- Ended at: T-005 `REVIEWED` at `8eae86c`. F-039 deferred to T-006's first commit. Next is T-006.
 
 ## 2026-08-09 — Phase 1 blocked by a canon bug (F-018); fixed and promoted
 

@@ -19,22 +19,16 @@
 
 ## Current state
 
-**State now:** Phase 1 is underway on `feat/phase-1-analytical-core`. T-005 (loader) is `BUILT`,
-remediated, and **awaiting re-review** — F-026..F-034 are fixed in `backend/model/loader.py` (F-035/
-F-036 in `checks/` were already fixed by the main thread). Both HIGH findings were re-demonstrated
-against the pre-fix code (`git show 32110ce:backend/model/loader.py`) to confirm the exact fixtures
-still reproduce them, then run again against the fixed code to confirm both now raise: F-026
-(`load_season` bypassing verification — truncated-file fixture, was 1,266 games/no exception, now
-raises before returning) and F-027 (count-only verification — drop-one/duplicate-one fixture that held
-the count at 1,324, now raises before returning). Each was additionally isolated at the specific layer
-its finding named (the count/uniqueness assertion inside `_verify_season`), independent of the new
-F-030 content-hash check that also happens to catch both. F-028 (unpinned season silently unverified)
-verified closed at two layers; F-029/F-031/F-032/F-033/F-034 (LOW) all fixed — see the Review gate
-section below for what changed in each. Full gate green, 8/8. `git status` clean; no `data/` files
-were modified (corrupted fixtures live only under the scratch dir used for the repro, never committed).
+**State now:** **T-005 is `REVIEWED` at `8eae86c`** — the loader works, verified from an empty data
+dir, and its runtime assertions now catch the corruption classes the reviewers demonstrated. It took
+three review rounds: the count assertion was bypassable and count-only (F-026/F-027, both proven with
+corrupted fixtures), then the redirect-allowlist fix broke real downloads because every run hit a
+populated cache (F-037). Phase 1 continues with T-006, the `features` deep module — the task the whole
+plan's credibility rests on.
 
-**Next action:** Re-run both reviewers (security-auditor + logic-reviewer) against this remediation.
-T-005 cannot advance past `BUILT` until logic clears — this thread does not self-grant `REVIEWED`.
+**Next action:** T-006 (`Use the backend-engineer subagent on T-006`). It is the analytical core: one
+pure interface, the leakage property test, and the `n/(n+k)` shrinkage boundaries. Its first non-docs
+commit fires the `next-non-docs-commit` trigger on **F-039** — close it there.
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
 **History:** docs/log.md (append-only, session-by-session)
@@ -99,10 +93,15 @@ T-005 cannot advance past `BUILT` until logic clears — this thread does not se
 <!-- Offline only. No schema, API, UI, or served-image change. Answers the one question that can
      invalidate everything downstream: can four pre-game features clear 62% with honest calibration? -->
 
-- [ ] **T-005** Historical data loader — `BUILT` — owner: `backend-engineer`
+- [ ] **T-005** Historical data loader — `REVIEWED` — owner: `backend-engineer`
       - acceptance: downloads 2022–2026 season schedules from a pinned upstream release tag into the
         ignored data dir; normalizes to a completed-game collection; per-season counts match
         (2022 → 1,324; 2026 → 1,326); non-final games excluded; re-running is idempotent — **all met**
+      - **acceptance (added post-review, F-037):** any change to the download path MUST be verified by
+        a run against an **empty** data dir. "Gate green" is not evidence the download works — nothing
+        outside `loader.py` calls the loader, and every local run hits the populated cache. That is
+        precisely how a broken redirect allowlist passed the gate, the builder's own testing, and a
+        five-season smoke run.
       - security note: third-party data over the network into a parsing path. Pin by release tag not a
         moving branch, verify the download before parsing, never use a deserializer that can execute
         code, write only inside the ignored data dir.
@@ -283,7 +282,7 @@ T-005 cannot advance past `BUILT` until logic clears — this thread does not se
 
 | Task  | security-auditor | logic-reviewer | ui-ux-reviewer | notes |
 |-------|------------------|----------------|----------------|-------|
-| T-005 | ✅ 32110ce       | ⛔ F-026/F-027 | n/a            | loader's count assertion is bypassable (`load_season`) and count-only (drop+dup passes). Security ✅ with F-030 MEDIUM on source mutability |
+| T-005 | ✅ 8eae86c       | ✅ 8eae86c     | n/a            | 3 rounds: ✅/⛔ @32110ce (F-026/F-027 HIGH) · ⛔⛔ @e2d2558 (F-037 broke real downloads) · ✅✅ @8eae86c. n/a: no user-facing surface |
 | T-001 | ✅ 763101e       | ✅ 763101e     | n/a            | 4 rounds: r1 ⛔⛔@d8e3515 · r2 ✅✅@d0e661d · r3 logic ✅/security ⛔@fef3dc8 (F-019) · r4 ✅✅@763101e. n/a: no user-facing surface changed |
 
 ## Findings (from reviews, append-only)
@@ -552,13 +551,12 @@ T-005 cannot advance past `BUILT` until logic clears — this thread does not se
   raises before reading anything into memory if it exceeds `_MAX_DOWNLOAD_BYTES`; only then is the full
   file read (needed anyway for the F-030 content-hash check, which requires the full bytes, not a
   header peek). The now-unused `_HEADER_PEEK_BYTES` constant was removed.
-- **F-032** (network, LOW) — Redirects are followed without asserting the final scheme/host; a redirect
-  to `http://` would silently drop TLS. Reachability is low (requires controlling GitHub's TLS-verified
-  response) and the redirect itself is required, so it cannot simply be disabled.
-  Status: **FIXED**. After `urlopen` follows redirects, the final response URL (`response.geturl()`) is
-  parsed and checked: scheme must be `https`, host must be in a new `_ALLOWED_DOWNLOAD_HOSTS` allowlist
-  (`github.com`, `objects.githubusercontent.com` — the redirect chain — a host I ASSUMED rather than observed, which is exactly how F-037 shipped.
-  Either check failing raises `LoaderVerificationError` before the response body is read.
+- **F-032** (network, LOW) — Redirects were followed without asserting the final scheme/host, so a
+  redirect to `http://` would silently drop TLS. Fixed by checking the post-redirect response URL
+  against https and a host allowlist. **The host I named in this finding was assumed, not observed —
+  see F-037, which is how that shipped broken.** The allowlist now carries the observed
+  `release-assets.githubusercontent.com` (recorded with its observation date) plus `github.com` and the
+  prior `objects.githubusercontent.com`.
 - **F-033** (input validation, LOW) — `season` is unvalidated and the `url.startswith(...)` guard that
   looks like it prevents redirection does not — a `..` segment passes it. Not exploitable today (the
   fixed filename prefix makes every traversal hit a non-directory, and `season` only ever comes from
@@ -610,6 +608,23 @@ T-005 cannot advance past `BUILT` until logic clears — this thread does not se
 > **Acceptance note added for T-005, from the auditor's observation:** "gate green" is not evidence the
 > download works. The loader is invoked by nothing outside itself, and every local run hits the cache.
 > Any change to the download path must be verified by a run against an **empty** data dir.
+
+### Final re-review — T-005 @ 8eae86c (both reviewers ✅)
+
+- Download verified from a **fresh empty directory** for seasons not previously exercised (2024, 2025):
+  bytes arrived, SHA-256 matched the pins, counts verified. Five-season load from empty: 6,615 games,
+  6,615 unique `game_id`. The allowlist was probed as a control (8 cases) — it evaluates the
+  post-redirect URL, rejects scheme downgrade, subdomain and userinfo tricks, and fires *before* the
+  response body is read.
+- **F-039** (docs, LOW) — `loader.py`'s module-level security note still names
+  `objects.githubusercontent.com` as the redirect target: the exact stale claim F-037 was about, left
+  uncorrected 60 lines above the constant that was fixed. Code correct, narrative stale.
+  Status: OPEN. revisit-when: `next-non-docs-commit` (it lives in a `.py` file, so fixing it here would
+  have moved the code tip and invalidated the ✅ this round records).
+- **F-040** — FIXED in this commit (the F-032 entry had an unbalanced parenthesis and still enumerated
+  a two-host allowlist the code no longer uses).
+- **F-041** — FIXED in this commit. The empty-dir requirement had landed in the Findings section rather
+  than in T-005's `acceptance:` bullet, where a builder would actually read it. Now in both.
 
 ## Future hardening (review output → next-cycle backlog)
 
