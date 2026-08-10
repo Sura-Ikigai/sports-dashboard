@@ -107,6 +107,27 @@ describe('review-ledger-current', () => {
     expect(r.failures[0].reason).toMatch(/no commit SHA/);
   });
 
+  // F-025: an unrecognized status must not be a way to make a stale review vanish.
+  it('fails CLOSED on a status that does not parse to a known value', () => {
+    for (const bad of ['reviewed', 'Reviewed', 'SHIPPED']) {
+      const r = evalFixture(tracker({ status: bad, cells: [`✅ ${OLD}`, `✅ ${OLD}`, `✅ ${OLD}`] }));
+      expect(r.ok, `status \`${bad}\` should fail closed`).toBe(false);
+      expect(r.failures[0].reason).toMatch(/unrecognized task status/);
+    }
+  });
+
+  it('treats a BLOCKED-only task as known and ungated, not as unparseable', () => {
+    const r = evalFixture(tracker({ status: 'BLOCKED', cells: ['pending', 'pending', 'pending'] }));
+    expect(r.ok).toBe(true);
+  });
+
+  it('still reads the real lifecycle status when BLOCKED is also present', () => {
+    const md = tracker({ status: 'REVIEWED', cells: [`✅ ${OLD}`, `✅ ${OLD}`, 'n/a'] })
+      .replace('`REVIEWED`', '`REVIEWED` `BLOCKED`');
+    expect(parseTasks(md)[0].status).toBe('REVIEWED');
+    expect(evalFixture(md).ok).toBe(false); // stale SHA on a REVIEWED task still caught
+  });
+
   it('parseTasks reads the status enum off the task block', () => {
     const tasks = parseTasks(tracker({ status: 'IN_PROGRESS', cells: ['pending', 'pending', 'pending'] }));
     expect(tasks).toEqual([{ id: 'T-001', status: 'IN_PROGRESS' }]);

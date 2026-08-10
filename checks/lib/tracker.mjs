@@ -39,7 +39,13 @@ function statusFromBlock(text) {
   const header = text.split('\n').find((l) => /\*\*T-\d/.test(l)) ?? '';
   let best = null;
   for (const s of STATUS_ENUM) if (new RegExp(`\\b${s}\\b`).test(header) && (best === null || STATUS_RANK[s] > STATUS_RANK[best])) best = s;
-  return best;
+  if (best) return best;
+  // 3) F-025: BLOCKED is an orthogonal FLAG, not a lifecycle status (SYSTEM.md §3.1) — normally a task
+  //    reads e.g. `IN_PROGRESS` `BLOCKED`, and the passes above already found the real status. A
+  //    BLOCKED-ONLY task would otherwise parse to null, which evaluateLedgerCurrency now fails closed.
+  //    Recognize it so it resolves to a known, deliberately ungated status instead.
+  if (/`BLOCKED`/.test(text)) return 'BLOCKED';
+  return null;
 }
 
 /**
@@ -83,8 +89,11 @@ function parseCell(raw) {
 /**
  * Core rule (SYSTEM.md §5.4, grill-me Q7). For every task at REVIEWED or DONE:
  *   - each MANDATORY reviewer must be PRESENT in the ledger and `pass` (never absent/na/pending/fail),
- *   - every applicable reviewer's ✅ must reference `codeHead` (the current code tip), compared by
- *     SHA prefix (git may abbreviate %h to more than 7 chars in larger repos).
+ *   - and for REVIEWED ONLY (F-018/F-024), every applicable reviewer's ✅ must reference `codeHead`
+ *     (the current code tip), compared by SHA prefix (git may abbreviate %h to more than 7 chars in
+ *     larger repos). DONE is frozen history: exempt from currency, never from the verdict.
+ * A task whose status does not parse to a known value fails CLOSED (F-025) — an unrecognized status
+ * must never be a way to make a stale review disappear.
  * Reviewer-name matching is case-insensitive. Returns { ok, failures: [{ task, reviewer, reason }] }.
  * NOTE: a null `codeHead` is handled fail-CLOSED by the CLI (review-ledger-current.mjs), not here.
  */
@@ -110,8 +119,21 @@ export function evaluateLedgerCurrency(tasks, ledger, codeHead, opts = {}) {
   const currencyGated = new Set(['REVIEWED']);
   const byTask = Object.fromEntries(ledger.rows.map((r) => [r.task, r.cells]));
   const head = codeHead ? String(codeHead).toLowerCase() : null;
+  // F-025: fail CLOSED on a status we cannot recognize. `gated` and this set are exact uppercase
+  // matches, so without this a stale-review failure disappears the moment the status is lowercased,
+  // misspelled, or deleted — the cheapest possible way to turn the gate green. If we cannot tell
+  // whether a review is required, we must not assume it isn't.
+  const knownUngated = new Set(['BACKLOG', 'PLANNED', 'IN_PROGRESS', 'BUILT', 'BLOCKED']);
   const failures = [];
   for (const t of tasks) {
+    if (!gated.has(t.status) && !knownUngated.has(t.status)) {
+      failures.push({
+        task: t.id,
+        reviewer: '(status)',
+        reason: `unrecognized task status ${t.status === null ? '(missing or unparseable)' : `"${t.status}"`} — cannot determine whether a review is required; failing closed`,
+      });
+      continue;
+    }
     if (!gated.has(t.status)) continue;
     const cells = byTask[t.id];
     if (!cells) { failures.push({ task: t.id, reviewer: '(ledger)', reason: `no Review-ledger row for a ${t.status} task` }); continue; }

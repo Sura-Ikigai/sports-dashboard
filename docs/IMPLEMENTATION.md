@@ -462,7 +462,8 @@ with T-006 (`features` module) or close F-024/F-025 first.
   `BLOCKED` is live vocabulary — `next-command.sh` greps for it — yet is absent from `STATUS_ENUM`, so
   a `BLOCKED` task is silently ungated. Pre-existing; predates the whole F-018 line. Remediation: fail
   closed on an unrecognized status, and add `BLOCKED` to the enum as explicitly ungated.
-  Status: OPEN. revisit-when: `next-non-docs-commit`.
+  Status: FIXED in the T-005 PR — an unrecognized status now fails closed, and `BLOCKED` is
+  recognized as a known-but-ungated flag. Promoted to canon.
 - **Residual bypass, judged and accepted.** Flipping a stale-review `REVIEWED` task to `DONE` still
   clears currency — but it no longer clears *review*: a complete ledger row with every mandatory
   reviewer ✅ and a SHA is still required, so a `⛔` or pending task cannot be laundered this way. The

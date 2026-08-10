@@ -26,6 +26,25 @@ Newest entry on top. Keep it lean — a few lines per session; git history carri
 - Ended at: T-005 `BUILT`, not reviewed. Next is review (security-auditor + logic-reviewer), then
   T-006, and F-024/F-025 still need an owner.
 
+## 2026-08-09 — Phase 1 opens: T-005 loader built; F-024/F-025 closed
+
+- Merged the instantiation phase to `main` (`23a9a88`), T-001 `DONE`, and opened Phase 1 on
+  `feat/phase-1-analytical-core`.
+- **T-005 built** by `backend-engineer` (`68e3efa`): `backend/model/loader.py` pulls the five pinned
+  season CSVs from release tag `espn_nba_schedules` into gitignored `data/raw/`, verifies each before
+  parsing, and normalizes to a completed-game collection. Verified independently: **6,615 completed
+  games**, per-season counts exact — the same 6,615 the 55.56% baseline was computed from during
+  planning, which is a useful cross-check that the loader and the planning analysis agree.
+  `backend/requirements.txt` untouched; training deps isolated in `requirements-train.txt` (D-016).
+- Probed the count tripwire (it substitutes for tests here): it fires on a mismatch and on a missing
+  season. **But a season with no pinned expectation loads entirely unverified** — `seasons=(2021,)`
+  returned 1,172 rows with nothing checking them. Left for the review gate rather than pre-fixed.
+- F-024 and F-025 closed — this PR's first non-docs commit fired their trigger. F-025 mattered more
+  than its LOW severity suggested: `gated` was an exact uppercase match and an unparsed status
+  returned `null`, so lowercasing or deleting a status word made a stale-review failure vanish. Now
+  fails closed, with `BLOCKED` recognized as a known-but-ungated flag. Promoted to canon `d8b7a8a`.
+- Ended at: T-005 `BUILT`, gate green at 8 checks. Next is the review gate on T-005.
+
 ## 2026-08-09 — Phase 1 blocked by a canon bug (F-018); fixed and promoted
 
 - Tried to start T-005 and found the gate would reject it. `review-ledger-current` gated every
