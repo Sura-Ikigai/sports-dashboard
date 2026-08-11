@@ -776,3 +776,48 @@ def test_neutral_site_defaults_to_false_on_both_types():
     ).neutral_site is False
     bare = Matchup(game_id="t", date=at(5), season=SEASON, home_id="A", away_id="B")
     assert compute_features([], bare, at(5))["home_advantage"] == 1.0
+
+
+def test_a_game_id_collision_against_a_different_opponent_is_refused():
+    """F-068 — the F-044 exclusion was a blunt id match, so a target id colliding with a real
+    historical game silently deleted that game from both windows (form_diff 0.125 -> 0.0, no error).
+    A fail-open control on a module whose thesis is failing closed. Matching the opponent too
+    identifies the target precisely; a same-id game against someone else is corrupt input."""
+    # "g3" is A-vs-B in the golden history. A target claiming that id against a different opponent
+    # is a collision, not the target.
+    colliding = matchup("g3", 10, "A", "C")
+    with pytest.raises(FeatureInputError, match="game ids must identify one game"):
+        compute_features(GOLDEN_HISTORY, colliding, at(10))
+
+    # ...while the legitimate F-044 case (same id, same pairing, later Matchup date) still excludes.
+    target_game = game("target", 10, "A", "B", 200, 80)
+    later = Matchup(
+        game_id="target", date=at(10) + timedelta(microseconds=1),
+        season=SEASON, home_id="A", away_id="B",
+    )
+    assert compute_features([*GOLDEN_HISTORY, target_game], later, later.date) == pytest.approx(
+        GOLDEN_EXPECTED
+    )
+
+
+def test_bool_is_not_accepted_as_a_season_or_a_score():
+    """F-064 — `isinstance(True, int)` is True, so the bool guards are load-bearing and nothing
+    exercised them."""
+    with pytest.raises(FeatureInputError, match="season must be an int"):
+        Matchup(game_id="t", date=at(5), season=True, home_id="A", away_id="B")
+    with pytest.raises(FeatureInputError, match="home_score must be an int"):
+        Game(game_id="g", date=at(0), season=SEASON, home_id="A", away_id="B",
+             home_score=True, away_score=100)
+
+
+def test_game_id_must_be_a_string():
+    """F-064 — a non-str game_id defeats the F-044/F-068 exclusion silently."""
+    with pytest.raises(FeatureInputError, match="game_id must be a str"):
+        Matchup(game_id=123, date=at(5), season=SEASON, home_id="A", away_id="B")
+
+
+def test_game_validates_its_team_ids_not_just_matchup():
+    """F-064 — the suite covered `Matchup.home_id` and `Game.season`, never `Game.home_id`."""
+    with pytest.raises(FeatureInputError, match="home_id must be a str"):
+        Game(game_id="g", date=at(0), season=SEASON, home_id=1, away_id="B",
+             home_score=110, away_score=100)

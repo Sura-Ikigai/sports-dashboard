@@ -8,6 +8,7 @@ playing a full schedule, plus an All-Star game between ids that appear once — 
 league, because the assertions being tested are about that shape.
 """
 
+import collections
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -17,8 +18,9 @@ from model.corpus import (
     MIN_SEASON_GAMES_FOR_A_REAL_TEAM,
     NBA_TEAMS_PER_SEASON,
     CorpusIntegrityError,
+    assert_curated,
     exclude_exhibitions,
-    exhibition_team_ids,
+    exhibition_team_seasons,
     partition_exhibitions,
 )
 from model.features import Game
@@ -62,7 +64,7 @@ def _all_star(season: int = 2024, count: int = 1):
 
 def test_a_clean_season_has_no_exhibitions():
     games = _franchise_season()
-    assert exhibition_team_ids(games) == frozenset()
+    assert exhibition_team_seasons(games) == frozenset()
     nba, exhibitions = partition_exhibitions(games)
     assert exhibitions == []
     assert len(nba) == len(games)
@@ -70,9 +72,12 @@ def test_a_clean_season_has_no_exhibitions():
 
 def test_exhibition_ids_are_identified_by_games_played():
     games = [*_franchise_season(), *_all_star(count=2)]
-    ids = exhibition_team_ids(games)
-    assert ids == {"phantom2024a0", "phantom2024b0", "phantom2024a1", "phantom2024b1"}
-    assert all(not t.startswith("t") for t in ids)
+    pairs = exhibition_team_seasons(games)
+    assert pairs == {
+        (2024, "phantom2024a0"), (2024, "phantom2024b0"),
+        (2024, "phantom2024a1"), (2024, "phantom2024b1"),
+    }
+    assert all(not team.startswith("t") for _, team in pairs)
 
 
 def test_partition_removes_exactly_the_exhibition_games():
@@ -90,22 +95,54 @@ def test_a_game_mixing_a_franchise_and_an_exhibition_id_is_excluded():
     games = [*_franchise_season(), _game("mixed", 500, "t00", "phantom-x")]
     nba, exhibitions = partition_exhibitions(games)
     assert [g.game_id for g in exhibitions] == ["mixed"]
-    assert "phantom-x" in exhibition_team_ids(games)
+    assert (2024, "phantom-x") in exhibition_team_seasons(games)
 
 
 def test_identification_is_per_season_not_across_the_corpus():
-    """A team real in one season must not be condemned by a season it sits out — and an exhibition
-    id must not be rescued by appearing in several seasons."""
+    """F-062 — kills counting games globally instead of per season.
+
+    The first version of this test used a phantom appearing once in each of two seasons, whose
+    *global* count (2) was also below threshold — so a global-counting implementation passed it and
+    the test pinned nothing. The discriminating fixture needs a team that is REAL in one season and
+    below threshold in another: global counting would rescue it in both, per-season counting flags
+    it only where it belongs. Id `111353` already recurs across two real seasons, and D-017 retrains
+    annually, so a reused All-Star id crosses 20 global games after ~7 seasons.
+    """
+    intruder = "t00"  # a genuine franchise in 2024
     games = [
         *_franchise_season(2024),
-        *_franchise_season(2025, teams=NBA_TEAMS_PER_SEASON),
-        # the same phantom id appearing once in each of two seasons: still an exhibition in both
-        _game("as-2024", 500, "phantom-shared", "phantom-other", 2024),
-        _game("as-2025", 500, "phantom-shared", "phantom-other", 2025),
+        *_franchise_season(2025),
+        # ...appearing in exactly one 2026 game, alongside an id that plays only that game
+        _game("cameo", 900, intruder, "phantom-2026", 2026),
     ]
-    ids = exhibition_team_ids(games)
-    assert "phantom-shared" in ids
-    assert not any(t.startswith("t") for t in ids)
+    pairs = exhibition_team_seasons(games)
+    assert (2026, intruder) in pairs  # under-played in 2026
+    assert (2024, intruder) not in pairs  # but a franchise in 2024
+    assert (2025, intruder) not in pairs
+
+
+def test_a_team_under_played_in_one_season_is_not_stripped_from_the_others():
+    """F-065, cause 1 — the bug this rule existed to avoid. Identification returned a UNION of ids
+    and applied it to every season, so one partial season discarded the whole corpus: 2022–2025
+    complete plus 150 games of 2026 kept **0 of 5,439 games** and raised nothing."""
+    complete = [*_franchise_season(2024), *_franchise_season(2025)]
+    partial = _franchise_season(2026, rounds=1)[:40]  # a truncated season: everyone under-played
+    nba, exhibitions = partition_exhibitions([*complete, *partial])
+    kept_by_season = collections.Counter(g.season for g in nba)
+    assert kept_by_season[2024] == len(_franchise_season(2024))
+    assert kept_by_season[2025] == len(_franchise_season(2025))
+    assert kept_by_season[2026] == 0  # only the partial season is affected
+    assert all(g.season == 2026 for g in exhibitions)
+
+
+def test_a_season_wiped_out_entirely_is_refused_not_silently_dropped():
+    """F-065, cause 2 — the 30-team assertion was built from the SURVIVING games, so a season that
+    lost every game contributed no entry, `wrong` was empty, and the check was vacuous exactly when
+    it mattered. Counted over the input's seasons, a wiped season reads as 0, not as absent."""
+    complete = _franchise_season(2024)
+    partial = _franchise_season(2025, rounds=1)[:40]
+    with pytest.raises(CorpusIntegrityError, match=r"\{2025: 0\}"):
+        exclude_exhibitions([*complete, *partial], expected=None)
 
 
 def test_exclude_verifies_every_season_keeps_exactly_thirty_teams():
@@ -131,9 +168,15 @@ def test_an_exhibition_count_that_does_not_match_the_pin_is_refused():
 def test_an_unpinned_season_is_refused_rather_than_curated_unverified():
     """F-028's lesson, applied here: D-017 adds a season, and nothing keeps two structures in sync
     except a check that refuses the gap."""
-    games = [*_franchise_season(2027), *_all_star(2027, count=1)]
-    with pytest.raises(CorpusIntegrityError, match="no pinned exhibition count"):
+    games = [*_franchise_season(2024), *_all_star(2024), *_franchise_season(2027), *_all_star(2027)]
+    # F-063: `expected` deliberately OVERLAPS the fixture's seasons, and the offending season number
+    # is asserted. Previously `expected={2024:1}` against a 2027-only fixture meant reversing the set
+    # difference still produced a non-empty result, so the test passed while an unpinned season was
+    # curated unverified — F-028's lesson defeated by a test that looked like it defended it.
+    with pytest.raises(CorpusIntegrityError, match="no pinned exhibition count") as exc:
         exclude_exhibitions(games, expected={2024: 1})
+    assert "2027" in str(exc.value)
+    assert "2024" not in str(exc.value)  # names the season that is missing, not one that is fine
 
 
 def test_verification_of_counts_can_be_opted_out_but_the_team_check_still_runs():
@@ -155,3 +198,53 @@ def test_the_pinned_counts_are_the_ones_measured_from_the_real_corpus():
     assert MIN_SEASON_GAMES_FOR_A_REAL_TEAM == 20
     # The threshold must sit clear of BOTH populations observed in the corpus (<=3 and >=82).
     assert 3 < MIN_SEASON_GAMES_FOR_A_REAL_TEAM < 82
+
+
+def test_min_games_is_actually_forwarded_to_identification():
+    """F-066 — `exclude_exhibitions` dropping `min_games=min_games` when calling
+    `partition_exhibitions` survived the whole suite, because no test ever passed a custom
+    threshold. The F-056 shape: a parameter nothing exercises is a parameter that can stop working."""
+    games = [*_franchise_season(rounds=1), *_all_star(count=1)]  # each team plays 29 games
+    # Default threshold (20): the 29-game teams are franchises.
+    assert len(exclude_exhibitions(games, expected={2024: 1})) == len(_franchise_season(rounds=1))
+    # Raise the threshold above 29 and they must all be reclassified — which is only observable if
+    # the parameter is forwarded.
+    with pytest.raises(CorpusIntegrityError):
+        exclude_exhibitions(games, min_games=40, expected={2024: 1})
+    assert exhibition_team_seasons(games, min_games=40) != exhibition_team_seasons(games)
+
+
+def test_the_threshold_boundary_is_exclusive():
+    """F-066 — `<` vs `<=` at exactly `min_games` was unpinned. A team ON the threshold is real."""
+    at_threshold = [
+        _game(f"b{i}", i, "edge", f"t{i:02d}") for i in range(MIN_SEASON_GAMES_FOR_A_REAL_TEAM)
+    ]
+    pairs = exhibition_team_seasons([*_franchise_season(), *at_threshold])
+    assert (2024, "edge") not in pairs  # exactly min_games -> real
+    one_fewer = at_threshold[:-1]
+    assert (2024, "edge") in exhibition_team_seasons([*_franchise_season(), *one_fewer])
+
+
+def test_expected_is_resolved_at_call_time_not_bound_as_a_default(monkeypatch):
+    """F-070 — `expected=EXPECTED_EXHIBITION_COUNTS` as a default bound the dict OBJECT at definition
+    time, so rebinding the module attribute was silently ignored. A future test monkeypatching the
+    constant would have passed vacuously — the exact class of vacuous test F-051..F-059 were about."""
+    games = [*_franchise_season(), *_all_star(count=1)]
+    monkeypatch.setattr("model.corpus.EXPECTED_EXHIBITION_COUNTS", {2024: 999})
+    with pytest.raises(CorpusIntegrityError, match="do not match the pinned expected"):
+        exclude_exhibitions(games)  # no `expected=` — must read the patched constant
+
+
+def test_assert_curated_accepts_a_curated_collection_and_rejects_a_raw_one():
+    """F-067 — a default on the producer is not a guarantee at the consumer. T-007/T-009 call this."""
+    season = _franchise_season()
+    assert_curated(season)  # does not raise
+    with pytest.raises(CorpusIntegrityError, match="has not been curated"):
+        assert_curated([*season, *_all_star(count=1)])
+
+
+def test_assert_curated_names_the_offending_season_and_team():
+    games = [*_franchise_season(), *_all_star(count=1)]
+    with pytest.raises(CorpusIntegrityError) as exc:
+        assert_curated(games)
+    assert "2024" in str(exc.value) and "phantom" in str(exc.value)

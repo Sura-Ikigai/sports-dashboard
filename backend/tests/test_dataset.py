@@ -11,6 +11,7 @@ downstream (both produce plausible numbers) and is caught here.
 """
 
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 
@@ -18,7 +19,8 @@ pd = pytest.importorskip("pandas", reason="training-only dependency; not install
 
 # Below the importorskip on purpose: importing model.dataset pulls in pandas, so these have to run
 # after the skip, not before it. E402 is the rule that would otherwise object.
-from model.dataset import games_from_frame  # noqa: E402
+from model.corpus import CorpusIntegrityError  # noqa: E402
+from model.dataset import games_from_frame, load_games  # noqa: E402
 from model.features import FeatureInputError  # noqa: E402
 
 
@@ -113,3 +115,57 @@ def test_duplicate_game_ids_across_the_frame_are_refused():
     frame = pd.concat([_frame(game_id="dup"), _frame(game_id="dup")])
     with pytest.raises(ValueError, match="duplicate game_id"):
         games_from_frame(frame)
+
+
+def _synthetic_frame(seasons=(2024,), teams=30, rounds=2, all_star=1) -> pd.DataFrame:
+    """A frame shaped like the loader's output: a full round-robin plus All-Star games."""
+    rows, n = [], 0
+    for season in seasons:
+        ids = [f"t{i:02d}" for i in range(teams)]
+        for r in range(rounds):
+            for i in range(teams):
+                for j in range(i + 1, teams):
+                    home, away = (ids[i], ids[j]) if r % 2 == 0 else (ids[j], ids[i])
+                    rows.append({
+                        "game_id": f"s{season}g{n}", "date": pd.Timestamp("2024-01-01T19:00:00Z") + pd.Timedelta(hours=n),
+                        "season": season, "season_type": 2, "home_id": home, "away_id": away,
+                        "home_score": 110, "away_score": 100, "neutral_site": False, "home_win": True,
+                    })
+                    n += 1
+        for k in range(all_star):
+            rows.append({
+                "game_id": f"s{season}as{k}", "date": pd.Timestamp("2024-03-01T19:00:00Z") + pd.Timedelta(hours=k),
+                "season": season, "season_type": 2, "home_id": f"ph{season}a{k}", "away_id": f"ph{season}b{k}",
+                "home_score": 150, "away_score": 148, "neutral_site": False, "home_win": True,
+            })
+    return pd.DataFrame(rows)
+
+
+def test_load_games_excludes_exhibitions_by_default():
+    """F-061 — `load_games` had NO tests, so D-025(3)'s exclude-by-default was unpinned: flipping the
+    default to True, or inverting the flag, passed all 90 tests. Under either, `load_games()` returns
+    the contaminated corpus, D-026's baseline silently shifts, and coin-flip rows reach T-009. This is
+    F-059's pattern — an unexercised default — landing on the one safety property the module exists
+    to provide."""
+    frame = _synthetic_frame(all_star=1)  # matches the 2024 pin, so curation verifies cleanly
+    with patch("model.dataset.load_completed_games", return_value=frame):
+        default = load_games()
+        explicit_raw = load_games(include_exhibitions=True)
+
+    assert len(explicit_raw) == len(frame)                       # raw keeps everything
+    assert len(default) == len(frame) - 1                        # default drops the exhibition
+    assert default is not explicit_raw
+    # the curated set contains exactly the 30 franchises, no phantom ids
+    ids = {g.home_id for g in default} | {g.away_id for g in default}
+    assert len(ids) == 30 and not any(t.startswith("ph") for t in ids)
+    # ...and the raw one does carry them, so the assertion above is not vacuous
+    raw_ids = {g.home_id for g in explicit_raw} | {g.away_id for g in explicit_raw}
+    assert any(t.startswith("ph") for t in raw_ids)
+
+
+def test_load_games_verifies_curation_rather_than_trusting_it():
+    """A season whose exhibition count does not match the pin must fail, not pass quietly."""
+    frame = _synthetic_frame(seasons=(2024,), all_star=3)  # pin for 2024 is 1
+    with patch("model.dataset.load_completed_games", return_value=frame):
+        with pytest.raises(CorpusIntegrityError, match="do not match the pinned expected"):
+            load_games()

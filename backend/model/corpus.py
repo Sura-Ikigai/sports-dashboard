@@ -26,6 +26,16 @@ played per season separates the two populations by a margin that is not close --
 so the threshold below is nowhere near either edge, and it keeps working for seasons nobody has
 downloaded yet.
 
+## What this rule structurally cannot see (F-069)
+
+It classifies **teams**, never games, so an exhibition played *between two franchise ids* is
+invisible to it -- an All-Star game fielding real team ids, or a preseason friendly, would pass
+through with both assertions satisfied. That is not a live gap: the pinned corpus carries only
+`season_type` 2/3/5 (no preseason rows at all) and every one of the ten removed games is a
+phantom-id game. It is a limitation to know before trusting this module with a differently-shaped
+source. The clean closure, if that day comes, is to carry `season_type` through -- the loader already
+parses it, and `dataset.REQUIRED_FRAME_COLUMNS` drops it before this module could ever see it.
+
 The identification is also *verified* rather than trusted, in the same spirit as T-005's count
 tripwire: after filtering, every season must be left with exactly 30 team ids, and every pinned
 season must have shed exactly the expected number of games. If the upstream shape changes -- a real
@@ -67,26 +77,39 @@ EXPECTED_EXHIBITION_COUNTS: dict[int, int] = {
 
 TOTAL_EXPECTED_EXHIBITIONS: int = sum(EXPECTED_EXHIBITION_COUNTS.values())  # 10
 
+# F-070: `expected=EXPECTED_EXHIBITION_COUNTS` as a default binds the dict OBJECT at definition time,
+# so rebinding the module attribute (what a monkeypatching test does) was silently ignored while
+# in-place mutation of the same dict took effect. A future test that patches the constant would have
+# passed vacuously -- the precise class of vacuous test F-051..F-059 were all about. The sentinel
+# defers the lookup to call time.
+_USE_PINNED_COUNTS = object()
+
 
 class CorpusIntegrityError(RuntimeError):
     """Raised when the curated corpus does not have the shape this module asserts it must."""
 
 
-def exhibition_team_ids(
+def exhibition_team_seasons(
     games: Sequence[Game], *, min_games: int = MIN_SEASON_GAMES_FOR_A_REAL_TEAM
-) -> frozenset[str]:
-    """Team ids that play too few games in a season to be a franchise.
+) -> frozenset[tuple[int, str]]:
+    """`(season, team_id)` pairs where that team plays too few games *in that season* to be a
+    franchise.
 
-    Evaluated **per season** and then unioned: a team that is real in one season and absent from
-    another must not be judged on its total across the corpus.
+    Keyed by season, and **not** collapsed to a bare set of team ids (F-065). The first version
+    returned a union of ids and applied it across every season, so a team below the threshold in one
+    season was stripped from all of them. That is not a corner case: any partial season does it. With
+    2022-2025 complete plus the first 150 games of 2026, every team is under-played *in 2026*, so the
+    union flagged 39 ids and `exclude_exhibitions` discarded **all 5,439 games and raised nothing**.
+    Judging a team only against the season it appears in is both the correct rule and what the
+    function's name always claimed.
     """
     per_season: dict[int, Counter[str]] = defaultdict(Counter)
     for game in games:
         per_season[game.season][game.home_id] += 1
         per_season[game.season][game.away_id] += 1
     return frozenset(
-        team
-        for counts in per_season.values()
+        (season, team)
+        for season, counts in per_season.items()
         for team, played in counts.items()
         if played < min_games
     )
@@ -96,18 +119,17 @@ def partition_exhibitions(
     games: Sequence[Game], *, min_games: int = MIN_SEASON_GAMES_FOR_A_REAL_TEAM
 ) -> tuple[list[Game], list[Game]]:
     """Split into (nba_games, exhibitions). A game is an exhibition if **either** side is not a
-    franchise -- in the pinned corpus no game mixes the two populations, but a rule that only caught
-    both-sides cases would silently pass one that did."""
-    exhibition_ids = exhibition_team_ids(games, min_games=min_games)
+    franchise *in that game's season* -- in the pinned corpus no game mixes the two populations, but
+    a rule that only caught both-sides cases would silently pass one that did."""
+    exhibitions_by_season = exhibition_team_seasons(games, min_games=min_games)
     nba: list[Game] = []
     exhibitions: list[Game] = []
     for game in games:
-        target = (
-            exhibitions
-            if game.home_id in exhibition_ids or game.away_id in exhibition_ids
-            else nba
-        )
-        target.append(game)
+        is_exhibition = (game.season, game.home_id) in exhibitions_by_season or (
+            game.season,
+            game.away_id,
+        ) in exhibitions_by_season
+        (exhibitions if is_exhibition else nba).append(game)
     return nba, exhibitions
 
 
@@ -116,7 +138,7 @@ def exclude_exhibitions(
     *,
     min_games: int = MIN_SEASON_GAMES_FOR_A_REAL_TEAM,
     teams_per_season: int = NBA_TEAMS_PER_SEASON,
-    expected: dict[int, int] | None = EXPECTED_EXHIBITION_COUNTS,
+    expected: dict[int, int] | None | object = _USE_PINNED_COUNTS,
 ) -> list[Game]:
     """The modeling corpus: `games` minus the exhibitions, verified.
 
@@ -124,19 +146,39 @@ def exclude_exhibitions(
     would be invisible downstream -- it would show up only as a slightly disappointing headline
     number in T-009, which is indistinguishable from "the features carry no signal":
 
-      1. every season is left with exactly `teams_per_season` team ids;
+      1. every season **present in the input** is left with exactly `teams_per_season` team ids --
+         counted over the input's seasons, not the survivors', so a season wiped out entirely reads
+         as 0 rather than as absent (F-065);
       2. every season sheds exactly the number of games pinned in `expected`, and a season absent
          from `expected` is refused outright rather than curated unverified (F-028's lesson).
 
-    Pass `expected=None` to skip only the second check -- for a partial season, or a season being
-    measured for the first time before its count is pinned.
+    Pass `expected=None` to skip only the second check -- for a season being measured for the first
+    time before its count is pinned. The first check always runs.
+
+    **What this does NOT detect** (stated because D-025 reads stronger than it is): a partial season
+    whose teams have each already cleared `min_games`. At a ~1,100-game 2026 prefix every team is
+    over the threshold and all four All-Star games have been played, so curation looks perfectly
+    healthy and returns a truncated corpus without complaint. The tripwire for *that* is the loader's
+    `EXPECTED_COMPLETED_COUNTS`, which is why this module deliberately does not duplicate it.
     """
+    if expected is _USE_PINNED_COUNTS:
+        expected = EXPECTED_EXHIBITION_COUNTS  # resolved at call time, not at definition (F-070)
+
     nba, exhibitions = partition_exhibitions(games, min_games=min_games)
 
     teams_by_season: dict[int, set[str]] = defaultdict(set)
     for game in nba:
         teams_by_season[game.season].update((game.home_id, game.away_id))
-    wrong = {s: len(t) for s, t in teams_by_season.items() if len(t) != teams_per_season}
+    # F-065: iterate the seasons present in the INPUT, not the ones surviving in `nba`. Built from
+    # `nba`, this check was vacuous exactly when it mattered most: a season whose every team fell
+    # below the threshold contributed no entry at all, so `wrong` was empty and a wiped-out season
+    # passed silently. A season that loses all its games must read as 0 team ids, not as absent.
+    seasons_in_input = {game.season for game in games}
+    wrong = {
+        season: len(teams_by_season.get(season, set()))
+        for season in seasons_in_input
+        if len(teams_by_season.get(season, set())) != teams_per_season
+    }
     if wrong:
         raise CorpusIntegrityError(
             f"after excluding exhibitions, season(s) {wrong} do not have exactly "
@@ -168,3 +210,31 @@ def exclude_exhibitions(
             )
 
     return nba
+
+
+def assert_curated(
+    games: Sequence[Game], *, min_games: int = MIN_SEASON_GAMES_FOR_A_REAL_TEAM
+) -> None:
+    """Raise unless `games` looks already curated. **T-007 and T-009 should call this on their input.**
+
+    `load_games` excludes by default (D-025(3)), but that is a property of the *producer*, and three
+    documented paths reach a consumer uncurated with no flag and no assertion (F-067):
+    `games_from_frame(load_completed_games(...))`, `load_games(include_exhibitions=True)`, and any
+    hand-assembled list. D-025's own argument -- an exhibition row has ordinary-looking features and
+    a coin-flip label, so contamination has *no symptom* -- applies verbatim to rows obtained any
+    other way. A default is not a guarantee; this is the check that makes it one at the point of use.
+
+    Cheap: one pass to count games per team per season. It deliberately does NOT re-run
+    `exclude_exhibitions`, which is not idempotent -- re-curating an already-curated corpus trips the
+    pinned-count assertion (0 removed vs 1 expected) and reads as corruption rather than as "already
+    clean".
+    """
+    stragglers = exhibition_team_seasons(games, min_games=min_games)
+    if stragglers:
+        sample = sorted(stragglers)[:5]
+        raise CorpusIntegrityError(
+            f"{len(stragglers)} (season, team) pair(s) play fewer than {min_games} games "
+            f"(first few: {sample}) -- this collection has not been curated. Obtain it from "
+            "dataset.load_games(), which excludes exhibitions by default (D-025), rather than from "
+            "games_from_frame / load_games(include_exhibitions=True)."
+        )

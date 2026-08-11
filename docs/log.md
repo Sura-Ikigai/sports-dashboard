@@ -6,6 +6,37 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-10 — T-006 round 2: ⛔⛔ again, and the right call
+
+- Both reviewers independently verified **every** round-1 finding closed — security re-ran its own
+  reproductions against a hash-verified `git cat-file` snapshot (F-044's leak: 32.0 → 6.0), logic
+  re-ran all 10 mutations and checked the four highest-risk ones at the *assertion* level, not the
+  exit code. Then both ⛔'d on `corpus.py`. **It arrived with the remediation and no reviewer had
+  ever seen it** — the same lesson T-005 taught: code that ships with a fix is unreviewed code.
+- **F-065 was a real bug and it was mine.** Identification counted per season but returned a bare
+  union of team ids, applied globally — so one partial season condemned every team in every season —
+  and the 30-team assertion was built from the *survivors*, so a wiped season contributed no entry
+  and passed vacuously. Result: 2022–2025 complete plus 150 games of 2026 returned **0 games from
+  5,439 and raised nothing**, via the module's own documented `expected=None` path. Reproduced before
+  fixing. Now keyed by `(season, team_id)`, and the team check iterates the *input's* seasons.
+- **F-061**: `load_games` had no tests, so exclude-by-default — the whole safety property — was
+  unpinned; flipping the default passed all 90 tests. F-059's pattern landing on the one guarantee
+  the module exists for.
+- **F-068**: my own F-044 fix was fail-open — a blunt `game_id` match silently deleted a colliding
+  historical game. Now matches the opponent too, and raises on a genuine collision.
+- **F-071 is the one to remember.** Both reviewers independently hit stale bytecode that CPython
+  reused because its `(mtime, size)` header still validated — a size-preserving mutation restored
+  within the same second. Security proved it in one process: `compile(source)` said 30,
+  `import` said 29, `git hash-object` matched HEAD. **This threatens the "10/10 mutations caught"
+  evidence the whole remediation rests on.** Caches purged, harness now isolates
+  `PYTHONPYCACHEPREFIX` per run and re-asserts a clean baseline between mutations. The original claim
+  survived — logic had independently reproduced it with a clean cache.
+- Also fixed F-062/F-063/F-064/F-066/F-067/F-070; F-069 documented as a structural limit of
+  identifying exhibitions by team rather than by game. `assert_curated` added and written into
+  T-007/T-009's acceptance, because a default on the producer is not a guarantee at the consumer.
+- The two reviewers collided on finding numbers F-061..F-066; reconciled in the ledger with logic's
+  numbering kept as issued and security's renumbered F-067..F-071.
+
 ## 2026-08-10 — F-043 promoted to canon (Dev-System `1c52645`, pushed)
 
 - Copied the three F-043 files to the factory (`Client Projects/Dev-System`), verified there, committed

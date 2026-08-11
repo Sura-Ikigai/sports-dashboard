@@ -296,6 +296,7 @@ class _TeamGame:
     season: int
     won: bool
     margin: int
+    opponent_id: str
 
 
 class GameHistory:
@@ -349,10 +350,10 @@ class GameHistory:
             margin = game.home_margin
             won = game.home_win
             by_team.setdefault(game.home_id, []).append(
-                _TeamGame(game.game_id, game.date, game.season, won, margin)
+                _TeamGame(game.game_id, game.date, game.season, won, margin, game.away_id)
             )
             by_team.setdefault(game.away_id, []).append(
-                _TeamGame(game.game_id, game.date, game.season, not won, -margin)
+                _TeamGame(game.game_id, game.date, game.season, not won, -margin, game.home_id)
             )
 
         self._records: dict[str, tuple[_TeamGame, ...]] = {}
@@ -392,7 +393,7 @@ class GameHistory:
         return cls(history)
 
     def _records_before(
-        self, team: str, as_of: datetime, exclude_game_id: str
+        self, team: str, as_of: datetime, exclude_game_id: str, opponent_id: str
     ) -> tuple[_TeamGame, ...]:
         """That team's completed games dated **strictly before** `as_of`, oldest first, excluding
         `exclude_game_id`.
@@ -412,7 +413,26 @@ class GameHistory:
         if not dates:
             return ()
         window = self._records[team][: bisect_left(dates, as_of)]
-        return tuple(r for r in window if r.game_id != exclude_game_id)
+        kept = []
+        for record in window:
+            if record.game_id != exclude_game_id:
+                kept.append(record)
+                continue
+            # F-068: the exclusion must not be a blunt id match. Dropping *any* record sharing the
+            # target's id made this control fail OPEN -- a target id colliding with a real historical
+            # game silently deleted that game from both teams' windows (form_diff 0.125 -> 0.0 with
+            # no error). Matching the opponent too identifies the target precisely, and a same-id
+            # game against a *different* opponent is not the target: it is corrupt input, and on a
+            # module whose whole thesis is failing closed it must say so rather than quietly drop a
+            # real game.
+            if record.opponent_id != opponent_id:
+                raise FeatureInputError(
+                    f"history contains game_id {record.game_id!r} against opponent "
+                    f"{record.opponent_id!r}, but the target with that id is against "
+                    f"{opponent_id!r} -- game ids must identify one game. Refusing to guess which "
+                    "of the two to drop from the as-of window."
+                )
+        return tuple(kept)
 
 
 def _shrink(observed: float, n: int, prior: float) -> float:
@@ -513,8 +533,8 @@ def compute_features(
         )
 
     index = GameHistory.of(history)
-    home = index._records_before(target.home_id, as_of, target.game_id)
-    away = index._records_before(target.away_id, as_of, target.game_id)
+    home = index._records_before(target.home_id, as_of, target.game_id, target.away_id)
+    away = index._records_before(target.away_id, as_of, target.game_id, target.home_id)
 
     return {
         "home_advantage": 0.0 if target.neutral_site else 1.0,

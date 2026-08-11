@@ -19,16 +19,16 @@
 
 ## Current state
 
-**State now:** **F-042 is closed** — `backend/model/corpus.py` curates the corpus to 6,605
-modeling games (D-025), verified. **T-005 is `REVIEWED` at `34759ed` (✅✅)** — both reviewers re-reviewed it after
-`406dd09` touched `loader.py`, proved the change AST-identical once docstrings are stripped, and
-security re-ran the download from a genuinely empty dir anyway. **T-006 is `BUILT` and remediated,
-awaiting re-review.** Round 1 was ⛔⛔ and both verdicts were earned: security showed the target's own
-result was reachable through `history` (F-044 — the `Matchup` split closed only the direct route), and
-logic ran ~60 mutations of which **7 survived my test suite**, three changing 5,000+ of the 6,615 real
-feature vectors. The module was largely right; the *tests* were not. All 17 findings (F-044..F-060)
-are addressed, and the fix is verified by re-running the reviewers' own mutations — **10/10 now
-caught**. Suite 58 → 79. Real-corpus numbers unchanged to the digit.
+**State now:** **T-006 is `BUILT`, remediated through two full review rounds, awaiting round 3.**
+Round 2 (`d8257b6`) was ⛔⛔ again, and correctly: both reviewers independently verified every round-1
+finding (F-044..F-060) was genuinely closed, then both ⛔'d on `backend/model/corpus.py` — code that
+arrived *with* the round-1 remediation and that no reviewer had ever seen. That found a real bug
+(**F-065**: curation silently returned **0 games from a 5,439-game input** on a partial season, using
+its own documented escape hatch), an untested safety default (**F-061**), a fail-open control the
+F-044 fix had introduced (**F-068**), and a stale-bytecode hazard that made local test results
+untrustworthy and threatened this task's own evidence (**F-071**). All 11 addressed; 19 mutations
+re-run under a hardened harness, all caught. Suite 90 → 103. **T-005 is `REVIEWED` at `34759ed`
+(✅✅)**. F-042 closed (D-025); the F-043 fix is canon at Dev-System `1c52645`, pushed.
 
 **Next action:** re-review T-006 (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
 against the remediation, then **T-007** (`Use the backend-engineer subagent on T-007`). F-042 is
@@ -184,7 +184,12 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
 - [ ] **T-007** `splits` fold generator + tests — `PLANNED` — owner: `backend-engineer`
       - acceptance: yields exactly the three expanding-window folds (22-23→24, 22-24→25, 22-25→26);
         tests assert every fold's training seasons precede its test season and no season appears on
-        both sides of a fold
+        both sides of a fold; **calls `corpus.assert_curated` on its input** (F-067 — a default on
+        the producer is not a guarantee at the consumer, and three documented paths reach here
+        uncurated with no symptom)
+      - read first: **D-026** (the constant-predictor baseline is 55.534%, not 55.556%) and
+        **D-024/F-057** (`home_advantage` is 1.0 in 2,642 of fold 1's 2,643 rows, so its coefficient
+        is not identifiable in the early folds)
       - security note: integrity only — a fold must never train on its own future.
 - [ ] **T-008** `evaluate` metrics module + tests — `PLANNED` — owner: `backend-engineer`
       - acceptance: accuracy, log loss, AUC, calibration curve, and comparison against a constant
@@ -192,8 +197,8 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
         plus the comparator's boundary behavior
       - security note: none.
 - [ ] **T-009** `estimator` + walk-forward evaluation run — `PLANNED` — owner: `backend-engineer`
-      - acceptance: logistic regression fit per fold; versioned artifact emitted; three folds run end
-        to end; per-fold and headline accuracy/log loss/AUC reported with the fold-to-fold spread;
+      - acceptance: **calls `corpus.assert_curated` on its input** (F-067); logistic regression fit
+        per fold; versioned artifact emitted; three folds run end to end; per-fold and headline accuracy/log loss/AUC reported with the fold-to-fold spread;
         states plainly whether **both** criteria are met (≥62% accuracy AND log loss beating a constant
         55.56% predictor); training-only deps confined to the training requirements file, served image
         unchanged
@@ -437,7 +442,7 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
 
 | Task  | security-auditor | logic-reviewer | ui-ux-reviewer | notes |
 |-------|------------------|----------------|----------------|-------|
-| T-006 | pending          | pending        | n/a            | r1 ⛔⛔ @34759ed: security F-044 (target's own result reachable via `history`) · logic F-051 HIGH (7 mutations survived; 3 change 5,000+ real vectors). Remediated — awaiting re-review. n/a: offline module, no user-facing surface |
+| T-006 | pending          | pending        | n/a            | r2 ⛔⛔ @d8257b6: F-044..F-060 all verified CLOSED by both; both ⛔ on `corpus.py` (added in the remediation, never reviewed) — F-065 curation wiped a whole corpus silently, F-061 the safety default was untested, F-071 stale bytecode made local runs untrustworthy. Remediated. · r1 ⛔⛔ @34759ed: security F-044 (target's own result reachable via `history`) · logic F-051 HIGH (7 mutations survived; 3 change 5,000+ real vectors). Remediated — awaiting re-review. n/a: offline module, no user-facing surface |
 | T-005 | ✅ 34759ed       | ✅ 34759ed     | n/a            | 4 rounds: ✅/⛔ @32110ce (F-026/F-027 HIGH) · ⛔⛔ @e2d2558 (F-037 broke real downloads) · ✅✅ @8eae86c · re-review ✅✅ @34759ed after `406dd09` touched loader.py (F-039 docstring; both reviewers proved it AST-identical, security re-ran the download from an empty dir). n/a: no user-facing surface |
 | T-001 | ✅ 763101e       | ✅ 763101e     | n/a            | 4 rounds: r1 ⛔⛔@d8e3515 · r2 ✅✅@d0e661d · r3 logic ✅/security ⛔@fef3dc8 (F-019) · r4 ✅✅@763101e. n/a: no user-facing surface changed |
 
@@ -453,7 +458,7 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
      so — and until this table said so, "closed" was invisible to anyone who had not read the whole
      document. Adding a finding, or changing one's status, means updating this row too. -->
 
-**Open / accepted — the live set (5):**
+**Open / accepted — the live set (6):**
 
 | ID | Sev | Area | Status | Fires when |
 |----|-----|------|--------|-----------|
@@ -462,8 +467,9 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
 | **F-015** | LOW | ops | ACCEPTED — `ui-ux-reviewer` declared but not mechanically enforced | `reconcile-canon` |
 | **F-006** | LOW | ops | OPEN — `docker-compose.prod.yaml` is a 0-byte file | — |
 | **F-007** | LOW | ops | OPEN — `ci.yml` duplicates every gate check | — |
+| **F-069** | LOW | data | DOCUMENTED — curation cannot see an exhibition between two franchise ids | `new-historical-source` |
 
-**Closed (55):** F-042 (FIXED — `corpus.py`, D-025) · F-044 · F-045 · F-046 · F-047 · F-048 · F-049 · F-050 (T-006 security review, all FIXED in remediation) · F-051 · F-052 · F-053 · F-054 · F-055 · F-056 · F-058 · F-059 · F-060 (T-006 logic review, all FIXED; every surviving mutation re-run and now caught) · F-002 · F-003 · F-004 · F-005 (all CLOSED as moot or designed out by D-004/D-005) ·
+**Closed (65):** F-042 (FIXED — `corpus.py`, D-025) · F-061 · F-062 · F-063 · F-064 · F-065 · F-066 · F-067 · F-068 · F-070 · F-071 (T-006 re-review round 2, all FIXED; F-070(b) ACCEPTED) · F-044 · F-045 · F-046 · F-047 · F-048 · F-049 · F-050 (T-006 security review, all FIXED in remediation) · F-051 · F-052 · F-053 · F-054 · F-055 · F-056 · F-058 · F-059 · F-060 (T-006 logic review, all FIXED; every surviving mutation re-run and now caught) · F-002 · F-003 · F-004 · F-005 (all CLOSED as moot or designed out by D-004/D-005) ·
 F-008 · F-009 · F-010 · F-011 · F-012 · F-013 (FIXED @ `d0e661d`, T-001 round 1) · F-014 · F-016 ·
 F-017 (CLOSED, T-001 round 3) · F-018 (FIXED, canon `be5f6dc`) · F-019 (FIXED, canon `6f49f29`) ·
 F-020 · F-021 · F-022 · F-023 (FIXED @ `763101e`; F-021 project-local only — canon still ships the
@@ -1072,6 +1078,116 @@ F-026 · F-027 · F-028 · F-029 · F-030 · F-031 · F-032 · F-033 · F-034 (F
   protects the features, `games_from_frame` protects the *count* — without the second,
   `load_games((2022, 2022))` still returned 2,648 records to anything that merely counted them, and
   T-009's headline would have quoted a doubled number that never reached a `GameHistory`.
+
+### Re-review — T-006 @ d8257b6 (security ⛔ · logic ⛔) — the remediation held; `corpus.py` did not
+
+<!-- Both reviewers independently confirmed F-044..F-060 are genuinely closed, reproduced closed
+     rather than accepted on the docstring. Both then ⛔'d on backend/model/corpus.py, which I added
+     in d8257b6 AFTER their first review and which no reviewer had ever seen. The lesson is the
+     one T-005 already taught once: code that arrives with a remediation is unreviewed code.
+     NUMBERING: the two reviewers collided on F-061..F-066. Logic's numbering is kept as issued;
+     security's new findings are renumbered F-067..F-071 here. Security's own F-061/F-062 are the
+     same defect as logic's F-065 and are folded into it. -->
+
+- **F-044..F-050 and F-051..F-060 — all CLOSED, verified independently by both reviewers.** Security
+  re-ran its original reproductions against a hash-verified `git cat-file` snapshot of `d8257b6`:
+  the F-044 leak is gone (`point_diff_diff` 32.0 → **6.0**, and history with vs without the target's
+  own `Game` now returns bit-identical dicts), all three F-045 triggers raise, `load_games((2022,
+  2022))` raises at both layers, and the genuine cold start still works so D-015 is not broken.
+  Logic re-ran all 10 mutations: **10/10 caught**, and it checked the four highest-risk ones at the
+  *assertion* level rather than the exit code — the standard it set for itself with P05 last round.
+- **F-065** (logic; = security F-061 + F-062, integrity, **HIGH/MEDIUM**) — **CONFIRMED. A real bug
+  in `corpus.py`, mine.** Two compounding causes. (1) `exhibition_team_ids` counted games per season
+  but returned a bare **union of ids**, which `partition_exhibitions` then applied across *every*
+  season — so a team under-played in one season was stripped from all of them. (2) The 30-team
+  assertion was built from the *surviving* games, so a season that lost everything contributed no
+  entry and the check passed **vacuously**. Together: `exclude_exhibitions(2022-2025 complete + the
+  first 150 games of 2026, expected=None)` returned **0 games from a 5,439-game input and raised
+  nothing** — using the module's own documented escape hatch exactly as documented. Reproduced here
+  before fixing, at prefixes 100/150/250. D-025's "verified, not trusted" was false on that path.
+  Status: **FIXED.** Identification is now keyed by `(season, team_id)` and membership tested per
+  game season; the 30-team check iterates the seasons present in the **input**, so a wiped season
+  reads as `0`, not as absent. The same input now raises `season(s) {2026: 0} do not have exactly 30
+  team ids`. Two regression tests, both mutation-verified.
+- **F-061** (logic, MEDIUM) — **CONFIRMED. `dataset.load_games` had no tests at all**, so D-025(3)'s
+  exclude-by-default — the entire safety property — was unpinned: flipping the default to `True` or
+  inverting the flag passed all 90 tests. Under either, `load_games()` returns the contaminated
+  6,615, D-026's baseline silently reverts, and 10 coin-flip rows plus 12 phantom ids reach T-009.
+  F-059's pattern (an unexercised default) landing on the one thing the module exists to guarantee.
+  Status: **FIXED** — `load_games` is now tested against a synthetic frame via a patched loader (no
+  corpus needed), asserting both the default and the raw path, plus that curation is verified.
+- **F-062** (logic, LOW) — **CONFIRMED.** `test_identification_is_per_season_not_across_the_corpus`
+  did not pin what its name claimed: its phantom's *global* count was also below threshold, so a
+  global-counting implementation passed. Latent — id `111353` already recurs across two seasons and
+  D-017 retrains annually. Status: **FIXED** — the fixture now uses a team **real in one season and
+  under-played in another**, which only per-season counting classifies correctly.
+- **F-063** (logic, MEDIUM) — **CONFIRMED. A test that passed for the wrong reason.** Reversing the
+  set difference in the unpinned-season check still produced a non-empty result against a fixture
+  whose seasons did not overlap `expected`, and the loose `match=` accepted an error naming the wrong
+  season — so an unpinned season could be curated unverified while the test that exists to prevent
+  exactly that stayed green. F-028's lesson defeated by its own guard. Status: **FIXED** — `expected`
+  now overlaps the fixture's seasons and the offending season number is asserted present (and the
+  healthy one absent).
+- **F-064** (logic, LOW) — **CONFIRMED.** Three correct validation branches nothing would have
+  noticed losing: the `isinstance(season, bool)` guard, the `game_id` str check, and `Game`'s
+  team-id check (the suite covered `Matchup.home_id` and `Game.season`, never `Game.home_id`).
+  Status: **FIXED**, four tests.
+- **F-066** (logic, LOW) — **CONFIRMED.** `min_games` was forwarded but plumbed by no test, so
+  dropping the forwarding survived; and the `<` vs `<=` boundary at exactly `min_games` was unpinned.
+  Status: **FIXED**, both mutation-verified.
+- **F-067** (security, MEDIUM) — **CONFIRMED. A default on the producer is not a guarantee at the
+  consumer.** `load_games`' exclude-by-default holds on every path *through `load_games`*, but three
+  public documented paths reach T-009 uncurated with no flag and no assertion:
+  `games_from_frame(load_completed_games(...))`, `load_games(include_exhibitions=True)`, and any
+  hand-assembled list. D-025's own argument — contamination has *no symptom* — applies verbatim to
+  rows obtained any other way, and nothing let a consumer check. Status: **FIXED** — new
+  `corpus.assert_curated(games)`, a cheap one-pass tripwire **T-007 and T-009 must call on their
+  input**. It deliberately does not re-run `exclude_exhibitions`, which is not idempotent (security
+  also noted this: re-curating a curated corpus trips the pinned-count assertion and reads as
+  corruption). Added to T-007/T-009 acceptance below.
+- **F-068** (security, MEDIUM) — **CONFIRMED. The F-044 fix introduced a fail-open control.**
+  `_records_before` dropped *any* record whose `game_id` matched the target's, so a target id
+  colliding with a real historical game silently deleted that game from both teams' windows
+  (`form_diff` 0.125 → 0.0, `point_diff_diff` 6.0 → 1.143, no error). Not reachable from
+  `compute_training_features` and ESPN ids are unique, so Phase 1 was safe — but a fail-open control
+  on a module whose entire thesis is failing closed is the wrong shape. Status: **FIXED** — the
+  exclusion now matches the **opponent** as well as the id, so it identifies the target precisely;
+  a same-id game against a different opponent raises instead of being dropped. `_TeamGame` carries
+  `opponent_id` for this. Both directions mutation-verified.
+- **F-069** (security, LOW) — **CONFIRMED mechanism, PLAUSIBLE exploit.** The games-played rule
+  classifies *teams*, never games, so an exhibition played **between two franchise ids** is
+  structurally invisible to it — demonstrated by injecting a synthetic All-Star between two real
+  2024 ids, which survived with both assertions passing. Not live: the corpus carries only
+  `season_type` 2/3/5 (no preseason rows at all) and all ten removed games are phantom-id games.
+  Status: **DOCUMENTED**, not coded — `corpus.py` now states the limitation, because D-025 read
+  stronger than the rule is. The clean closure if a differently-shaped source ever lands is to carry
+  `season_type` through; the loader already parses it and `dataset.REQUIRED_FRAME_COLUMNS` drops it
+  before `corpus.py` could see it. revisit-when: `new-historical-source`.
+- **F-070** (security, LOW) — **CONFIRMED, and half of it was a latent vacuous-test trap.**
+  (a) `expected: ... = EXPECTED_EXHIBITION_COUNTS` bound the dict **object at definition time**, so
+  rebinding the module constant — what a monkeypatching test does — was silently ignored while
+  in-place mutation took effect. A future test patching that constant would have passed vacuously:
+  precisely the class F-051..F-059 were all about. Status: **FIXED** — sentinel default resolved at
+  call time, with a test that patches the constant and asserts it takes effect. (b) The
+  `min_games`/`teams_per_season`/`expected` knobs can defeat both assertions
+  (`min_games=1, teams_per_season=32, expected={2022:0}` keeps the All-Star game silently). Status:
+  **ACCEPTED** — these are explicit caller opt-outs on a training-only module, not a bypass a
+  default path can reach; the defaults are what T-007/T-009 use and `assert_curated` re-checks at the
+  consumer regardless.
+- **F-071** (process / review integrity, MEDIUM) — **CONFIRMED by both reviewers independently, and
+  it threatened this task's central evidence.** `backend/model/__pycache__` held bytecode that did
+  not match its source *while its `(mtime, size)` header validated*, so CPython reused it: a
+  size-preserving mutation (`30`→`29`) restored within the same second leaves a valid-looking stale
+  `.pyc`. Security proved it in one process — `compile(open(...).read())` gave 30 while
+  `import model.corpus` gave 29, with `git hash-object` matching HEAD exactly — and watched the suite
+  return 90, then 3 failed, 1 failed, 7 failed, then 94 passed across one session. **This directly
+  threatens the "10/10 CAUGHT" evidence T-006's remediation rests on**, since a mutation can be
+  scored against a previous mutant's bytecode. Status: **FIXED.** All caches purged (0 were tracked
+  in git); the harness now gives every run its own `PYTHONPYCACHEPREFIX`, runs with
+  `-p no:cacheprovider`, and **re-asserts a clean baseline between mutations**. Re-ran 19 mutations
+  under it: **all caught** (one apparent survivor was an equivalent mutant of my own construction —
+  `X if False else X` — and the real F-070 regression, reconstructed properly, is caught).
+  The original 10/10 claim stands: logic independently reproduced it with a clean cache.
 
 ## Future hardening (review output → next-cycle backlog)
 
