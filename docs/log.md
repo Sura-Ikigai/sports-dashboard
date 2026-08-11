@@ -6,6 +6,33 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-10 — T-002 closed; the parallel-review damage filed and mitigated
+
+- **T-002 closed as superseded by T-005 (D-027).** Its acceptance was satisfied clause-for-clause by
+  `loader.py`, built and reviewed under T-005; its ledger row carries T-005's ✅s with the provenance
+  stated, because the code really was reviewed, just under another id. Leaving it `BACKLOG` implied
+  work that did not exist — the more expensive error, since the next planning session would have
+  scheduled it. The play-by-play parquet is the one clause never built, deliberately: Phase 1 is
+  team-level pre-game only, so PBP has no consumer.
+- **Filed F-100..F-104 for the Dev-System process gaps**, and mitigated the two that have already
+  caused damage with a new *Tracker rule 5* — a review-round protocol that binds the next round
+  rather than waiting on a canon change:
+  - **F-100**: both round-2 reviewers were told "start at F-061" and both used it, producing two
+    conflicting F-061..F-066 sets that had to be reconciled by hand. "Start at F-0NN" is not an
+    allocation. Rule 5a now requires a disjoint block per reviewer, recorded before spawning.
+  - **F-101**: canon tells reviewers to write the tracker themselves, which is safe only when they
+    run sequentially. Parallel reviewers means concurrent writers to one file. This project has been
+    overriding canon (report-only + main-thread transcription) without documenting it; rule 5b makes
+    that explicit, including the fidelity cost it moves onto the transcriber.
+  - **F-102**: canon has no notion that a remediation can *add* code, and that has now broken two
+    consecutive rounds — `corpus.py` in round 1's fix, `assert_curated` and the opponent-matched
+    exclusion in round 2's. Rule 5c requires a hand-off to list additions separately.
+  - **F-103** (`gate-completeness` checks agent filenames, never content — how F-008 shipped) and
+    **F-104** (nothing enforces the docs-only review commit the F-043 design leans on) filed, open.
+- Numbering note: F-072..F-099 is left empty on purpose. The round-3 reviewers were spawned with
+  "start at F-072" and are still running, so taking F-100+ was the only collision-free block —
+  which is itself the evidence for F-100.
+
 ## 2026-08-10 — T-006 round 2: ⛔⛔ again, and the right call
 
 - Both reviewers independently verified **every** round-1 finding closed — security re-ran its own

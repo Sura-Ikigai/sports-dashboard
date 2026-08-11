@@ -76,16 +76,21 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
         (never `pull_request_target` — that would run a fork's edited `run:` with repo secrets)
 
 ### Historical data + modeling (planning pending)
-- [ ] **T-002** Ingest sportsdataverse NBA seasons 2022–2026 into a local modeling store — `BACKLOG` — owner: `backend-engineer`
-      - source (verified by download 2026-08-09, not from docs): release assets on
-        `github.com/sportsdataverse/sportsdataverse-data` — `espn_nba_schedules/nba_schedule_<season>.csv`
-        (2026 = 1,330 games, 2025-10-21 → 2026-06-14, 1,326 completed; 2022 = 1,335 games from
-        2021-10-19) and `espn_nba_pbp/play_by_play_<season>.parquet`. Assets refreshed 2026-07-28/08-07.
+- [x] **T-002** Ingest sportsdataverse NBA seasons 2022–2026 into a local modeling store — `DONE` — owner: `backend-engineer`
       - acceptance: seasons 2022–2026 land in the modeling store; game counts per season match the
         source files; ingest is idempotent (re-running does not duplicate); the store is gitignored
+        — **all met, by T-005** (see outcome)
       - security note: pin the asset URLs by release tag and verify what is downloaded before
-        parsing — this is third-party data fetched over the network into a parsing path
-      - blocked on: T-003 (shape of the store is a planning decision, not a build-time one)
+        parsing — this is third-party data fetched over the network into a parsing path — **honored
+        by T-005, and hardened further there** (content-hash pinning, redirect allowlist, size cap)
+      - outcome: **closed as superseded by T-005 (D-027).** Every acceptance clause above is
+        satisfied by `backend/model/loader.py`: the five seasons land in the gitignored
+        `data/raw/nba_schedules/`, per-season counts are pinned and asserted on every load, and a
+        valid cached file short-circuits re-download. The reviewer ✅s in the ledger row are T-005's
+        — the same code, reviewed there — which is why this row carries T-005's SHA rather than one
+        of its own. The one clause never built is the play-by-play parquet, deliberately: Phase 1
+        uses schedules only, and PBP is not needed until a feature set beyond team-level pre-game
+        stats exists. If that day comes it is a new task, not this one.
 - [ ] **T-004** Evaluate moving the Python runtime off 3.11 — `BACKLOG` — owner: `backend-engineer`
       - acceptance: `backend/Dockerfile`, `.github/workflows/ci.yml`, `.github/workflows/gate.yml`
         and the local venv all move together, and the full gate is green on the new interpreter
@@ -438,10 +443,24 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
   unreproducible number in a portfolio artifact is exactly what T-010's acceptance forbids.
   (Refines D-007/D-008; supersedes neither.)
 
+- **D-027** 2026-08-10 — **T-002 is closed as superseded by T-005, not built.** Its acceptance
+  ("seasons 2022–2026 land in the modeling store; counts match the source; ingest is idempotent; the
+  store is gitignored") is satisfied clause-for-clause by `backend/model/loader.py`, which was built
+  under T-005 and reviewed ✅✅ there. Leaving it `BACKLOG` implied outstanding work that does not
+  exist — the more expensive error, since the next planning session would have scheduled it.
+  Its ledger row therefore carries **T-005's** review SHAs, with the provenance stated in the notes
+  column: the code really was reviewed, just under a different task id. The one clause never built is
+  the play-by-play parquet, and that is deliberate rather than an omission — Phase 1 is team-level
+  pre-game only (PLAN-v1 *Out of Scope*), so PBP has no consumer. It becomes a new task if a feature
+  set ever needs it. Consequence worth noting: T-002 predates the plan, and its overlap with T-005
+  went unnoticed for a full phase because nothing cross-checks a `BACKLOG` task against work that
+  later subsumes it. (Supersedes nothing; closes T-002.)
+
 ## Review ledger
 
 | Task  | security-auditor | logic-reviewer | ui-ux-reviewer | notes |
 |-------|------------------|----------------|----------------|-------|
+| T-002 | ✅ 34759ed       | ✅ 34759ed     | n/a            | Closed as superseded by T-005 (D-027) — the ✅s are T-005's, on the same code. Not a review of its own; the row exists so a DONE task carries a verdict, per canon. n/a: no user-facing surface |
 | T-006 | pending          | pending        | n/a            | r2 ⛔⛔ @d8257b6: F-044..F-060 all verified CLOSED by both; both ⛔ on `corpus.py` (added in the remediation, never reviewed) — F-065 curation wiped a whole corpus silently, F-061 the safety default was untested, F-071 stale bytecode made local runs untrustworthy. Remediated. · r1 ⛔⛔ @34759ed: security F-044 (target's own result reachable via `history`) · logic F-051 HIGH (7 mutations survived; 3 change 5,000+ real vectors). Remediated — awaiting re-review. n/a: offline module, no user-facing surface |
 | T-005 | ✅ 34759ed       | ✅ 34759ed     | n/a            | 4 rounds: ✅/⛔ @32110ce (F-026/F-027 HIGH) · ⛔⛔ @e2d2558 (F-037 broke real downloads) · ✅✅ @8eae86c · re-review ✅✅ @34759ed after `406dd09` touched loader.py (F-039 docstring; both reviewers proved it AST-identical, security re-ran the download from an empty dir). n/a: no user-facing surface |
 | T-001 | ✅ 763101e       | ✅ 763101e     | n/a            | 4 rounds: r1 ⛔⛔@d8e3515 · r2 ✅✅@d0e661d · r3 logic ✅/security ⛔@fef3dc8 (F-019) · r4 ✅✅@763101e. n/a: no user-facing surface changed |
@@ -458,7 +477,9 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
      so — and until this table said so, "closed" was invisible to anyone who had not read the whole
      document. Adding a finding, or changing one's status, means updating this row too. -->
 
-**Open / accepted — the live set (6):**
+**Open / accepted — the live set (11):**
+
+<!-- F-072..F-099 reserved for the in-flight round-3 reviewers; see the note above F-100. -->
 
 | ID | Sev | Area | Status | Fires when |
 |----|-----|------|--------|-----------|
@@ -468,6 +489,11 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
 | **F-006** | LOW | ops | OPEN — `docker-compose.prod.yaml` is a 0-byte file | — |
 | **F-007** | LOW | ops | OPEN — `ci.yml` duplicates every gate check | — |
 | **F-069** | LOW | data | DOCUMENTED — curation cannot see an exhibition between two franchise ids | `new-historical-source` |
+| **F-101** | MEDIUM | process/canon | OPEN — canon's reviewer contract breaks under parallel review | `reconcile-canon` |
+| **F-103** | MEDIUM | gate tooling | OPEN — `gate-completeness` checks agent filenames, never content | — |
+| **F-100** | MEDIUM | process/canon | MITIGATED by Tracker rule 5a — no finding-number allocator in canon | `reconcile-canon` |
+| **F-102** | MEDIUM | process/canon | MITIGATED by Tracker rule 5c — canon has no notion of a remediation adding code | `reconcile-canon` |
+| **F-104** | LOW | process | OPEN — docs-only review-commit convention enforced by nothing | — |
 
 **Closed (65):** F-042 (FIXED — `corpus.py`, D-025) · F-061 · F-062 · F-063 · F-064 · F-065 · F-066 · F-067 · F-068 · F-070 · F-071 (T-006 re-review round 2, all FIXED; F-070(b) ACCEPTED) · F-044 · F-045 · F-046 · F-047 · F-048 · F-049 · F-050 (T-006 security review, all FIXED in remediation) · F-051 · F-052 · F-053 · F-054 · F-055 · F-056 · F-058 · F-059 · F-060 (T-006 logic review, all FIXED; every surviving mutation re-run and now caught) · F-002 · F-003 · F-004 · F-005 (all CLOSED as moot or designed out by D-004/D-005) ·
 F-008 · F-009 · F-010 · F-011 · F-012 · F-013 (FIXED @ `d0e661d`, T-001 round 1) · F-014 · F-016 ·
@@ -1189,6 +1215,55 @@ F-026 · F-027 · F-028 · F-029 · F-030 · F-031 · F-032 · F-033 · F-034 (F
   `X if False else X` — and the real F-070 regression, reconstructed properly, is caught).
   The original 10/10 claim stands: logic independently reproduced it with a clean cache.
 
+### Dev-System process gaps (filed 2026-08-10 by the main thread, not from a review)
+
+<!-- NUMBERING: F-072..F-099 is deliberately left empty. The round-3 reviewers were spawned with
+     "start at F-072" and are still running as this is written, so anything in that range may
+     collide. Taking F-100+ is the immediate workaround for the very defect F-100 describes — and is
+     itself the evidence that "start at F-0NN" is not an allocation scheme. -->
+
+- **F-100** (process/canon, MEDIUM) — **Parallel reviewers collide on finding numbers; nothing
+  allocates them.** Both round-2 reviewers were told "new findings start at F-061", and both did:
+  two different, conflicting F-061..F-066 sets came back, which had to be reconciled by hand into
+  F-061..F-071 before anything could be recorded. Canon offers no allocation scheme —
+  `SYSTEM.md` shows finding ids only as narrative examples. Remediation: the round owner allocates a
+  disjoint block per reviewer in the spawn prompt and records it in the tracker (now Tracker rule
+  5a). Status: **MITIGATED** by rule 5a; the canon change is unfiled. revisit-when: `reconcile-canon`.
+- **F-101** (process/canon, MEDIUM) — **Canon's reviewer contract assumes sequential reviewers and
+  breaks under the parallelism everyone actually uses.** `.claude/agents/security-auditor.md`
+  instructs the reviewer to "write your *Review ledger* row and append every issue" to
+  `docs/IMPLEMENTATION.md`; `logic-reviewer.md` says the same. Two agents doing that concurrently
+  write one file. This project has avoided it only because the main thread overrode canon and made
+  both reviewers report-only — an undocumented divergence that also moves the fidelity risk onto the
+  transcriber. Remediation: make report-only the canon contract (with the main thread transcribing),
+  or have reviewers write to per-reviewer files the main thread merges. Status: OPEN.
+  revisit-when: `reconcile-canon`.
+- **F-102** (process/canon, MEDIUM) — **A remediation can add code, and canon has no notion of it.**
+  SYSTEM.md §5.4 says only "⛔ → builder remediates, re-review". It has no concept that a remediation
+  may introduce a whole new module, which then reaches the next round unreviewed. That is not
+  hypothetical: it happened in **both** T-006 rounds. Round 1's remediation introduced
+  `backend/model/corpus.py`, which round 2 ⛔'d on — including F-065, a real bug that silently
+  returned 0 games from a 5,439-game input. Round 2's remediation then introduced `assert_curated`,
+  the opponent-matched exclusion and a sentinel default, and round 3 was explicitly told to treat
+  those as the highest-risk surface. Remediation: require the builder's hand-off to list additions
+  separately from modifications. Status: **MITIGATED** by Tracker rule 5c; canon change unfiled.
+  revisit-when: `reconcile-canon`.
+- **F-103** (gate tooling, MEDIUM) — **`gate-completeness` existence-checks agent *filenames*, never
+  their content.** It is `readdirSync(agentsDir).filter(f => f.endsWith('.md'))`, so any file with
+  the right name satisfies it. This is precisely how F-008 shipped: `backend-engineer.md` was
+  installed unmodified from Supabase canon and told builders "RLS ships with the schema" in a project
+  whose central invariant is that no RLS exists — while the gate reported "3 reviewer(s) installed".
+  The check cannot distinguish a correct agent from the wrong stack's, and F-008 was caught by a
+  human reviewer, not by it. Remediation: assert each agent's frontmatter `name` matches its filename
+  and that the file references the project's own stack overlay. Status: OPEN.
+- **F-104** (process, LOW) — **The docs-only review-commit convention is enforced by nothing**, and
+  the whole F-043 currency design leans on it. It exists only in source comments and one line of
+  `log.md`. It has already been violated once — `0c3b8a9` (`review(T-005)`) bundled gate-tooling
+  fixes into a review commit — which is the sole reason `taskIdFromSubject` has to exclude `review(`
+  from ownership attribution. A workaround for an unenforced convention is now load-bearing canon.
+  Remediation: a pre-commit or gate check that a commit whose subject starts `review(` touches only
+  `docs/`. Status: OPEN.
+
 ## Future hardening (review output → next-cycle backlog)
 
 - Install Playwright and declare the `a11y` check; tune `checks/reference/perf-budgets.json` for this
@@ -1245,3 +1320,22 @@ F-026 · F-027 · F-028 · F-029 · F-030 · F-031 · F-032 · F-033 · F-034 (F
    every new finding gets a row, and every status change updates one. A finding closed in a commit
    message is not closed until the ledger says so (F-024, F-032, F-035 each proved this).
 4. **One tracker per project, committed to git.** The git history is the versioning of this state.
+5. **Review-round protocol (added 2026-08-10 after F-100..F-102 caused real damage).** Reviewers are
+   run in parallel — that is the efficient shape and it is not going to change — so the round must be
+   set up for it *before* any reviewer is spawned:
+   a. **Allocate a disjoint finding-number block to each reviewer, in writing, in the spawn prompt.**
+      "Start at F-0NN" is not an allocation: two reviewers both given it will both use it, which is
+      exactly what produced two conflicting F-061..F-066 sets. Allocate e.g. security-auditor
+      F-072–F-081, logic-reviewer F-082–F-091, and record the allocation here in the round's heading
+      before spawning. The main thread keeps its own block, well clear of both.
+   b. **Reviewers report; the main thread transcribes.** Canon's agent files tell reviewers to write
+      the tracker themselves, which is safe only when they run one at a time. Two concurrent writers
+      to one file will interleave or clobber. The cost of transcription is that fidelity depends on
+      the main thread — so transcribe verdicts and findings *before* starting remediation, while the
+      report is still in front of you, and never paraphrase a reproduction step.
+   c. **A remediation declares what it ADDED, not just what it changed.** Twice now the code that
+      failed the next round was code that arrived with the previous remediation and had never been
+      reviewed by anyone (`corpus.py` in round 1's fix; `assert_curated` and the opponent-matched
+      exclusion in round 2's). List additions explicitly in the round's hand-off so the next review
+      scopes them as new code rather than discovering them.
+
