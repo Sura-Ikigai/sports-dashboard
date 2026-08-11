@@ -1215,6 +1215,21 @@ F-026 · F-027 · F-028 · F-029 · F-030 · F-031 · F-032 · F-033 · F-034 (F
   `X if False else X` — and the real F-070 regression, reconstructed properly, is caught).
   The original 10/10 claim stands: logic independently reproduced it with a clean cache.
 
+### Review round 3 — T-006 @ 4009937 — finding-number allocation (Tracker rule 5a)
+
+<!-- Recorded BEFORE spawning, which is the whole point of rule 5a. The first attempt at round 3 was
+     spawned with "new findings start at F-072" given to both reviewers -- the same non-allocation
+     that produced two conflicting F-061..F-066 sets in round 2 (F-100). Those two agents then
+     stalled without producing output and were relaunched; no findings were lost, and the range is
+     re-allocated properly here. -->
+
+| Reviewer | Block | Status |
+|---|---|---|
+| security-auditor | **F-072 – F-081** | round 3 in progress @ `4009937` |
+| logic-reviewer | **F-082 – F-091** | round 3 in progress @ `4009937` |
+| main thread | F-100 – F-109 | F-100..F-104 used |
+| _(unallocated)_ | F-092 – F-099 | reserved for a round-4 reviewer block |
+
 ### Dev-System process gaps (filed 2026-08-10 by the main thread, not from a review)
 
 <!-- NUMBERING: F-072..F-099 is deliberately left empty. The round-3 reviewers were spawned with
