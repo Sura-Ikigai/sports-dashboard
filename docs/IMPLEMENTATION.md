@@ -365,6 +365,11 @@ and remediation notes live in the file.
       to one file will interleave or clobber. The cost of transcription is that fidelity depends on
       the main thread — so transcribe verdicts and findings *before* starting remediation, while the
       report is still in front of you, and never paraphrase a reproduction step.
+   f. **LOW findings batch; one class of them does not** (D-029). Report every observation, but
+      collect the genuinely cosmetic ones into a single test-hygiene backlog entry per round rather
+      than tracking each individually. **Exception:** "this test does not pin what it claims to pin"
+      is promoted to MEDIUM and tracked on its own — that class has twice been a real safety gap
+      wearing a LOW label (F-059 → F-061; F-055).
    e. **A re-review is scoped by default** (D-028): the diff since the last verdict for this task's
       files, plus the additions declared under 5c. A **full** re-review of the whole task happens when
       the **reviewer** calls for it — not the builder. The builder describes what it did; the reviewer

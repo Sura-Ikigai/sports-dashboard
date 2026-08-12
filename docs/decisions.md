@@ -258,3 +258,23 @@
   -task round. Giving that judgement to the builder would let the party with the incentive to finish
   choose how much scrutiny it gets — and the reason T-006 took three rounds is precisely that
   builder-added code kept escaping review (F-102). (Supersedes nothing; implements Tracker rule 5e.)
+
+- **D-029** 2026-08-10 — **LOW findings are batched, except the class that keeps turning out not to be
+  LOW.** 45% of this project's findings (34 of 77) are LOW, and each has carried the same process
+  weight as a HIGH: an index row, a remediation, a commit paragraph, and re-verification every
+  subsequent round. That is a multiplier under everything else. Going forward a reviewer still
+  **reports** every LOW observation — a reviewer who suppresses findings is worse than a verbose one
+  — but genuinely cosmetic ones (dead defensive branches, stale docstring phrasing, unreachable
+  clamps) collect into a single test-hygiene backlog entry per round: one index row, one remediation
+  pass, no per-round re-verification.
+  **The carve-out: a LOW finding describing "a test does not pin what it claims to pin" is promoted
+  to MEDIUM and tracked individually.** That class has already twice proven to be a safety gap
+  wearing a LOW label — F-059 (an unexercised `neutral_site` default) became **F-061**, the untested
+  exclude-by-default that would have let contaminated rows reach T-009; and F-055's self-referential
+  `to_vector` test was hiding a positional contract the estimator depends on. Severity at filing time
+  is a guess, and this is the class where the guess has been reliably wrong.
+  Not applied retroactively: of the 34 existing LOW findings only ~5 are still open, so rewriting
+  append-only history would buy nothing. Accepted cost: a batched item is easier to defer forever,
+  and this project's record there is poor — F-024 read OPEN for a full phase after being fixed, and
+  F-019's promised *Future hardening* entry was never actually filed. The status index is the
+  mitigation, and it only works if it is maintained. (Supersedes nothing; implements rule 5f.)
