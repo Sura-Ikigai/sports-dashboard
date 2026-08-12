@@ -1,8 +1,20 @@
 # Sports Dashboard — CLAUDE.md
 
 ## Read these first
-- `docs/IMPLEMENTATION.md` ← current state, **ALWAYS read before acting**
-- `docs/plans/PLAN-current.md` ← the active plan (not created yet — first planning session writes it)
+- `docs/IMPLEMENTATION.md` ← current state + tasks + review ledger, **ALWAYS read before acting**.
+  Deliberately kept small (~350 lines) so reading it is cheap on every task.
+- `docs/plans/PLAN-current.md` ← the active plan
+
+## Read on demand — do NOT read end to end
+- `docs/findings.md` — every finding's evidence and remediation (append-only, large and growing).
+  The *status index* in `IMPLEMENTATION.md` tells you whether a finding is open; come here only for
+  the ones a task cites. `grep -n 'F-0NN' docs/findings.md`
+- `docs/decisions.md` — the decisions log (append-only). `grep -n 'D-0NN' docs/decisions.md`
+- `docs/log.md` — session-by-session chronology.
+
+These three were split out of the tracker on 2026-08-10: it had reached 1,367 lines, 74% of it
+history, and every agent was told to read all of it — 2,176 lines of process to review 2,206 lines
+of code. Splitting cut mandatory reading by 74% and, more importantly, stopped it growing per task.
 
 ## Stack
 Next.js 16 App Router (React 19) · FastAPI · Postgres 16 (Docker Compose) · Alembic

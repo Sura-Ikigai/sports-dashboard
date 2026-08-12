@@ -6,6 +6,26 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-10 — Split the tracker: mandatory reading down 76%
+
+- Measured first, because the bloat was assumed rather than known. `IMPLEMENTATION.md` had grown
+  **455 → 1,367 lines** across T-005 and T-006, of which **74% was append-only history** — findings
+  (785 lines) and decisions (236). Every agent was told to read all of it: **2,176 lines of process
+  documents to review 2,206 lines of code.** That term grows forever; rounds and mutations do not.
+- Split findings → `docs/findings.md` and decisions → `docs/decisions.md`, both still append-only and
+  committed. Tracker is now **366 lines** and bounded. Tasks and the Review ledger deliberately stay
+  put: `checks/lib/tracker.mjs` parses both out of `IMPLEMENTATION.md`, so moving them would break the
+  gate. Verified nothing was lost — 76 findings, 24 decisions, 10 tasks before and after.
+- The *status index* stays in the tracker and is now the only thing anyone needs to answer "is F-0NN
+  open?". The archives are grepped for the two or three ids a task actually cites.
+- **Slice C proved the thesis before the split even landed.** The same logic reviewer, the same 17
+  mutations, the same rigour — but scoped to one job and told not to read the tracker end to end:
+  **53,837 tokens in 5.8 minutes**, against ~145,000 and ~20 minutes for the earlier unscoped runs.
+  17/17 caught, and it *finished* where 6 of 11 earlier reviewer runs died. Rigour was never the
+  problem; unbounded scope and unbounded mandatory reading were.
+- Reviewers now also report **incrementally to disk**, one appended block per item, so a death costs
+  one item rather than the whole run.
+
 ## 2026-08-10 — F-103 closed: the gate now reads agent CONTENT, not just filenames
 
 - Round 3 could not run: **all four reviewer agents died on the account session limit** (resets
