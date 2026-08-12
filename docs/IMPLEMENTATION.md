@@ -365,6 +365,11 @@ and remediation notes live in the file.
       to one file will interleave or clobber. The cost of transcription is that fidelity depends on
       the main thread — so transcribe verdicts and findings *before* starting remediation, while the
       report is still in front of you, and never paraphrase a reproduction step.
+   e. **A re-review is scoped by default** (D-028): the diff since the last verdict for this task's
+      files, plus the additions declared under 5c. A **full** re-review of the whole task happens when
+      the **reviewer** calls for it — not the builder. The builder describes what it did; the reviewer
+      decides how much scrutiny that earns. The party with the incentive to finish does not get to
+      set its own scrutiny level.
    d. **Anything that mutates source runs in an isolated copy of the tree** — `git worktree add` or
       `git archive` to a temp dir — never the shared working tree, and snapshots
       `git status --porcelain` around every test run. Two round-3 slices running concurrently

@@ -244,3 +244,17 @@
   set ever needs it. Consequence worth noting: T-002 predates the plan, and its overlap with T-005
   went unnoticed for a full phase because nothing cross-checks a `BACKLOG` task against work that
   later subsumes it. (Supersedes nothing; closes T-002.)
+
+- **D-028** 2026-08-10 — **A re-review is scoped to the diff since the last verdict, plus whatever
+  that diff added; the *reviewer* holds the trigger for a full re-review.** Round 1 reviews the task.
+  Every round after reviews `<last-verdict-SHA>..HEAD` for that task's files, plus the additions the
+  builder must declare under rule 5c. Evidence both ways, which is why the trigger placement matters:
+  scoped slices A and C cost ~148k tokens *together* and both completed, against ~145k **each** for
+  the unscoped runs, 6 of which died before reporting — while the rigour was identical (the same 17
+  mutations, the same reproductions, run under a stricter cache discipline). But F-072 showed the
+  scoping mechanism itself can introduce defects, so scoping is not a licence to relax scepticism.
+  The trigger sits with the **reviewer**, not the builder: the builder declares what changed and what
+  was added, and the reviewer decides whether that is patchable-in-place or a rewrite needing a whole
+  -task round. Giving that judgement to the builder would let the party with the incentive to finish
+  choose how much scrutiny it gets — and the reason T-006 took three rounds is precisely that
+  builder-added code kept escaping review (F-102). (Supersedes nothing; implements Tracker rule 5e.)
