@@ -265,6 +265,11 @@ every agent was told to read it to act on a task that needed two entries from it
 | **F-015** | LOW | ops | ACCEPTED — `ui-ux-reviewer` declared but not mechanically enforced | `reconcile-canon` |
 | **F-006** | LOW | ops | OPEN — `docker-compose.prod.yaml` is a 0-byte file | — |
 | **F-007** | LOW | ops | OPEN — `ci.yml` duplicates every gate check | — |
+| **F-077** | MEDIUM | integrity | OPEN — `assert_curated` certifies shapes `exclude_exhibitions` refuses | T-006 r3 |
+| **F-078** | MEDIUM | integrity | OPEN — `assert_curated` consumes a generator and passes; F-045 reintroduced | T-006 r3 |
+| **F-079** | LOW | usability | OPEN — false negative on curated partial seasons; `min_games` has no floor | T-006 r3 |
+| **F-080** | LOW | integrity | OPEN — same-pair id collision still silently drops a real game | T-006 r3 |
+| **F-081** | LOW | integrity | OPEN — team check counts thirty ids, not which thirty | T-006 r3 |
 | **F-072** | MEDIUM | process | FIXED by Tracker rule 5d — parallel reviewers in one tree corrupt each other | — |
 | **F-069** | LOW | data | DOCUMENTED — curation cannot see an exhibition between two franchise ids | `new-historical-source` |
 | **F-101** | MEDIUM | process/canon | OPEN — canon's reviewer contract breaks under parallel review | `reconcile-canon` |

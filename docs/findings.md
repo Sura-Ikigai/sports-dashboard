@@ -823,3 +823,42 @@
   mutates source runs in an isolated copy of the tree, never the shared one, and snapshots
   `git status --porcelain` around every test run. Note this also means a red suite in a shared tree
   is not evidence of anything until the tree is confirmed clean.
+
+#### Slice B (security) — the round-2 additions. ⛔, 5 findings
+
+<!-- Transcribed before remediation, per rule 5b. Slice B reviewed ONLY what round 2 added; the
+     sentinel (#3) came back CLEAN. Reviewer applied rule 5f itself and ruled that F-079/F-080/F-081
+     must NOT batch: they are LOW by reachability, not cosmetics, and none is test hygiene. -->
+
+- **F-077** (integrity, MEDIUM) — **`assert_curated` certifies shapes `exclude_exhibitions` refuses.**
+  It re-runs only the *identification* step and never the 30-team invariant, so on identical input it
+  passes a season missing a whole franchise (29 ids, 83 real games gone) and a 21-game non-NBA block
+  that clears the threshold (32 ids). **My docstring's own rationale was wrong:** it justified not
+  re-running `exclude_exhibitions` on non-idempotence, which is true of the *pinned-count* assertion
+  only — the 30-team one is idempotent by construction and got dropped with it.
+- **F-078** (integrity, MEDIUM) — **F-045's hazard, reintroduced in the new function.**
+  `assert_curated` declares `Sequence[Game]` and enforces nothing, so a generator passes *and is
+  consumed by the check itself*, leaving the caller 0 games; an empty collection also passes, so a
+  second call cannot detect the emptiness the first caused. It only bites on **clean** input — an
+  uncurated generator raises — which is exactly what makes it silent. `exclude_exhibitions([])`
+  likewise returns OK(0), F-065's signature for the empty case.
+- **F-079** (usability/integrity, LOW — does NOT batch) — false "has not been curated" on genuinely
+  curated **partial-season** data, including the D-017 retrain shape this tracker plans for, and the
+  error tells you to get the data from `load_games()`, which is where it came from. Matters because
+  the obvious remedy is the `min_games` knob, which has **no floor**: `min_games=0` turns the check
+  into an unconditional pass on the real uncurated 6,615-game corpus.
+- **F-080** (integrity/leakage, LOW — does NOT batch) — **F-068's exclusion identifies the target up
+  to the *pair*, not precisely as its comment claims.** A same-pair id collision still silently
+  deletes a real game from both windows (`point_diff_diff` 1.3418 → 1.4864, no error); the
+  different-opponent control raises correctly. Confined to inference — in training `GameHistory`'s
+  duplicate-id check pre-empts it. Closure is one term wider: `compute_features` already holds
+  `target.date`.
+- **F-081** (integrity, LOW — does NOT batch) — the team check counts *thirty ids*, not *which*
+  thirty: a 2024 season with a franchise deleted and a 21-game impostor inserted passes both
+  assertions. Free strengthening measured by the reviewer: the 30 ids are identical across all five
+  pinned seasons, so requiring the surviving id sets to agree across the input's seasons catches it
+  and still fires on a real expansion.
+- **F-070(b) — acceptance rationale INVALIDATED.** It was accepted on the grounds that
+  "`assert_curated` re-checks at the consumer regardless". As shipped it re-checks one of the two
+  assertions (F-077) and carries the same defeatable knob (F-079). That rationale must be re-stated
+  or the finding reopened when F-077/F-079 are fixed.
