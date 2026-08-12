@@ -129,3 +129,57 @@ function firstPositional(rest) {
   }
   return null;
 }
+
+/**
+ * Agent-file integrity (F-103).
+ *
+ * `gate-completeness` historically asserted only that a FILE with the right name exists — it was
+ * `readdirSync(agentsDir).filter(f => f.endsWith('.md'))`, so any file with the right basename
+ * satisfied it, whatever it said inside. That is precisely how F-008 shipped: `backend-engineer.md`
+ * was installed unmodified from Supabase canon and told builders "RLS ships with the schema" in a
+ * project whose central invariant is that no RLS exists — while the gate cheerfully reported
+ * "3 reviewer(s) installed". A human reviewer caught it; the check structurally could not.
+ *
+ * Two content assertions, both chosen to be mechanical rather than a judgement of prose:
+ *
+ *   1. **The frontmatter `name:` matches the filename.** A file copied from another agent (or from
+ *      another project) and renamed still declares the name it was written as, and that mismatch is
+ *      the cheapest reliable signal that the content is not what the filename promises.
+ *   2. **Any `stacks/<overlay>.md` the agent references is THIS project's overlay.** Agents that are
+ *      stack-specific say so — this project's `backend-engineer` and `ui-ux-reviewer` both cite
+ *      `stacks/nextjs-fastapi-postgres.md`. An agent carrying a *foreign* stack reference is the
+ *      F-008 signature exactly. Agents that are legitimately stack-agnostic (`logic-reviewer`,
+ *      `security-auditor`) reference none and are unaffected — this asserts nothing about agents
+ *      that make no claim, only that a claim made is the right one.
+ *
+ * Deliberately NOT attempted: judging whether an agent's guidance is *correct* for the stack. That
+ * needs a reader, and the review gate is where a reader belongs. This closes the mechanical half.
+ *
+ * `agents`: [{ id, content }] where `id` is the filename without `.md`.
+ * Returns { ok, problems: [{ kind, name, reason }] } — same shape as evaluateCompleteness's misses.
+ */
+export function parseAgentFrontmatter(md) {
+  const fm = String(md ?? '').match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const name = fm ? ((fm[1].match(/^name:[ \t]*(\S+)[ \t]*$/m) || [])[1] ?? null) : null;
+  const stackRefs = [...new Set([...String(md ?? '').matchAll(/stacks\/[A-Za-z0-9._-]+\.md/g)].map((m) => m[0]))];
+  return { name, stackRefs };
+}
+
+export function evaluateAgentIntegrity(agents, { stackPath } = {}) {
+  const problems = [];
+  for (const agent of agents ?? []) {
+    const { name, stackRefs } = parseAgentFrontmatter(agent.content);
+    if (!name) {
+      problems.push({ kind: 'agent', name: agent.id, reason: `${agent.id}.md has no frontmatter \`name:\` — cannot verify the file is the agent its filename claims` });
+    } else if (name !== agent.id) {
+      problems.push({ kind: 'agent', name: agent.id, reason: `${agent.id}.md declares \`name: ${name}\` — a file copied from another agent or another project keeps the name it was written as (F-008)` });
+    }
+    if (!stackPath) continue;
+    for (const ref of stackRefs) {
+      if (ref !== stackPath) {
+        problems.push({ kind: 'agent', name: agent.id, reason: `${agent.id}.md references ${ref} but this project's overlay is ${stackPath} — an agent carrying a foreign stack's guidance is the F-008 signature` });
+      }
+    }
+  }
+  return { ok: problems.length === 0, problems };
+}

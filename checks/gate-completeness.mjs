@@ -11,7 +11,7 @@
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseManifest, evaluateCompleteness } from './lib/manifest.mjs';
+import { parseManifest, evaluateCompleteness, evaluateAgentIntegrity } from './lib/manifest.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 const root = args.root ?? process.cwd();
@@ -28,17 +28,27 @@ const installedAgents = existsSync(join(root, agentsDir))
   : [];
 
 const manifest = parseManifest(stackMd);
-const { ok, missing } = evaluateCompleteness(manifest, {
+const { missing } = evaluateCompleteness(manifest, {
   installedAgents,
   fileExists: (p) => existsSync(join(root, p)),
 });
 
+// F-103: existence is not integrity. Read every installed agent and assert its content matches what
+// its filename claims — see evaluateAgentIntegrity for why this is the check F-008 needed.
+const agentFiles = installedAgents.map((id) => ({
+  id,
+  content: readFileSync(join(root, agentsDir, `${id}.md`), 'utf8'),
+}));
+const { problems } = evaluateAgentIntegrity(agentFiles, { stackPath });
+const allMissing = [...missing, ...problems];
+const ok = allMissing.length === 0;
+
 if (ok) {
-  console.log(`✓ gate-completeness: ${stackPath} — ${manifest.reviewers.length} reviewer(s) + ${manifest.checks.length} check(s) all installed (agents: ${agentsDir}).`);
+  console.log(`✓ gate-completeness: ${stackPath} — ${manifest.reviewers.length} reviewer(s) + ${manifest.checks.length} check(s) all installed, and ${agentFiles.length} agent file(s) match their declared name and stack (agents: ${agentsDir}).`);
   process.exit(0);
 }
-console.error(`✗ gate-completeness: ${stackPath} — ${missing.length} gate(s) declared but not installed:`);
-for (const m of missing) console.error(`  - [${m.kind}] ${m.name}: ${m.reason}`);
+console.error(`✗ gate-completeness: ${stackPath} — ${allMissing.length} problem(s):`);
+for (const m of allMissing) console.error(`  - [${m.kind}] ${m.name}: ${m.reason}`);
 process.exit(1);
 
 function parseArgs(argv) {

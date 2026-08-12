@@ -6,6 +6,23 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-10 — F-103 closed: the gate now reads agent CONTENT, not just filenames
+
+- Round 3 could not run: **all four reviewer agents died on the account session limit** (resets
+  00:50). Two returned only mid-stream narration, which is not a verdict — T-006 still has no round-3
+  result and none was invented. Corrects my earlier guess that the first pair had hit a harness bug.
+- Used the time on F-103, the gap that let F-008 ship. `gate-completeness` was
+  `readdirSync(agentsDir).filter(f => f.endsWith('.md'))` — any file with the right basename passed,
+  whatever it said inside. New `evaluateAgentIntegrity` asserts the frontmatter `name:` matches the
+  filename, and that any `stacks/<overlay>.md` an agent references is *this* project's overlay.
+- Chose to assert only that a claim *made* is correct, rather than requiring every agent to declare a
+  stack: `logic-reviewer` and `security-auditor` are legitimately stack-agnostic and cite none.
+- Demonstrated against the real gate rather than only in fixtures: repointing `backend-engineer.md`
+  at the Supabase overlay turns the check red naming the foreign stack — the literal F-008 signature
+  — and green again on restore. 6 new tests; meta-unit 53 → 59.
+- Explicitly out of scope: judging whether an agent's *guidance* is right for the stack. That needs a
+  reader, and the review gate is where a reader belongs. This closes the mechanical half only.
+
 ## 2026-08-10 — T-002 closed; the parallel-review damage filed and mitigated
 
 - **T-002 closed as superseded by T-005 (D-027).** Its acceptance was satisfied clause-for-clause by

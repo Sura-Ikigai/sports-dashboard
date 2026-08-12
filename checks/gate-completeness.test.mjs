@@ -1,6 +1,6 @@
 // Fixture tests for the gate-completeness core.  Run with: vitest run
 import { describe, it, expect } from 'vitest';
-import { parseManifest, evaluateCompleteness, repoScriptFromRun } from './lib/manifest.mjs';
+import { parseManifest, evaluateCompleteness, repoScriptFromRun, evaluateAgentIntegrity, parseAgentFrontmatter } from './lib/manifest.mjs';
 
 const STACK = `# Stack overlay — test
 ## Required gates (manifest)
@@ -94,5 +94,64 @@ describe('repoScriptFromRun — F-009 flags before the path', () => {
   });
   it('F-014: a space-separated flag value is not mistaken for the path', () => {
     expect(repoScriptFromRun('pytest -k "test_x" tests/authz')).toBe('tests/authz');
+  });
+});
+
+// F-103: existence is not integrity. gate-completeness checked only that a FILE with the right name
+// existed — `readdirSync(...).filter(f => f.endsWith('.md'))` — so a file copied from another
+// project satisfied it whatever it said inside. That is how F-008 shipped Supabase RLS guidance into
+// a no-RLS project while the gate reported "3 reviewer(s) installed".
+describe('gate-completeness — agent file integrity (F-103)', () => {
+  const agent = (name, extra = '') => `---\nname: ${name}\ndescription: x\n---\n\nYou are a thing.\n${extra}`;
+  const OVERLAY = 'stacks/nextjs-fastapi-postgres.md';
+
+  it('passes when every agent declares its own name and no foreign stack', () => {
+    const r = evaluateAgentIntegrity(
+      [
+        { id: 'logic-reviewer', content: agent('logic-reviewer') },
+        { id: 'backend-engineer', content: agent('backend-engineer', `> Stack overlay: \`${OVERLAY}\`.`) },
+      ],
+      { stackPath: OVERLAY },
+    );
+    expect(r.ok).toBe(true);
+    expect(r.problems).toEqual([]);
+  });
+
+  it('catches the F-008 signature: an agent carrying a FOREIGN stack reference', () => {
+    const r = evaluateAgentIntegrity(
+      [{ id: 'backend-engineer', content: agent('backend-engineer', 'Stack overlay: `stacks/nextjs-fastapi-supabase.md`. RLS ships with the schema.') }],
+      { stackPath: OVERLAY },
+    );
+    expect(r.ok).toBe(false);
+    expect(r.problems[0].reason).toMatch(/nextjs-fastapi-supabase\.md/);
+    expect(r.problems[0].reason).toMatch(/F-008/);
+  });
+
+  it('catches a file renamed from another agent (frontmatter name mismatch)', () => {
+    const r = evaluateAgentIntegrity(
+      [{ id: 'ui-ux-reviewer', content: agent('security-auditor') }],
+      { stackPath: OVERLAY },
+    );
+    expect(r.ok).toBe(false);
+    expect(r.problems[0].reason).toMatch(/declares `name: security-auditor`/);
+  });
+
+  it('catches an agent with no frontmatter name at all', () => {
+    const r = evaluateAgentIntegrity([{ id: 'logic-reviewer', content: 'no frontmatter here' }], { stackPath: OVERLAY });
+    expect(r.ok).toBe(false);
+    expect(r.problems[0].reason).toMatch(/no frontmatter/);
+  });
+
+  it('says nothing about a stack-agnostic agent that references no overlay', () => {
+    // logic-reviewer and security-auditor legitimately cite none. Asserting a claim is correct is not
+    // the same as demanding every agent make one.
+    const r = evaluateAgentIntegrity([{ id: 'security-auditor', content: agent('security-auditor') }], { stackPath: OVERLAY });
+    expect(r.ok).toBe(true);
+  });
+
+  it('parseAgentFrontmatter reads the name and every distinct stack reference', () => {
+    const parsed = parseAgentFrontmatter(agent('x', 'see stacks/a.md and stacks/a.md and stacks/b.md'));
+    expect(parsed.name).toBe('x');
+    expect(parsed.stackRefs).toEqual(['stacks/a.md', 'stacks/b.md']);
   });
 });

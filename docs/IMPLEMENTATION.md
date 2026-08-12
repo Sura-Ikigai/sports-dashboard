@@ -477,7 +477,7 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
      so — and until this table said so, "closed" was invisible to anyone who had not read the whole
      document. Adding a finding, or changing one's status, means updating this row too. -->
 
-**Open / accepted — the live set (11):**
+**Open / accepted — the live set (10):**
 
 <!-- F-072..F-099 reserved for the in-flight round-3 reviewers; see the note above F-100. -->
 
@@ -490,12 +490,11 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
 | **F-007** | LOW | ops | OPEN — `ci.yml` duplicates every gate check | — |
 | **F-069** | LOW | data | DOCUMENTED — curation cannot see an exhibition between two franchise ids | `new-historical-source` |
 | **F-101** | MEDIUM | process/canon | OPEN — canon's reviewer contract breaks under parallel review | `reconcile-canon` |
-| **F-103** | MEDIUM | gate tooling | OPEN — `gate-completeness` checks agent filenames, never content | — |
 | **F-100** | MEDIUM | process/canon | MITIGATED by Tracker rule 5a — no finding-number allocator in canon | `reconcile-canon` |
 | **F-102** | MEDIUM | process/canon | MITIGATED by Tracker rule 5c — canon has no notion of a remediation adding code | `reconcile-canon` |
 | **F-104** | LOW | process | OPEN — docs-only review-commit convention enforced by nothing | — |
 
-**Closed (65):** F-042 (FIXED — `corpus.py`, D-025) · F-061 · F-062 · F-063 · F-064 · F-065 · F-066 · F-067 · F-068 · F-070 · F-071 (T-006 re-review round 2, all FIXED; F-070(b) ACCEPTED) · F-044 · F-045 · F-046 · F-047 · F-048 · F-049 · F-050 (T-006 security review, all FIXED in remediation) · F-051 · F-052 · F-053 · F-054 · F-055 · F-056 · F-058 · F-059 · F-060 (T-006 logic review, all FIXED; every surviving mutation re-run and now caught) · F-002 · F-003 · F-004 · F-005 (all CLOSED as moot or designed out by D-004/D-005) ·
+**Closed (66):** F-042 (FIXED — `corpus.py`, D-025) · F-103 (FIXED — agent-content integrity) · F-061 · F-062 · F-063 · F-064 · F-065 · F-066 · F-067 · F-068 · F-070 · F-071 (T-006 re-review round 2, all FIXED; F-070(b) ACCEPTED) · F-044 · F-045 · F-046 · F-047 · F-048 · F-049 · F-050 (T-006 security review, all FIXED in remediation) · F-051 · F-052 · F-053 · F-054 · F-055 · F-056 · F-058 · F-059 · F-060 (T-006 logic review, all FIXED; every surviving mutation re-run and now caught) · F-002 · F-003 · F-004 · F-005 (all CLOSED as moot or designed out by D-004/D-005) ·
 F-008 · F-009 · F-010 · F-011 · F-012 · F-013 (FIXED @ `d0e661d`, T-001 round 1) · F-014 · F-016 ·
 F-017 (CLOSED, T-001 round 3) · F-018 (FIXED, canon `be5f6dc`) · F-019 (FIXED, canon `6f49f29`) ·
 F-020 · F-021 · F-022 · F-023 (FIXED @ `763101e`; F-021 project-local only — canon still ships the
@@ -1270,7 +1269,18 @@ F-026 · F-027 · F-028 · F-029 · F-030 · F-031 · F-032 · F-033 · F-034 (F
   whose central invariant is that no RLS exists — while the gate reported "3 reviewer(s) installed".
   The check cannot distinguish a correct agent from the wrong stack's, and F-008 was caught by a
   human reviewer, not by it. Remediation: assert each agent's frontmatter `name` matches its filename
-  and that the file references the project's own stack overlay. Status: OPEN.
+  and that the file references the project's own stack overlay.
+  Status: **FIXED.** `evaluateAgentIntegrity` (pure, in `checks/lib/manifest.mjs`) now asserts two
+  mechanical properties of every installed agent: its frontmatter `name:` matches its filename (a
+  file copied from another agent keeps the name it was written as), and any `stacks/<overlay>.md` it
+  references is *this* project's overlay (an agent carrying a foreign stack's guidance is the F-008
+  signature exactly). Agents that are legitimately stack-agnostic — `logic-reviewer`,
+  `security-auditor` — cite no overlay and are unaffected: this asserts that a claim made is correct,
+  not that every agent must make one. **Demonstrated end-to-end against the real gate**, not just in
+  fixtures: repointing `backend-engineer.md` at `stacks/nextjs-fastapi-supabase.md` turns
+  `gate-completeness` red naming the foreign overlay, and it goes green again on restore. 6 tests.
+  Deliberately NOT attempted: judging whether an agent's guidance is *correct* for the stack — that
+  needs a reader, and the review gate is where a reader belongs. This closes the mechanical half.
 - **F-104** (process, LOW) — **The docs-only review-commit convention is enforced by nothing**, and
   the whole F-043 currency design leans on it. It exists only in source comments and one line of
   `log.md`. It has already been violated once — `0c3b8a9` (`review(T-005)`) bundled gate-tooling
