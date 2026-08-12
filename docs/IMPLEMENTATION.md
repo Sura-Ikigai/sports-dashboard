@@ -30,7 +30,13 @@ untrustworthy and threatened this task's own evidence (**F-071**). All 11 addres
 re-run under a hardened harness, all caught. Suite 90 → 103. **T-005 is `REVIEWED` at `34759ed`
 (✅✅)**. F-042 closed (D-025); the F-043 fix is canon at Dev-System `1c52645`, pushed.
 
-**Next action:** re-review T-006 (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
+**Round 3 is INCOMPLETE.** Slices A (closure verification: 8/8 CLOSED) and C (mutation regression:
+17/17 CAUGHT) are done and clean. Slices B and D — a fresh review of what the round-2 remediation
+*added* — have not run, and per F-102 that is precisely the surface that broke rounds 2 and 3.
+
+**Next action:** run round-3 slices B and D (security F-077–F-081, logic F-087–F-091), scoped to the
+round-2 additions only: `assert_curated`, the opponent-matched exclusion + `_TeamGame.opponent_id`,
+the sentinel default for `expected`, and per-`(season, team_id)` identification. Then re-review T-006 (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
 against the remediation, then **T-007** (`Use the backend-engineer subagent on T-007`). F-042 is
 closed ahead of T-007 as planned, so the fold generator can build on a clean 6,605-game corpus.
 T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.556%) and **D-024/F-057**
@@ -259,6 +265,7 @@ every agent was told to read it to act on a task that needed two entries from it
 | **F-015** | LOW | ops | ACCEPTED — `ui-ux-reviewer` declared but not mechanically enforced | `reconcile-canon` |
 | **F-006** | LOW | ops | OPEN — `docker-compose.prod.yaml` is a 0-byte file | — |
 | **F-007** | LOW | ops | OPEN — `ci.yml` duplicates every gate check | — |
+| **F-072** | MEDIUM | process | FIXED by Tracker rule 5d — parallel reviewers in one tree corrupt each other | — |
 | **F-069** | LOW | data | DOCUMENTED — curation cannot see an exhibition between two franchise ids | `new-historical-source` |
 | **F-101** | MEDIUM | process/canon | OPEN — canon's reviewer contract breaks under parallel review | `reconcile-canon` |
 | **F-100** | MEDIUM | process/canon | MITIGATED by Tracker rule 5a — no finding-number allocator in canon | `reconcile-canon` |
@@ -358,6 +365,13 @@ and remediation notes live in the file.
       to one file will interleave or clobber. The cost of transcription is that fidelity depends on
       the main thread — so transcribe verdicts and findings *before* starting remediation, while the
       report is still in front of you, and never paraphrase a reproduction step.
+   d. **Anything that mutates source runs in an isolated copy of the tree** — `git worktree add` or
+      `git archive` to a temp dir — never the shared working tree, and snapshots
+      `git status --porcelain` around every test run. Two round-3 slices running concurrently
+      corrupted each other within minutes of this parallel design being introduced: one was patching
+      `features.py` in place while the other ran the suite, and the second nearly filed **three
+      phantom HIGH findings** off runs that landed inside a patch window (F-072). A red suite in a
+      shared tree is not evidence until the tree is confirmed clean.
    c. **A remediation declares what it ADDED, not just what it changed.** Twice now the code that
       failed the next round was code that arrived with the previous remediation and had never been
       reviewed by anyone (`corpus.py` in round 1's fix; `assert_curated` and the opponent-matched

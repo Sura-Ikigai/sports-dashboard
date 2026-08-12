@@ -795,3 +795,31 @@
   from ownership attribution. A workaround for an unenforced convention is now load-bearing canon.
   Remediation: a pre-commit or gate check that a commit whose subject starts `review(` touches only
   `docs/`. Status: OPEN.
+
+### Round 3 (sliced) — T-006 @ fe27280
+
+- **Slice A (security, closure verification): 8 CLOSED, 0 NOT-CLOSED, 0 PARTIAL.** F-044, F-045,
+  F-046, F-049, F-050, F-065, F-068, F-070 all reproduced closed against a pristine `fe27280` export.
+  Each guard was shown to be *load-bearing*, not merely present: restoring the pre-fix date-only
+  filter moves `point_diff_diff` 6.0 → 39.43 on the same input; the pre-fix blunt `game_id` match
+  shifts `form_diff` 0.2308 → 0.2917 silently. D-015 confirmed intact — empty history and unseen
+  teams still return priors, so nothing was fixed by breaking the cold start.
+- **Slice C (logic, mutation regression): 17/17 CAUGHT, 0 survived, 0 equivalent mutants.**
+- **Round 3 is INCOMPLETE.** Slices B and D — a fresh review of what the round-2 remediation *added*
+  (`assert_curated`, the opponent-matched exclusion, the sentinel default, per-`(season, team)`
+  identification) — have not run. Per F-102 that is exactly the surface that broke rounds 2 and 3, so
+  T-006 stays `BUILT`.
+
+- **F-072** (process / review integrity, MEDIUM) — **CONFIRMED. Parallel reviewers sharing one
+  working tree corrupt each other's results.** Slice C mutation-tested by patching
+  `backend/model/features.py` **in the shared tree** and reverting; slice A was running the suite
+  against that same tree concurrently. Slice A's first two runs landed inside patch windows and
+  reported 2 then 1 failures — different tests each time, all passing in isolation and against a
+  pristine export, with `git status` showing ` M backend/model/features.py` at that instant. **Taken
+  at face value that was three phantom HIGH findings against T-006.** They were avoided only because
+  the auditor re-verified against a `git archive` export rather than trusting the first red run.
+  This is F-071's hazard by a second route, and it was introduced *by the parallel-slice design added
+  to reduce cost* — the remedy created it. Status: **FIXED** by Tracker rule 5d: any agent that
+  mutates source runs in an isolated copy of the tree, never the shared one, and snapshots
+  `git status --porcelain` around every test run. Note this also means a red suite in a shared tree
+  is not evidence of anything until the tree is confirmed clean.
