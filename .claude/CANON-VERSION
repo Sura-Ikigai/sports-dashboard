@@ -7,9 +7,9 @@
 # Factory: ~/Desktop/LabRoomV2.0/Client Projects/Dev-System
 
 stamped-from:    c513a528eab6546559e518373a9691965b9b7e2a
-last-reconciled: 1c52645
+last-reconciled: 26b360f
 stamped-date:    2026-08-09
-last-reconciled-date: 2026-08-10
+last-reconciled-date: 2026-08-12
 
 # Canon contributions promoted FROM this project (all on Dev-System/main, so /reconcile-canon reads
 # them as canon rather than project-local drift):
@@ -22,7 +22,17 @@ last-reconciled-date: 2026-08-10
 #   1c52645  checks/ — review currency is per-task, not repo-wide (F-043). Pushed to
 #            Dev-System/main 2026-08-10; verified on canon's own vitest ^2.1.0 range (53 tests)
 #            and both CLI modes smoke-tested against the canon repo's own tracker.
+#   fe27280* checks/ — gate-completeness validates agent CONTENT, not just filenames (F-103).
+#            *promoted as part of 26b360f below.
+#   26b360f  templates/ + agents/ + SYSTEM.md — split the tracker template into three files, and
+#            make reviewers report rather than write (F-072, F-100, F-101, F-102). Pushed to
+#            Dev-System/main 2026-08-12; canon suite green on its own vitest ^2.1.0 range.
 # `last-reconciled` above is the most recent of these.
+#
+# DELIBERATELY HELD PROJECT-LOCAL (not defects — policy that changes how much scrutiny work gets;
+# promote after a task with a schema migration and an auth surface has exercised them):
+#   D-028  scoped re-reviews by default, reviewer holds the full-review trigger.
+#   D-029  LOW findings batch, except "a test does not pin what it claims to pin".
 #
 # STILL PROJECT-LOCAL, not yet promoted (see docs/IMPLEMENTATION.md, Future hardening):
 #   F-021  checks/package.json pins vitest 4.1.10 here and committed checks/package-lock.json;

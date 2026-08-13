@@ -319,6 +319,10 @@ and remediation notes live in the file.
   4.1.10 pin, and both CLI modes were smoke-tested against the canon repo's own tracker.
   `checks/package.json` was deliberately **not** promoted — its only diffs are F-021's local vitest
   pin and a `§`-encoding regression in this project's copy, neither of which belongs in this change.
+- **Promote D-028 (scoped re-reviews) and D-029 (LOW batching) to canon** — deliberately held back on
+  2026-08-12 as policy rather than defect. They change how much scrutiny work receives, and were
+  derived from one pure-offline task under a usage limit; promote once a task with a schema migration
+  and an auth surface has exercised them. T-009 is the next task of genuinely different shape.
 - **Promote F-021's vitest pin + lockfile to canon.** Still open, and now the only known canon gap.
   Canon ships `checks/package.json` with an unpinned `vitest: ^2.1.0` and **no lockfile**, so every
   project stamped from it inherits the advisory-bearing 2.x range (5 npm advisories, 1 critical, 1
