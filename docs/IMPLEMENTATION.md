@@ -37,7 +37,7 @@ F-087..F-091). **Three rounds, three times the defect was in code that arrived w
 (F-102). Two of the new findings are about my own fixes: F-078 reintroduces the hazard F-045 closed,
 and F-091 shows the F-061 fix protects local runs but not the gate.
 
-**Next action:** remediate the 10 round-3 findings, HIGH first (F-090, F-091), then re-review T-006 (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
+**Next action:** review T-007 (`security-auditor` F-092–F-101, `logic-reviewer` F-102–F-111 — allocate before spawning, rule 5a), then T-008 (`evaluate` metrics, independent of T-007). T-006's four round-3 fixes are under narrow verification (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
 against the remediation, then **T-007** (`Use the backend-engineer subagent on T-007`). F-042 is
 closed ahead of T-007 as planned, so the fold generator can build on a clean 6,605-game corpus.
 T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.556%) and **D-024/F-057**
@@ -193,16 +193,30 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
       - **not a T-006 defect, but found by it: F-042** (10 All-Star exhibition games in the corpus)
         and **F-043** (this commit makes T-005's review stale by the gate's currency rule). Read both
         before reviewing.
-- [ ] **T-007** `splits` fold generator + tests — `PLANNED` — owner: `backend-engineer`
+- [ ] **T-007** `splits` fold generator + tests — `BUILT` — owner: `backend-engineer`
       - acceptance: yields exactly the three expanding-window folds (22-23→24, 22-24→25, 22-25→26);
         tests assert every fold's training seasons precede its test season and no season appears on
-        both sides of a fold; **calls `corpus.assert_curated` on its input** (F-067 — a default on
-        the producer is not a guarantee at the consumer, and three documented paths reach here
-        uncurated with no symptom)
-      - read first: **D-026** (the constant-predictor baseline is 55.534%, not 55.556%) and
-        **D-024/F-057** (`home_advantage` is 1.0 in 2,642 of fold 1's 2,643 rows, so its coefficient
-        is not identifiable in the early folds)
+        both sides of a fold; **calls `corpus.assert_curated` on its input** (F-067) — **all met**
       - security note: integrity only — a fold must never train on its own future.
+      - outcome: `backend/model/splits.py`, standard-library only (D-021). `Fold` validates at
+        construction, so a fold that trains on its own future cannot be built and then caught later;
+        `WALK_FORWARD_FOLDS` is written as three literals rather than generated, because the
+        evaluation protocol should be auditable rather than derived. `split_games` verifies four
+        things instead of trusting them: input is curated (F-067), every season the fold names is
+        present (a missing one would yield a quietly smaller fold reporting a healthy number),
+        out-of-fold seasons are dropped, and — the one that matters — **train strictly precedes test
+        in time**.
+      - **the security note, made temporal rather than nominal:** "every training season < test
+        season" is a claim about *labels*, and labels can lie. `split_games` asserts the dates
+        directly. Those coincide today as a **measured** fact, not an assumption: seasons are disjoint
+        with 120–133 day offseasons (2022 ends 2022-06-17, 2023 opens 2022-10-18). A game backfilled
+        into the wrong season passes the label check and fails the date check — there is a test that
+        does exactly that.
+      - verified on the real corpus: 6,605 curated games → fold 1 train 2,643 / test 1,319; fold 2
+        train 3,962 / test 1,321; fold 3 (sealed) train 5,283 / test 1,322. **3,962 evaluation games
+        across the three folds**, against D-013's predicted ~3,900, and fold 1's 2,643 matches D-024
+        to the game. Per-season test home-win rates .5474 / .5450 / .5552.
+      - 15 tests (`backend/tests/test_splits.py`), stdlib-only so they run in CI.
 - [ ] **T-008** `evaluate` metrics module + tests — `PLANNED` — owner: `backend-engineer`
       - acceptance: accuracy, log loss, AUC, calibration curve, and comparison against a constant
         base-rate predictor; tests assert each against hand-computed values on a small labelled set,

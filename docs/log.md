@@ -6,6 +6,38 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-12 — T-006 round 3 closed out; T-007 built
+
+- Round 3 came back ⛔⛔ but found **no live defect** — slices A (8/8 closures) and C (17/17 mutations)
+  confirmed nothing regressed, and the real-corpus output is unchanged. What B and D found was
+  future-regression insurance. That is the diminishing-returns signal, and I drove past it; the human
+  called it.
+- Fixed only the four T-007 actually depends on. **F-091** mattered most: the exclude-by-default guard
+  did not run in the gate at all — my F-061 fix landed in a file that `importorskip`s out of CI, so
+  flipping the default gave 90 passed / 1 skipped under CI's own environment. Closed with a stdlib
+  `ast` check in `test_corpus.py`; verified by flipping the default *with pandas absent*, which now
+  gives 3 failed. **F-090**: the fixture patched with `return_value=`, so `load_games` ignoring
+  `seasons` survived — under T-007 that would have every fold train on its own test season with no
+  symptom but a better number. **F-077/F-078**: `assert_curated` checked one of two invariants, and
+  reintroduced the generator hazard F-045 closed.
+- Accepted the other six with `revisit-when` triggers; none is reachable in Phase 1 as built.
+
+## 2026-08-12 — T-007: expanding-window folds
+
+- `backend/model/splits.py`, stdlib-only. Three folds as literals rather than generated — the
+  evaluation protocol should be auditable, not derived. `Fold` validates at construction, so a fold
+  that trains on its own future cannot be built.
+- **Made the security note temporal rather than nominal.** "Every training season < test season" is a
+  claim about labels, and labels can lie. `split_games` asserts the *dates*: latest training game
+  strictly before earliest test game. Those coincide as a measured fact — seasons are disjoint with
+  120–133 day offseasons — not as an assumption. A game backfilled into the wrong season passes the
+  label check and fails the date check, and there is a test that does exactly that.
+- Also verifies the input is curated (F-067), and that every season a fold names is present — a
+  missing one would otherwise produce a quietly smaller fold reporting a healthy-looking number.
+- Real corpus: 6,605 → fold 1 train 2,643 / test 1,319; fold 2 3,962 / 1,321; fold 3 (sealed)
+  5,283 / 1,322. **3,962 evaluation games**, against D-013's predicted ~3,900; fold 1's 2,643 matches
+  D-024 to the game. 15 tests, CI-safe. Suite 108 → 124.
+
 ## 2026-08-10 — Split the tracker: mandatory reading down 76%
 
 - Measured first, because the bloat was assumed rather than known. `IMPLEMENTATION.md` had grown
