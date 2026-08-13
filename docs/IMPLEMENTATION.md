@@ -27,14 +27,17 @@ result is not leakage. But **D-031**: ablation shows `point_diff_diff` carries e
 dropping any other feature slightly *improves* the model. T-005…T-009 are all built; T-006/T-007/
 T-008/T-009 are `BUILT` and unreviewed.
 
-**Next action:** **T-010** — the written analysis (owner: `human`). Everything it needs is now
-measured: coefficients and their direction, the ablation (D-031), the calibration table, the
-fold-to-fold spread, and the ship verdict. Then review T-006/T-007/T-008/T-009 as **one batch**
-rather than four rounds — the marginal finding has been test hygiene, not correctness. Formerly: review T-007 (`security-auditor` F-092–F-101, `logic-reviewer` F-102–F-111 — allocate before spawning, rule 5a), then T-008 (`evaluate` metrics, independent of T-007). T-006's four round-3 fixes are under narrow verification (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
-against the remediation, then **T-007** (`Use the backend-engineer subagent on T-007`). F-042 is
-closed ahead of T-007 as planned, so the fold generator can build on a clean 6,605-game corpus.
-T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.556%) and **D-024/F-057**
-(`home_advantage` is not identifiable in fold 1 — 1 neutral game in 2,643 rows).
+**Next action:** **you review `docs/analysis/PHASE-1-RESULT.md`** — it is drafted but T-010 is
+human-owned, and §3 (the model ships on one feature) and §7 (what the result does *not* license) are
+the parts that most need your judgement rather than mine.
+
+Then, in order: **(1)** one **batched** review of T-006/T-007/T-008/T-009 — four rounds on T-006
+produced only test-hygiene findings after round 2, so batch rather than repeat that; **(2)** merge
+Phase 1 to `main` (28 commits) and advance the reviewed tasks to `DONE`; **(3)** plan Phase 2, where
+the open question is D-031's — build the product surface on a one-feature model, or spend the next
+cycle on features (Elo, travel, injuries) first. Housekeeping when convenient: **F-057's
+`revisit-when: T-009` has fired** and should graduate to *Future hardening* (D-031 confirmed it), and
+the status index has FIXED rows sitting in the open/accepted table.
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
 **History:** docs/log.md (append-only, session-by-session)
@@ -271,14 +274,28 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
       - artifacts: `models/logistic-{2024,2025,2026}.json`, versioned by **content hash** (D-012), in
         the gitignored `/models/` — confirmed with `git check-ignore`. 15 estimator tests; suite 153 →
         168. Gate 8/8.
-- [ ] **T-010** Written analysis of the result — `PLANNED` — owner: `human`
+- [ ] **T-010** Written analysis of the result — `BUILT` (draft; owner reviews) — owner: `human`
       - acceptance: records which features carried signal (coefficients + direction), where the model
         failed, whether probabilities are calibrated, how folds differed; states the ship/no-ship
         verdict against the paired criterion; every number reproducible from committed code + the
-        pinned data release
+        pinned data release — **all met**
       - security note: publish nothing that cannot be reproduced from committed code — an
         unreproducible number in a portfolio artifact is a claim that cannot be audited.
-
+      - outcome: **`docs/analysis/PHASE-1-RESULT.md`** — drafted by Claude for the human to own and
+        edit. Verdict: **SHIP**, both halves of D-008 met on the sealed fold (.6762 accuracy, .6020
+        log loss vs the constant predictor's .6870).
+      - **the security note was enforced mechanically, not asserted.** Every numeric claim in the
+        document was re-derived from a fresh pipeline run and string-matched against the text: **30
+        of 31 verified**; the one miss was the checker looking for `.1210` where the prose says
+        "+12.1 accuracy points" — the same number. That pass caught a real defect: the early-season
+        uplift had been stated as 9.6 points, which compares that period's accuracy against the
+        *season's* base rate rather than that period's own (.5707). Corrected to **8.1 points**, with
+        the wrong baseline named so the error is not silently repaired.
+      - the analysis reports the uncomfortable result rather than the flattering one: **D-031** — the
+        model ships on `point_diff_diff` alone, and removing any other feature slightly improves it —
+        is §3 of the document, not a footnote. It also refuses three things the numbers do not
+        license: calling this a four-feature model, quoting a home-court coefficient (D-024), and
+        assuming a backtest holds live (D-017's 2026-27 season is the real trial).
 ## Decisions log
 
 **Moved to [`docs/decisions.md`](decisions.md)** (append-only). It was 236 lines and growing, and

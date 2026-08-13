@@ -22,6 +22,33 @@ Newest entry on top. Keep it lean — a few lines per session; git history carri
   reintroduced the generator hazard F-045 closed.
 - Accepted the other six with `revisit-when` triggers; none is reachable in Phase 1 as built.
 
+## 2026-08-12 — T-009 answered the question; T-010 drafted
+
+- **The ship criterion is MET.** Sealed 2026 fold: accuracy .6762 (bar .62), log loss .6020 vs the
+  constant .55534 predictor's .6870, AUC .7323. Both halves of D-008. All three folds clear .62
+  (.6444/.6503/.6762) over 3,962 evaluation games — which is what D-013 bought by refusing to decide
+  on one season.
+- **D-030**: the estimator is stdlib logistic regression and the artifact is JSON, not a pickle. That
+  makes T-009's security note — "the serialized artifact is an arbitrary-code-execution vector" —
+  inapplicable rather than mitigated. The fit being ours is checked by coefficient recovery, the
+  vanishing-gradient property, and a cross-check against scikit-learn (max |Δcoef| 2.1e-08).
+- **Two controls, because this is the number the project exists to produce.** Shuffling the training
+  labels collapses the model to .5552 accuracy — exactly the test-season base rate — and AUC .5494.
+  Not leakage. Ablation (**D-031**) says the uncomfortable thing: `point_diff_diff` carries all of it,
+  and removing any other feature slightly *improves* the model. It also confirms D-024/F-057
+  empirically — `home_advantage`'s coefficient is unstable across folds exactly as predicted for a
+  column that is 1.0 in 2,642 of fold 1's 2,643 rows. The review process called that before the model
+  was ever fitted.
+- **T-010 drafted** (`docs/analysis/PHASE-1-RESULT.md`) for the human to own. Its security note —
+  publish nothing that cannot be reproduced — was enforced mechanically rather than asserted: every
+  numeric claim re-derived from a fresh run and matched against the text, 30/31, the one miss being
+  the checker's own string pattern. That pass caught a real defect: the early-season uplift was stated
+  as 9.6 points, comparing that period against the *season's* base rate instead of its own. Corrected
+  to 8.1, with the wrong baseline named rather than quietly fixed.
+- The analysis leads with the unflattering result rather than burying it, and refuses three things the
+  numbers do not license: calling this a four-feature model, quoting a home-court coefficient, and
+  assuming a backtest holds live.
+
 ## 2026-08-12 — T-008: evaluation metrics
 
 - `backend/model/evaluate.py`, stdlib-only. Every metric asserted against hand-computed values on one
