@@ -37,7 +37,7 @@ F-087..F-091). **Three rounds, three times the defect was in code that arrived w
 (F-102). Two of the new findings are about my own fixes: F-078 reintroduces the hazard F-045 closed,
 and F-091 shows the F-061 fix protects local runs but not the gate.
 
-**Next action:** review T-007 (`security-auditor` F-092–F-101, `logic-reviewer` F-102–F-111 — allocate before spawning, rule 5a), then T-008 (`evaluate` metrics, independent of T-007). T-006's four round-3 fixes are under narrow verification (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
+**Next action:** **T-009** — the estimator and the walk-forward run, where the project finds out whether four pre-game features clear D-008's paired bar. T-006/T-007/T-008 all `BUILT`; review them as one batch rather than three rounds (the marginal defect is now test hygiene, not correctness). Formerly: review T-007 (`security-auditor` F-092–F-101, `logic-reviewer` F-102–F-111 — allocate before spawning, rule 5a), then T-008 (`evaluate` metrics, independent of T-007). T-006's four round-3 fixes are under narrow verification (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
 against the remediation, then **T-007** (`Use the backend-engineer subagent on T-007`). F-042 is
 closed ahead of T-007 as planned, so the fold generator can build on a clean 6,605-game corpus.
 T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.556%) and **D-024/F-057**
@@ -217,11 +217,35 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
         across the three folds**, against D-013's predicted ~3,900, and fold 1's 2,643 matches D-024
         to the game. Per-season test home-win rates .5474 / .5450 / .5552.
       - 15 tests (`backend/tests/test_splits.py`), stdlib-only so they run in CI.
-- [ ] **T-008** `evaluate` metrics module + tests — `PLANNED` — owner: `backend-engineer`
+- [ ] **T-008** `evaluate` metrics module + tests — `BUILT` — owner: `backend-engineer`
       - acceptance: accuracy, log loss, AUC, calibration curve, and comparison against a constant
         base-rate predictor; tests assert each against hand-computed values on a small labelled set,
-        plus the comparator's boundary behavior
+        plus the comparator's boundary behavior — **all met**
       - security note: none.
+      - outcome: `backend/model/evaluate.py`, standard-library only (D-021) — no numpy, no
+        scikit-learn — so it runs in the gate and the eventual serving image inherits nothing.
+        `evaluate()` bundles a fold's metrics and exposes `meets_ship_criterion`, which requires
+        **both** halves of D-008 and never either alone.
+      - hand-computed on one 5-game set (`y_true` T,F,T,T,F / `y_prob` .9,.2,.6,.4,.7): accuracy 0.6,
+        log loss 0.5919186453876236, AUC 2/3, and the exact calibration bins. The comparator is
+        checked at `constant=0.5`, where a constant predictor's log loss is `ln 2` for any labels —
+        so the assertion does not trust the implementation twice.
+      - **three deliberate departures from a library implementation**, each because a sentinel would
+        be indistinguishable from the conclusion T-009 is trying to draw: `roc_auc` **raises** on a
+        single-class set rather than returning the conventional 0.5, which would read as "no signal";
+        `log_loss` clips at 1e-15, so one confidently-wrong call cannot swamp a fold with infinite
+        loss; and AUC uses Mann-Whitney ranks with half-credit ties, because a shrunk feature set
+        emits repeated probabilities and a threshold sweep would score them by sort order.
+      - **the comparator's boundary, which is the point of the task:** a model that merely reproduces
+        the constant does **not** beat it — a tie is not a win, and that is exactly the null D-008
+        tests against. Also asserted: the best possible constant *is* the observed base rate, so the
+        comparison is against the strongest constant predictor rather than a straw man.
+      - uses **D-026's 0.55534**, not D-007's 0.55556 — the latter predates F-042's exhibition removal,
+        and T-010 requires the constant a report quotes to be the one its own corpus produces.
+      - 27 tests, stdlib-only so they run in CI. Includes an independent cross-check: AUC agrees
+        exactly with brute-force pair counting over 400 tie-heavy random sets (max diff 0.00e+00),
+        which is evidence rather than a tautology in a way single fixtures cannot be. Suite 126 → 153
+        (139 + 1 skipped in CI's environment).
 - [ ] **T-009** `estimator` + walk-forward evaluation run — `PLANNED` — owner: `backend-engineer`
       - acceptance: **calls `corpus.assert_curated` on its input** (F-067); logistic regression fit
         per fold; versioned artifact emitted; three folds run end to end; per-fold and headline accuracy/log loss/AUC reported with the fold-to-fold spread;

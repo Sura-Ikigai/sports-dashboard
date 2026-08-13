@@ -22,6 +22,24 @@ Newest entry on top. Keep it lean — a few lines per session; git history carri
   reintroduced the generator hazard F-045 closed.
 - Accepted the other six with `revisit-when` triggers; none is reachable in Phase 1 as built.
 
+## 2026-08-12 — T-008: evaluation metrics
+
+- `backend/model/evaluate.py`, stdlib-only. Every metric asserted against hand-computed values on one
+  5-game set; the comparator checked at `constant=0.5`, where a constant predictor's log loss is `ln 2`
+  for any labels, so the test does not trust the implementation twice.
+- Three deliberate departures from a library implementation, each for the same reason — a sentinel
+  would be indistinguishable from the conclusion T-009 is trying to draw. `roc_auc` **raises** on a
+  single-class set instead of returning 0.5 ("no signal" vs "not measurable"); `log_loss` clips so one
+  confidently-wrong call cannot swamp a fold; AUC uses Mann-Whitney ranks with half-credit ties,
+  because a shrunk feature set emits repeated probabilities.
+- The boundary that is the point of T-008: **a model that merely reproduces the constant does not beat
+  it.** A tie is not a win — that is the null D-008 tests against. Also pinned that the best possible
+  constant IS the observed base rate, so the comparison is not against a straw man.
+- Uses D-026's 0.55534 rather than D-007's 0.55556, which predates F-042's exhibition removal.
+- Added an independent cross-check rather than more fixtures: AUC agrees exactly with brute-force pair
+  counting over 400 tie-heavy random sets. That is evidence; a single hand-computed case is not.
+- 27 tests. Suite 126 → 153.
+
 ## 2026-08-12 — T-007: expanding-window folds
 
 - `backend/model/splits.py`, stdlib-only. Three folds as literals rather than generated — the
