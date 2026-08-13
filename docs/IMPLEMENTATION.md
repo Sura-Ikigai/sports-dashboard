@@ -30,13 +30,14 @@ untrustworthy and threatened this task's own evidence (**F-071**). All 11 addres
 re-run under a hardened harness, all caught. Suite 90 → 103. **T-005 is `REVIEWED` at `34759ed`
 (✅✅)**. F-042 closed (D-025); the F-043 fix is canon at Dev-System `1c52645`, pushed.
 
-**Round 3 is INCOMPLETE.** Slices A (closure verification: 8/8 CLOSED) and C (mutation regression:
-17/17 CAUGHT) are done and clean. Slices B and D — a fresh review of what the round-2 remediation
-*added* — have not run, and per F-102 that is precisely the surface that broke rounds 2 and 3.
+**Round 3 is COMPLETE: ⛔ security · ⛔ logic.** Slice A (closure verification) 8/8 CLOSED and slice C
+(mutation regression) 17/17 CAUGHT — nothing previously fixed has regressed. But slices B and D, the
+first review of what the round-2 remediation *added*, returned **10 findings, 2 HIGH** (F-077..F-081,
+F-087..F-091). **Three rounds, three times the defect was in code that arrived with a remediation**
+(F-102). Two of the new findings are about my own fixes: F-078 reintroduces the hazard F-045 closed,
+and F-091 shows the F-061 fix protects local runs but not the gate.
 
-**Next action:** run round-3 slices B and D (security F-077–F-081, logic F-087–F-091), scoped to the
-round-2 additions only: `assert_curated`, the opponent-matched exclusion + `_TeamGame.opponent_id`,
-the sentinel default for `expected`, and per-`(season, team_id)` identification. Then re-review T-006 (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
+**Next action:** remediate the 10 round-3 findings, HIGH first (F-090, F-091), then re-review T-006 (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
 against the remediation, then **T-007** (`Use the backend-engineer subagent on T-007`). F-042 is
 closed ahead of T-007 as planned, so the fold generator can build on a clean 6,605-game corpus.
 T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.556%) and **D-024/F-057**
@@ -265,6 +266,11 @@ every agent was told to read it to act on a task that needed two entries from it
 | **F-015** | LOW | ops | ACCEPTED — `ui-ux-reviewer` declared but not mechanically enforced | `reconcile-canon` |
 | **F-006** | LOW | ops | OPEN — `docker-compose.prod.yaml` is a 0-byte file | — |
 | **F-007** | LOW | ops | OPEN — `ci.yml` duplicates every gate check | — |
+| **F-090** | HIGH | logic/tests | OPEN — `load_games` ignoring its args survives; folds would train on their own test season | T-006 r3 |
+| **F-091** | HIGH | logic/tests | OPEN — F-061's regression is green in CI; the fix landed in a CI-skipped file | T-006 r3 |
+| **F-087** | MEDIUM | logic/tests | OPEN — `assert_curated`'s `min_games` unexercised end to end | T-006 r3 |
+| **F-088** | MEDIUM | logic/tests | OPEN — `exclude_exhibitions`'s `expected` arg unpinned (fails open AND closed) | T-006 r3 |
+| **F-089** | MEDIUM | logic/tests | OPEN — 30-team assertion never driven from above | T-006 r3 |
 | **F-077** | MEDIUM | integrity | OPEN — `assert_curated` certifies shapes `exclude_exhibitions` refuses | T-006 r3 |
 | **F-078** | MEDIUM | integrity | OPEN — `assert_curated` consumes a generator and passes; F-045 reintroduced | T-006 r3 |
 | **F-079** | LOW | usability | OPEN — false negative on curated partial seasons; `min_games` has no floor | T-006 r3 |

@@ -862,3 +862,48 @@
   "`assert_curated` re-checks at the consumer regardless". As shipped it re-checks one of the two
   assertions (F-077) and carries the same defeatable knob (F-079). That rationale must be re-stated
   or the finding reopened when F-077/F-079 are fixed.
+
+#### Slice D (logic) — fresh mutations against the round-2 additions. ⛔
+
+15 mutations: **8 CAUGHT, 6 SURVIVED, 1 caught locally but GREEN IN CI.** Two declared equivalent and
+not counted (`is`→`==` on an `object()` sentinel; a season-set expression differing only for a
+fully-wiped season already refused upstream). Isolated `git archive` tree, fresh
+`PYTHONPYCACHEPREFIX` per run, baseline 103 re-asserted after all 15 restores.
+
+- **F-090** (logic/tests, **HIGH**) — **`load_games` ignoring BOTH its arguments survives 103/103.**
+  The new fixture patches `load_completed_games` with `return_value=`, which answers any argument
+  list, and no test inspects `call_args`. Failure scenario is the one this whole project exists to
+  prevent: T-007 builds expanding-window folds *by season*, so under this defect **every fold trains
+  on its own test season**, T-007's own fold tests still pass, and the only symptom is a
+  good-looking accuracy number. Remediation: assert `call_args` — that `seasons` and `data_dir` reach
+  the loader.
+- **F-091** (logic/tests, **HIGH**) — **F-061's exact regression is GREEN IN THE GATE.** Ran with
+  pandas/numpy absent exactly as `gate.yml` does: **90 passed, 1 skipped with the mutation applied.**
+  The F-061 fix landed only in `test_dataset.py`, which `importorskip`s out of CI, and
+  `test_corpus.py` never imports `model.dataset` — so nothing in the gate touches `load_games` at
+  all. My F-061 remediation protects local runs and not the gate. Explicitly **not** covered by the
+  accepted "dataset.py tests skip in CI" exposure: that acceptance is conditioned on the adapter
+  staying "a field-by-field conversion", and `load_games` now carries D-025(3), the exclude-by-default
+  safety property.
+- **F-087** (logic/tests, MEDIUM) — `assert_curated`'s `min_games` is unexercised end to end.
+  Dropping the forward, or rebinding the default to anything in `[2, 58]`, passes 103/103. At `3`, a
+  6-game All-Star round-robin — *the docstring's own documented 2026 shape* — sails through the guard
+  T-007/T-009 are **required** to call. The F-066 shape, on the function round 2 added to close F-067.
+- **F-088** (logic/tests, MEDIUM) — `exclude_exhibitions`'s `expected` parameter is unpinned: three
+  mutations making it read the module constant instead of the argument, or skip the block on
+  `expected={}`, all survive. `{2024: 1}` is the only non-`None` value any test passes and it agrees
+  with the constant, so no test can tell which dict was read. Fails **open** (`expected={}` → 870
+  games curated unverified) *and* **closed** (`expected={2027: 2}` → D-017's hand-pinned season
+  refused). `test_an_unpinned_season_is_refused_rather_than_curated_unverified` — written to close
+  F-063's version of exactly this — is itself vacuous on this axis.
+- **F-089** (logic/tests, MEDIUM) — the 30-team assertion is only ever driven from **below** (29, 28,
+  0), so `!=` → `<` survives. The unpinned direction is the dangerous one: **>30 ids means an
+  exhibition id survived curation**, which is silent, and this assertion is the only net for the
+  F-069 shape.
+
+**Overloaded test, flagged:** `test_a_game_id_collision_against_a_different_opponent_is_refused`
+carries two properties asymmetrically — it is the **sole** guard for F-068's collision-raise (that
+assertion appears once in the entire suite), while its second half duplicates a F-044 case that
+already has two other guards. Deleting it would open F-068 completely and cost F-044 nothing.
+`_synthetic_frame` itself is **not** vacuous — M-08 and M-15 both fail through it, and it carries a
+proper control — but it stops being honest at the patch boundary (F-090).
