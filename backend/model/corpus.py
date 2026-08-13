@@ -213,28 +213,65 @@ def exclude_exhibitions(
 
 
 def assert_curated(
-    games: Sequence[Game], *, min_games: int = MIN_SEASON_GAMES_FOR_A_REAL_TEAM
+    games: Sequence[Game],
+    *,
+    min_games: int = MIN_SEASON_GAMES_FOR_A_REAL_TEAM,
+    teams_per_season: int = NBA_TEAMS_PER_SEASON,
 ) -> None:
-    """Raise unless `games` looks already curated. **T-007 and T-009 should call this on their input.**
+    """Raise unless `games` looks already curated. **T-007 and T-009 must call this on their input.**
 
     `load_games` excludes by default (D-025(3)), but that is a property of the *producer*, and three
     documented paths reach a consumer uncurated with no flag and no assertion (F-067):
     `games_from_frame(load_completed_games(...))`, `load_games(include_exhibitions=True)`, and any
-    hand-assembled list. D-025's own argument -- an exhibition row has ordinary-looking features and
-    a coin-flip label, so contamination has *no symptom* -- applies verbatim to rows obtained any
-    other way. A default is not a guarantee; this is the check that makes it one at the point of use.
+    hand-assembled list. Contamination has no symptom downstream — an exhibition row has
+    ordinary-looking features and a coin-flip label — so a default is not a guarantee; this is what
+    makes it one at the point of use.
 
-    Cheap: one pass to count games per team per season. It deliberately does NOT re-run
-    `exclude_exhibitions`, which is not idempotent -- re-curating an already-curated corpus trips the
-    pinned-count assertion (0 removed vs 1 expected) and reads as corruption rather than as "already
-    clean".
+    Checks **both** invariants `exclude_exhibitions` enforces:
+      1. no `(season, team)` is under-played (identification);
+      2. every season carries exactly `teams_per_season` ids.
+
+    F-077: the first version checked only (1). Its docstring justified skipping (2) on
+    `exclude_exhibitions` being non-idempotent — true of the *pinned-count* assertion, which counts
+    games removed and therefore reads 0 on already-clean input, but **not** of the team-count
+    assertion, which is idempotent by construction. Dropping both together meant this certified two
+    shapes `exclude_exhibitions` refuses loudly on identical input: a season missing a whole franchise
+    (29 ids), and a 21-game non-NBA block that clears the threshold (32 ids). Only the pinned-count
+    check is genuinely un-re-runnable, and it is the only one still omitted.
+
+    Known limitation (F-079, accepted): a legitimately curated **partial** season fails this, because
+    its teams have not yet played `min_games`. Callers evaluating mid-season data pass a lower
+    `min_games` deliberately — but note there is no floor on that knob, so `min_games=0` disables
+    check (1) entirely.
     """
+    if not isinstance(games, Sequence) or isinstance(games, (str, bytes)):
+        # F-078: this is F-045's hazard, and it was reintroduced here. A generator satisfies the
+        # declared type visually, passes the check, and is *consumed by the check itself* — leaving
+        # the caller with zero games and no error. It only bites on CLEAN input (an uncurated
+        # generator raises for the right reason), which is exactly what makes it silent.
+        raise CorpusIntegrityError(
+            f"games must be a Sequence (list/tuple), got {type(games).__name__} — a one-shot "
+            "iterator would be consumed by this check, leaving the caller nothing."
+        )
+    if not games:
+        # An empty collection trivially satisfies both invariants, so passing it would certify
+        # nothing as curated — and would hide the emptiness a consumed generator just caused.
+        raise CorpusIntegrityError("games is empty — there is nothing to certify as curated.")
+
     stragglers = exhibition_team_seasons(games, min_games=min_games)
     if stragglers:
-        sample = sorted(stragglers)[:5]
         raise CorpusIntegrityError(
             f"{len(stragglers)} (season, team) pair(s) play fewer than {min_games} games "
-            f"(first few: {sample}) -- this collection has not been curated. Obtain it from "
-            "dataset.load_games(), which excludes exhibitions by default (D-025), rather than from "
-            "games_from_frame / load_games(include_exhibitions=True)."
+            f"(first few: {sorted(stragglers)[:5]}) — this collection has not been curated. Obtain "
+            "it from dataset.load_games(), which excludes exhibitions by default (D-025)."
+        )
+
+    teams_by_season: dict[int, set[str]] = defaultdict(set)
+    for game in games:
+        teams_by_season[game.season].update((game.home_id, game.away_id))
+    wrong = {s: len(t) for s, t in teams_by_season.items() if len(t) != teams_per_season}
+    if wrong:
+        raise CorpusIntegrityError(
+            f"season(s) {wrong} do not carry exactly {teams_per_season} team ids — curation did not "
+            "produce this shape. More than {teams_per_season} means an exhibition id survived."
         )

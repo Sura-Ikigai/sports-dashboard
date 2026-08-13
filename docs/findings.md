@@ -907,3 +907,44 @@ assertion appears once in the entire suite), while its second half duplicates a 
 already has two other guards. Deleting it would open F-068 completely and cost F-044 nothing.
 `_synthetic_frame` itself is **not** vacuous — M-08 and M-15 both fail through it, and it carries a
 proper control — but it stops being honest at the patch boundary (F-090).
+
+#### Round-3 remediation — 4 fixed, 6 accepted (2026-08-12)
+
+Scoped deliberately. Round 3 found **no live defect** — the module's real-corpus output is unchanged
+and slices A and C confirmed nothing regressed. The four fixed are the ones **T-007 depends on**; the
+six accepted are hardening, and each carries a `revisit-when:` so acceptance expires on a trigger
+rather than by being forgotten (§5.4).
+
+- **F-077 — FIXED.** `assert_curated` now checks *both* invariants. Only the pinned-count assertion
+  is genuinely un-re-runnable (it counts games removed, so reads 0 on clean input); the team count is
+  idempotent by construction and is now re-run. Tests cover the 29-id and 32-id shapes it used to
+  certify.
+- **F-078 — FIXED.** `assert_curated` refuses a non-`Sequence` (the F-045 guard, which I had failed
+  to carry over) and refuses an empty collection — certifying nothing as curated would have hidden
+  the emptiness a consumed generator causes.
+- **F-087 — FIXED** (bundled: same function, one test). `min_games` is now exercised end to end.
+- **F-090 — FIXED.** The dataset fixture now asserts `call_args`: `seasons` and `data_dir` must reach
+  the loader. Was HIGH because T-007 builds folds *by season*.
+- **F-091 — FIXED, and verified in CI's own environment.** A stdlib `ast` check in `test_corpus.py`
+  reads `load_games`' `include_exhibitions` default out of the source without importing the module,
+  so it runs where `test_dataset.py` cannot. Proof: with the default flipped **and pandas/numpy
+  absent as `gate.yml` runs it**, the suite now reports **3 failed** where it previously reported
+  90 passed, 1 skipped. Deliberately narrow — installing training deps in the gate would have removed
+  the accidental guard on `features.py`'s stdlib purity that D-021 partly rests on.
+- **F-070(b) — rationale restored.** It was accepted on "assert_curated re-checks at the consumer";
+  F-077's fix makes that true for both invariants. The defeatable-knob half remains, tracked as F-079.
+
+**ACCEPTED, with triggers** — none is reachable in Phase 1 as built:
+- **F-079** (false negative on curated partial seasons; `min_games` has no floor). revisit-when:
+  `first-partial-season-run` — D-017's mid-season retrain is the first caller that passes one.
+- **F-080** (same-pair `game_id` collision drops a real game). Unreachable in training —
+  `GameHistory`'s duplicate-id check pre-empts it. revisit-when: `phase-2-inference`.
+- **F-081** (team check counts thirty ids, not which thirty). Needs a deleted franchise *and* an
+  impostor simultaneously. revisit-when: `first-expansion-or-source-change`.
+- **F-088** (`exclude_exhibitions`' `expected` argument unpinned). Every caller today passes the
+  pinned constant or `None`. revisit-when: `first-hand-pinned-season` (D-017's retrain).
+- **F-089** (30-team assertion never driven from above). revisit-when:
+  `first-expansion-or-source-change`, with F-081 — same fixture closes both.
+- **Overloaded test noted, not fixed:** `test_a_game_id_collision_against_a_different_opponent_is_refused`
+  is the sole guard for F-068's collision-raise while duplicating F-044 coverage that has two other
+  guards. Deleting it would silently open F-068. revisit-when: `next-edit-to-test_features`.

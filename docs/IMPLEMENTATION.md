@@ -266,16 +266,16 @@ every agent was told to read it to act on a task that needed two entries from it
 | **F-015** | LOW | ops | ACCEPTED — `ui-ux-reviewer` declared but not mechanically enforced | `reconcile-canon` |
 | **F-006** | LOW | ops | OPEN — `docker-compose.prod.yaml` is a 0-byte file | — |
 | **F-007** | LOW | ops | OPEN — `ci.yml` duplicates every gate check | — |
-| **F-090** | HIGH | logic/tests | OPEN — `load_games` ignoring its args survives; folds would train on their own test season | T-006 r3 |
-| **F-091** | HIGH | logic/tests | OPEN — F-061's regression is green in CI; the fix landed in a CI-skipped file | T-006 r3 |
-| **F-087** | MEDIUM | logic/tests | OPEN — `assert_curated`'s `min_games` unexercised end to end | T-006 r3 |
-| **F-088** | MEDIUM | logic/tests | OPEN — `exclude_exhibitions`'s `expected` arg unpinned (fails open AND closed) | T-006 r3 |
-| **F-089** | MEDIUM | logic/tests | OPEN — 30-team assertion never driven from above | T-006 r3 |
-| **F-077** | MEDIUM | integrity | OPEN — `assert_curated` certifies shapes `exclude_exhibitions` refuses | T-006 r3 |
-| **F-078** | MEDIUM | integrity | OPEN — `assert_curated` consumes a generator and passes; F-045 reintroduced | T-006 r3 |
-| **F-079** | LOW | usability | OPEN — false negative on curated partial seasons; `min_games` has no floor | T-006 r3 |
-| **F-080** | LOW | integrity | OPEN — same-pair id collision still silently drops a real game | T-006 r3 |
-| **F-081** | LOW | integrity | OPEN — team check counts thirty ids, not which thirty | T-006 r3 |
+| **F-090** | HIGH | logic/tests | FIXED — fixture asserts `call_args`; `seasons`/`data_dir` must reach the loader | — |
+| **F-091** | HIGH | logic/tests | FIXED — stdlib `ast` check runs in CI; proven to fail there with the default flipped | — |
+| **F-087** | MEDIUM | logic/tests | FIXED — `min_games` exercised end to end | — |
+| **F-088** | MEDIUM | logic/tests | ACCEPTED — `expected` arg unpinned; every caller passes the constant or None | `first-hand-pinned-season` |
+| **F-089** | MEDIUM | logic/tests | ACCEPTED — 30-team assertion never driven from above | `first-expansion-or-source-change` |
+| **F-077** | MEDIUM | integrity | FIXED — `assert_curated` now checks both invariants | — |
+| **F-078** | MEDIUM | integrity | FIXED — refuses a non-Sequence and an empty collection | — |
+| **F-079** | LOW | usability | ACCEPTED — false negative on curated partial seasons | `first-partial-season-run` |
+| **F-080** | LOW | integrity | ACCEPTED — unreachable in training; dup-id check pre-empts it | `phase-2-inference` |
+| **F-081** | LOW | integrity | ACCEPTED — needs a deleted franchise AND an impostor | `first-expansion-or-source-change` |
 | **F-072** | MEDIUM | process | FIXED by Tracker rule 5d — parallel reviewers in one tree corrupt each other | — |
 | **F-069** | LOW | data | DOCUMENTED — curation cannot see an exhibition between two franchise ids | `new-historical-source` |
 | **F-101** | MEDIUM | process/canon | OPEN — canon's reviewer contract breaks under parallel review | `reconcile-canon` |

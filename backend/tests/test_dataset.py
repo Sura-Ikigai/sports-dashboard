@@ -11,6 +11,7 @@ downstream (both produce plausible numbers) and is caught here.
 """
 
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -169,3 +170,22 @@ def test_load_games_verifies_curation_rather_than_trusting_it():
     with patch("model.dataset.load_completed_games", return_value=frame):
         with pytest.raises(CorpusIntegrityError, match="do not match the pinned expected"):
             load_games()
+
+
+def test_load_games_passes_its_arguments_through_to_the_loader():
+    """F-090 (HIGH) — `load_games` ignoring BOTH its arguments survived the whole suite, because the
+    fixture patched `load_completed_games` with `return_value=`, which answers any argument list, and
+    nothing inspected `call_args`.
+
+    The consequence is the one this project exists to prevent: T-007 builds expanding-window folds
+    *by season*, so a `load_games` that ignores `seasons` would have every fold train on its own test
+    season — T-007's own fold tests would still pass, and the only symptom would be a better-looking
+    accuracy number.
+    """
+    frame = _synthetic_frame(seasons=(2024,), all_star=1)
+    with patch("model.dataset.load_completed_games", return_value=frame) as loader:
+        load_games((2024,), Path("/tmp/some-data-dir"))
+    args, kwargs = loader.call_args
+    passed = {*args, *kwargs.values()}
+    assert (2024,) in passed, f"`seasons` never reached the loader: {loader.call_args}"
+    assert Path("/tmp/some-data-dir") in passed, f"`data_dir` never reached the loader: {loader.call_args}"

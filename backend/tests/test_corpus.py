@@ -9,6 +9,7 @@ league, because the assertions being tested are about that shape.
 """
 
 import collections
+import pathlib
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -248,3 +249,64 @@ def test_assert_curated_names_the_offending_season_and_team():
     with pytest.raises(CorpusIntegrityError) as exc:
         assert_curated(games)
     assert "2024" in str(exc.value) and "phantom" in str(exc.value)
+
+
+def test_assert_curated_checks_the_team_count_too_not_only_identification():
+    """F-077 — it certified two shapes `exclude_exhibitions` refuses on identical input: a season
+    missing a franchise (29 ids), and a block that clears the threshold but is not NBA (32 ids).
+    Only the pinned-count assertion is genuinely un-re-runnable; the team count is idempotent."""
+    short = _franchise_season(teams=29)
+    with pytest.raises(CorpusIntegrityError, match="do not carry exactly 30 team ids"):
+        assert_curated(short)
+
+    # 32 ids: a full league plus a 21-game impostor pair that clears min_games entirely.
+    impostor = [_game(f"imp{i}", 600 + i, "impostorA", "impostorB") for i in range(21)]
+    with pytest.raises(CorpusIntegrityError, match="do not carry exactly 30 team ids"):
+        assert_curated([*_franchise_season(), *impostor])
+
+
+def test_assert_curated_refuses_a_generator_and_an_empty_collection():
+    """F-078 — F-045's hazard reintroduced: a generator passed the check *and was consumed by it*,
+    leaving the caller nothing. Silent because it only bites on clean input."""
+    with pytest.raises(CorpusIntegrityError, match="must be a Sequence"):
+        assert_curated(g for g in _franchise_season())
+    with pytest.raises(CorpusIntegrityError, match="is empty"):
+        assert_curated([])
+
+
+def test_assert_curated_forwards_min_games():
+    """F-087 — the knob was unexercised end to end, so dropping the forward survived."""
+    season = _franchise_season(rounds=1)  # 29 games each
+    assert_curated(season)  # default threshold 20: fine
+    with pytest.raises(CorpusIntegrityError, match="fewer than 40 games"):
+        assert_curated(season, min_games=40)
+
+
+def test_load_games_excludes_exhibitions_by_default_ENFORCED_IN_CI():
+    """F-091 (HIGH) — the exclude-by-default guard did not run in the gate at all.
+
+    `test_dataset.py` pins this properly, but it `importorskip`s out of CI (no pandas), and
+    `test_corpus.py` never imports `model.dataset` — so flipping `include_exhibitions` to `True`
+    produced **90 passed, 1 skipped** under the gate's own environment. The F-061 fix protected local
+    runs and not the gate.
+
+    This reads the default out of the source with `ast` rather than importing the module, so it runs
+    everywhere `test_corpus.py` runs — which is CI included. Deliberately narrow: the alternative was
+    installing training deps in the gate, which would have removed the accidental guard on
+    `features.py`'s stdlib purity that D-021 partly rests on. Pinning one policy constant is a smaller
+    change than restructuring what CI installs.
+    """
+    import ast
+
+    source = (pathlib.Path(__file__).resolve().parents[1] / "model" / "dataset.py").read_text()
+    fn = next(
+        n for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.FunctionDef) and n.name == "load_games"
+    )
+    kwonly = {a.arg: d for a, d in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True)}
+    assert "include_exhibitions" in kwonly, "load_games lost its include_exhibitions switch"
+    default = kwonly["include_exhibitions"]
+    assert isinstance(default, ast.Constant) and default.value is False, (
+        "load_games(include_exhibitions=...) must default to False — D-025(3). Contamination has no "
+        "symptom downstream, so the safe set must be the one you get without asking."
+    )
