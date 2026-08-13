@@ -19,25 +19,18 @@
 
 ## Current state
 
-**State now:** **T-006 is `BUILT`, remediated through two full review rounds, awaiting round 3.**
-Round 2 (`d8257b6`) was ⛔⛔ again, and correctly: both reviewers independently verified every round-1
-finding (F-044..F-060) was genuinely closed, then both ⛔'d on `backend/model/corpus.py` — code that
-arrived *with* the round-1 remediation and that no reviewer had ever seen. That found a real bug
-(**F-065**: curation silently returned **0 games from a 5,439-game input** on a partial season, using
-its own documented escape hatch), an untested safety default (**F-061**), a fail-open control the
-F-044 fix had introduced (**F-068**), and a stale-bytecode hazard that made local test results
-untrustworthy and threatened this task's own evidence (**F-071**). All 11 addressed; 19 mutations
-re-run under a hardened harness, all caught. Suite 90 → 103. **T-005 is `REVIEWED` at `34759ed`
-(✅✅)**. F-042 closed (D-025); the F-043 fix is canon at Dev-System `1c52645`, pushed.
+**State now:** **Phase 1 has its answer: the ship criterion is MET.** On the sealed 2026 fold —
+never touched during development — accuracy **.6762** against a .62 bar, log loss **.6020** against a
+constant-predictor **.6870**. Both halves of D-008, not one. All three folds clear .62 (.6444/.6503/
+.6762) across 3,962 evaluation games. A label-shuffle control collapses to the base rate, so the
+result is not leakage. But **D-031**: ablation shows `point_diff_diff` carries essentially all of it —
+dropping any other feature slightly *improves* the model. T-005…T-009 are all built; T-006/T-007/
+T-008/T-009 are `BUILT` and unreviewed.
 
-**Round 3 is COMPLETE: ⛔ security · ⛔ logic.** Slice A (closure verification) 8/8 CLOSED and slice C
-(mutation regression) 17/17 CAUGHT — nothing previously fixed has regressed. But slices B and D, the
-first review of what the round-2 remediation *added*, returned **10 findings, 2 HIGH** (F-077..F-081,
-F-087..F-091). **Three rounds, three times the defect was in code that arrived with a remediation**
-(F-102). Two of the new findings are about my own fixes: F-078 reintroduces the hazard F-045 closed,
-and F-091 shows the F-061 fix protects local runs but not the gate.
-
-**Next action:** **T-009** — the estimator and the walk-forward run, where the project finds out whether four pre-game features clear D-008's paired bar. T-006/T-007/T-008 all `BUILT`; review them as one batch rather than three rounds (the marginal defect is now test hygiene, not correctness). Formerly: review T-007 (`security-auditor` F-092–F-101, `logic-reviewer` F-102–F-111 — allocate before spawning, rule 5a), then T-008 (`evaluate` metrics, independent of T-007). T-006's four round-3 fixes are under narrow verification (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
+**Next action:** **T-010** — the written analysis (owner: `human`). Everything it needs is now
+measured: coefficients and their direction, the ablation (D-031), the calibration table, the
+fold-to-fold spread, and the ship verdict. Then review T-006/T-007/T-008/T-009 as **one batch**
+rather than four rounds — the marginal finding has been test hygiene, not correctness. Formerly: review T-007 (`security-auditor` F-092–F-101, `logic-reviewer` F-102–F-111 — allocate before spawning, rule 5a), then T-008 (`evaluate` metrics, independent of T-007). T-006's four round-3 fixes are under narrow verification (`Use the security-auditor subagent on T-006`, then `logic-reviewer`)
 against the remediation, then **T-007** (`Use the backend-engineer subagent on T-007`). F-042 is
 closed ahead of T-007 as planned, so the fold generator can build on a clean 6,605-game corpus.
 T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.556%) and **D-024/F-057**
@@ -246,17 +239,38 @@ T-007 must read **D-026** (the constant-predictor baseline is 55.534%, not 55.55
         exactly with brute-force pair counting over 400 tie-heavy random sets (max diff 0.00e+00),
         which is evidence rather than a tautology in a way single fixtures cannot be. Suite 126 → 153
         (139 + 1 skipped in CI's environment).
-- [ ] **T-009** `estimator` + walk-forward evaluation run — `PLANNED` — owner: `backend-engineer`
+- [ ] **T-009** `estimator` + walk-forward evaluation run — `BUILT` — owner: `backend-engineer`
       - acceptance: **calls `corpus.assert_curated` on its input** (F-067); logistic regression fit
-        per fold; versioned artifact emitted; three folds run end to end; per-fold and headline accuracy/log loss/AUC reported with the fold-to-fold spread;
-        states plainly whether **both** criteria are met (≥62% accuracy AND log loss beating a constant
-        55.56% predictor); training-only deps confined to the training requirements file, served image
-        unchanged
-      - security note: **the serialized artifact is an arbitrary-code-execution vector.** Loading a
-        pickled object executes code inside it, and Phase 2 loads this artifact inside the API service.
-        Produce and consume it only with this project's own code, load only from a trusted local path,
-        never from a network or user-supplied path, never commit it. Pin the new numeric/modelling deps
-        exactly, consistent with existing requirements discipline.
+        per fold; versioned artifact emitted; three folds run end to end; per-fold and headline
+        accuracy/log loss/AUC reported with the fold-to-fold spread; states plainly whether **both**
+        criteria are met; training-only deps confined to the training requirements file, served image
+        unchanged — **all met**
+      - security note: **the serialized artifact is an arbitrary-code-execution vector** … — **made
+        inapplicable rather than mitigated, see D-030**: the artifact is JSON, so there is no
+        deserialization step that can execute anything, and the fit is stdlib (no scikit-learn, no
+        numpy). The served image gains nothing at all for Phase 2 inference.
+      - **RESULT — the ship criterion is MET on the sealed 2026 fold.**
+
+        | fold | train | test | accuracy | log loss | AUC | beats constant |
+        |---|---|---|---|---|---|---|
+        | 22-23 → 24 | 2,643 | 1,319 | .6444 | .6242 | .7083 | yes (+.0646) |
+        | 22-24 → 25 | 3,962 | 1,321 | .6503 | .6129 | .7138 | yes (+.0764) |
+        | **22-25 → 26 (sealed)** | 5,283 | 1,322 | **.6762** | **.6020** | **.7323** | **yes (+.0850)** |
+
+        D-008 half 1 — accuracy ≥ .62: **MET** (.6762). Half 2 — log loss beats the constant .55534
+        predictor: **MET** (.6020 vs .6870). **All three folds clear .62**; spread .0318, stdev .0169
+        across 3,962 evaluation games, which is what D-013 bought by using three folds instead of one.
+      - **calibration is good**, which matters because it is half the criterion: predicted vs observed
+        by decile — .168/.171, .256/.202, .355/.310, .451/.469, .549/.575, .647/.638, .747/.792,
+        .843/.830. A 70% call really is right about 75% of the time.
+      - **two controls run because the headline is the number the project exists to produce.**
+        *Label shuffle*: refitting on shuffled training labels collapses to accuracy .5552 — exactly
+        the test-season base rate — and AUC .5494. No leakage. *Ablation*: see **D-031** — removing
+        `point_diff_diff` costs 3.7 accuracy points; removing any of the other three slightly
+        **improves** the model. The model ships on essentially one feature, and T-010 must say so.
+      - artifacts: `models/logistic-{2024,2025,2026}.json`, versioned by **content hash** (D-012), in
+        the gitignored `/models/` — confirmed with `git check-ignore`. 15 estimator tests; suite 153 →
+        168. Gate 8/8.
 - [ ] **T-010** Written analysis of the result — `PLANNED` — owner: `human`
       - acceptance: records which features carried signal (coefficients + direction), where the model
         failed, whether probabilities are calibrated, how folds differed; states the ship/no-ship

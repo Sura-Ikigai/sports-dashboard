@@ -278,3 +278,38 @@
   and this project's record there is poor — F-024 read OPEN for a full phase after being fixed, and
   F-019's promised *Future hardening* entry was never actually filed. The status index is the
   mitigation, and it only works if it is maintained. (Supersedes nothing; implements rule 5f.)
+
+- **D-030** 2026-08-12 — **Logistic regression is implemented in the standard library and the model
+  artifact is JSON, not a pickle — because that makes T-009's security note inapplicable rather than
+  merely mitigated.** The note is the sharpest in the plan: *"the serialized artifact is an
+  arbitrary-code-execution vector. Loading a pickled object executes code inside it, and Phase 2
+  loads this artifact inside the API service."* A four-feature logistic regression is a 5×5 Newton
+  solve and the fitted model is five floats; serialized as JSON there is **no deserialization step
+  that can execute anything** — `json.load` returns dicts and floats or raises. Same move as D-004 on
+  F-005 (choose a source so no join exists to get wrong) and D-022 on leakage (make the target
+  scoreless so its result is unreachable): design the threat out rather than guard it.
+  Deviates from PLAN-v1's "thin wrapper over the logistic-regression implementation", deliberately.
+  Three further consequences: the served image gains **nothing** for Phase 2 inference beyond `json`
+  and the stdlib feature function; coefficients are directly readable, which T-010 requires; and the
+  version is a **content hash**, so the same data and config always produce the same `model_version`
+  (D-012 keys persisted predictions by it) and an edited artifact is detectable.
+  The cost is that the fit is ours to get right, so it is checked three ways: coefficient recovery
+  from synthetic data with known truth; the vanishing-gradient property that *defines* the optimum,
+  which cannot agree with a wrong implementation by sharing its arithmetic; and a one-time
+  cross-check against **scikit-learn 1.9.0** — max |Δcoefficient| **2.1e-08**, max |Δprobability|
+  **1.9e-08** across 6 trials at n=200..3000. scikit-learn was installed ad hoc for that check and is
+  **not** a dependency of anything committed; it deliberately does not appear in
+  `requirements-train.txt`, because a test that needs it would skip in CI, which is how F-091
+  happened. (Supersedes nothing; refines PLAN-v1's `estimator` description.)
+- **D-031** 2026-08-12 — **The model ships, and it ships on one feature.** Ablation on the sealed
+  2026 fold: removing `point_diff_diff` costs **3.7 accuracy points** (.6762 → .6392) and 5.0 AUC
+  points; removing `home_advantage`, `form_diff` or `rest_diff` each *slightly improves* the model
+  (+0.0023, +0.0015, +0.0076). Season-to-date point differential carries essentially all of the
+  signal, which the coefficients already say (+0.685 against +0.037/+0.060/+0.157 on standardized
+  features). This is not a defect and it does not change the ship verdict — but T-010 must report it
+  plainly rather than describing four features as contributing. It also confirms **D-024/F-057**
+  empirically: `home_advantage`'s coefficient is small and unstable across folds (+0.112, +0.003,
+  +0.037), exactly as predicted for a column that is 1.0 in 2,642 of fold 1's 2,643 rows.
+  Consequence for Phase 2: a simpler model is cheaper to serve and easier to explain, and the three
+  weak features are candidates for removal — but not before T-010 has recorded the result as it
+  stands. (Supersedes nothing.)
