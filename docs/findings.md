@@ -929,7 +929,9 @@ rather than by being forgotten (§5.4).
   reads `load_games`' `include_exhibitions` default out of the source without importing the module,
   so it runs where `test_dataset.py` cannot. Proof: with the default flipped **and pandas/numpy
   absent as `gate.yml` runs it**, the suite now reports **3 failed** where it previously reported
-  90 passed, 1 skipped. Deliberately narrow — installing training deps in the gate would have removed
+  90 passed, 1 skipped. **[CORRECTED 2026-08-12, F-096(a): "3 failed" is the number with pandas
+  INSTALLED. In the gate's own environment the mutated suite reports 1 failed, 93 passed, 1 skipped.
+  The conclusion held; the cited evidence was the local number labelled as the gate one.]** Deliberately narrow — installing training deps in the gate would have removed
   the accidental guard on `features.py`'s stdlib purity that D-021 partly rests on.
 - **F-070(b) — rationale restored.** It was accepted on "assert_curated re-checks at the consumer";
   F-077's fix makes that true for both invariants. The defeatable-knob half remains, tracked as F-079.
@@ -948,3 +950,47 @@ rather than by being forgotten (§5.4).
 - **Overloaded test noted, not fixed:** `test_a_game_id_collision_against_a_different_opponent_is_refused`
   is the sole guard for F-068's collision-raise while duplicating F-044 coverage that has two other
   guards. Deleting it would silently open F-068. revisit-when: `next-edit-to-test_features`.
+
+#### Narrow verification of the round-3 fixes — ⛔, and two of the four did not hold
+
+<!-- F-077 and F-078 verified clean. F-090 and F-091 did NOT hold as claimed, and the verifier's
+     summary is the fair one: "in the gate's environment, three separate mutations that hand T-007
+     silently wrong training data still report green." -->
+
+- **F-092** (logic/tests, **HIGH**) — **The F-091 fix pinned the literal default, not the behaviour.**
+  The `ast` check read the default out of `load_games`' signature; the *body* is what decides. Both
+  `return exclude_exhibitions(games) if include_exhibitions else games` and `return games` left the
+  default reading `False` and reported **94 passed, 1 skipped** under CI's environment — exactly the
+  outcome F-091 exists to prevent. F-061's own docstring had named both hazards ("flipping the
+  default to True, **or inverting the flag**"); I closed one, named the test `..._ENFORCED_IN_CI`,
+  and recorded it as verified.
+  Status: **FIXED.** The policy moved into `corpus.apply_default_curation` — a stdlib function, so
+  the gate runs a real *behavioural* test rather than a signature check. Verified: flag inverted →
+  **1 failed**; exclusion removed → **1 failed**; unmutated → **112 passed, 1 skipped**, all with
+  pandas/numpy absent.
+- **F-093** (logic/tests, **HIGH**) — **The F-090 fix landed inside the module F-091 was filed
+  about.** `test_dataset.py` `importorskip`s out of CI, so `load_games` ignoring *both* arguments
+  still gave 94 passed, 1 skipped in the gate. I diagnosed that structural gap for F-091 in the same
+  commit and reproduced it one file over.
+  Status: **FIXED.** `test_corpus.py` now asserts structurally (via `ast`, no import) that
+  `load_games` forwards `seasons`/`data_dir` **by name and in order** and delegates curation.
+  Verified: args ignored → **1 failed** in the gate's environment.
+- **F-094** (logic/tests, MEDIUM) — the F-090 assertion checked value *presence*, not binding:
+  `{*args, *kwargs.values()}` plus membership. Swapped arguments passed; `seasons[:1]` passed —
+  and that one is the silent case F-090's own docstring describes, surviving because the fixture used
+  a **single-element** tuple, making truncation undetectable by construction.
+  Status: **FIXED** — `assert_called_once_with((2023, 2024), data_dir)` with a two-season tuple.
+- **F-095** (integrity, LOW — does NOT batch) — **the F-077 fix added a new defeatable knob of the
+  exact shape F-087 was filed for, in the same commit that fixed F-087.** `teams_per_season` had no
+  caller and no test that the argument is honoured, so rewriting the check to read the module
+  constant passed 108/108; and `assert_curated(thirty_two_id_season, teams_per_season=32)` silences
+  the very shape F-077 exists to refuse. Status: **FIXED**, with a test that the argument is honoured
+  *and* that the default still refuses.
+- **F-096** (docs/evidence, LOW) — two checkable defects in the remediation's own record.
+  (a) The commit message and this file recorded F-091's proof as "3 failed … as `gate.yml` runs it";
+  measured, the gate environment gives **1 failed, 93 passed, 1 skipped** — 3 failed is the number
+  *with* pandas. Corrected in place above with a dated note rather than erased. In a ledger where
+  recorded proof is load-bearing, a number labelled with the wrong environment is a real defect.
+  (b) `assert_curated`'s new error ended with a plain string implicitly concatenated to an f-string,
+  emitting literal braces. Ruff does not catch it — `RUF` is not in `select`. Status: **FIXED** (b);
+  (a) corrected.

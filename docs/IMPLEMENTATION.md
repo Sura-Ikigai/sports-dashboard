@@ -280,6 +280,11 @@ every agent was told to read it to act on a task that needed two entries from it
 | **F-015** | LOW | ops | ACCEPTED — `ui-ux-reviewer` declared but not mechanically enforced | `reconcile-canon` |
 | **F-006** | LOW | ops | OPEN — `docker-compose.prod.yaml` is a 0-byte file | — |
 | **F-007** | LOW | ops | OPEN — `ci.yml` duplicates every gate check | — |
+| **F-092** | HIGH | logic/tests | FIXED — curation policy moved to stdlib `corpus.apply_default_curation`; behavioural test runs in the gate | — |
+| **F-093** | HIGH | logic/tests | FIXED — `ast` check pins arg forwarding by name+order, runs in CI | — |
+| **F-094** | MEDIUM | logic/tests | FIXED — `assert_called_once_with` on a two-season tuple | — |
+| **F-095** | LOW | integrity | FIXED — `teams_per_season` honouring pinned | — |
+| **F-096** | LOW | docs/evidence | FIXED — mis-stated gate evidence corrected in place; brace bug fixed | — |
 | **F-090** | HIGH | logic/tests | FIXED — fixture asserts `call_args`; `seasons`/`data_dir` must reach the loader | — |
 | **F-091** | HIGH | logic/tests | FIXED — stdlib `ast` check runs in CI; proven to fail there with the default flipped | — |
 | **F-087** | MEDIUM | logic/tests | FIXED — `min_games` exercised end to end | — |

@@ -19,6 +19,7 @@ from model.corpus import (
     MIN_SEASON_GAMES_FOR_A_REAL_TEAM,
     NBA_TEAMS_PER_SEASON,
     CorpusIntegrityError,
+    apply_default_curation,
     assert_curated,
     exclude_exhibitions,
     exhibition_team_seasons,
@@ -282,19 +283,37 @@ def test_assert_curated_forwards_min_games():
         assert_curated(season, min_games=40)
 
 
-def test_load_games_excludes_exhibitions_by_default_ENFORCED_IN_CI():
-    """F-091 (HIGH) — the exclude-by-default guard did not run in the gate at all.
+def test_default_curation_excludes_exhibitions_BEHAVIOURALLY_IN_CI():
+    """F-092 (HIGH) — the previous attempt pinned the signature default with an `ast` check, which is
+    not the same as pinning the behaviour: inverting the flag in `load_games`' body, or deleting the
+    exclusion outright, both left the default reading `False` and both still reported green under
+    CI's environment. F-061's docstring had named both hazards ("flipping the default to True, **or
+    inverting the flag**") and only one was closed.
 
-    `test_dataset.py` pins this properly, but it `importorskip`s out of CI (no pandas), and
-    `test_corpus.py` never imports `model.dataset` — so flipping `include_exhibitions` to `True`
-    produced **90 passed, 1 skipped** under the gate's own environment. The F-061 fix protected local
-    runs and not the gate.
+    The policy now lives in `corpus.apply_default_curation`, a stdlib function, so this is a real
+    behavioural test that runs in the gate.
+    """
+    clean = _franchise_season()
+    contaminated = [*clean, *_all_star(count=1)]
 
-    This reads the default out of the source with `ast` rather than importing the module, so it runs
-    everywhere `test_corpus.py` runs — which is CI included. Deliberately narrow: the alternative was
-    installing training deps in the gate, which would have removed the accidental guard on
-    `features.py`'s stdlib purity that D-021 partly rests on. Pinning one policy constant is a smaller
-    change than restructuring what CI installs.
+    # default: exhibitions are removed
+    assert len(apply_default_curation(contaminated)) == len(clean)
+    assert {g.game_id for g in apply_default_curation(contaminated)} == {g.game_id for g in clean}
+    # opt-in: everything is kept -- so the assertion above is not vacuous
+    assert len(apply_default_curation(contaminated, include_exhibitions=True)) == len(contaminated)
+    # and the two really differ, which is what makes the default meaningful
+    assert len(apply_default_curation(contaminated)) < len(
+        apply_default_curation(contaminated, include_exhibitions=True)
+    )
+
+
+def test_load_games_holds_no_curation_policy_of_its_own():
+    """F-093 (HIGH) — `load_games`' argument pass-through and curation call are both invisible to the
+    gate, because `test_dataset.py` `importorskip`s out of CI. Rather than duplicate behaviour tests
+    that cannot run there, assert *structurally* that `load_games` forwards its parameters by name
+    and delegates the policy — so the behaviour tested above is the behaviour it gets.
+
+    Reads the source with `ast`; does not import the module, which would need pandas.
     """
     import ast
 
@@ -304,9 +323,35 @@ def test_load_games_excludes_exhibitions_by_default_ENFORCED_IN_CI():
         if isinstance(n, ast.FunctionDef) and n.name == "load_games"
     )
     kwonly = {a.arg: d for a, d in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True)}
-    assert "include_exhibitions" in kwonly, "load_games lost its include_exhibitions switch"
-    default = kwonly["include_exhibitions"]
+    default = kwonly.get("include_exhibitions")
     assert isinstance(default, ast.Constant) and default.value is False, (
-        "load_games(include_exhibitions=...) must default to False — D-025(3). Contamination has no "
-        "symptom downstream, so the safe set must be the one you get without asking."
+        "load_games(include_exhibitions=...) must default to False — D-025(3)."
     )
+
+    calls = {
+        n.func.id if isinstance(n.func, ast.Name) else getattr(n.func, "attr", None): n
+        for n in ast.walk(fn) if isinstance(n, ast.Call)
+    }
+    loader = calls.get("load_completed_games")
+    assert loader is not None, "load_games must call load_completed_games"
+    # F-094: the parameters must be forwarded BY NAME, in order — not merely appear somewhere.
+    forwarded = [a.id for a in loader.args if isinstance(a, ast.Name)]
+    assert forwarded == ["seasons", "data_dir"], (
+        f"load_games must forward its own seasons/data_dir in order, got {forwarded} — T-007 builds "
+        "folds by season, so a dropped or swapped argument silently trains every fold on its own "
+        "test season."
+    )
+    assert "apply_default_curation" in calls, (
+        "load_games must delegate curation to corpus.apply_default_curation, so the policy is "
+        "testable in the gate (F-092)"
+    )
+
+
+def test_assert_curated_honours_the_teams_per_season_argument():
+    """F-095 — the F-077 fix added `teams_per_season`, a new knob with no floor, no caller, and no
+    test that the argument is honoured: rewriting the check to read the module constant passed
+    108/108. Exactly the F-087 shape, added in the very commit that fixed F-087."""
+    twenty_nine = _franchise_season(teams=29)
+    assert_curated(twenty_nine, teams_per_season=29)  # honoured: does not raise
+    with pytest.raises(CorpusIntegrityError, match="do not carry exactly 30 team ids"):
+        assert_curated(twenty_nine)  # default still refuses it

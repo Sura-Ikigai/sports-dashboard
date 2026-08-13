@@ -182,10 +182,12 @@ def test_load_games_passes_its_arguments_through_to_the_loader():
     season — T-007's own fold tests would still pass, and the only symptom would be a better-looking
     accuracy number.
     """
-    frame = _synthetic_frame(seasons=(2024,), all_star=1)
+    frame = _synthetic_frame(seasons=(2023, 2024), all_star=1)  # matches both pins (2023:1, 2024:1)
+    data_dir = Path("/tmp/some-data-dir")
     with patch("model.dataset.load_completed_games", return_value=frame) as loader:
-        load_games((2024,), Path("/tmp/some-data-dir"))
-    args, kwargs = loader.call_args
-    passed = {*args, *kwargs.values()}
-    assert (2024,) in passed, f"`seasons` never reached the loader: {loader.call_args}"
-    assert Path("/tmp/some-data-dir") in passed, f"`data_dir` never reached the loader: {loader.call_args}"
+        load_games((2023, 2024), data_dir)
+    # F-094: exact binding, not membership. The previous version built a set of the call's values and
+    # checked each appeared SOMEWHERE, so swapped arguments passed -- and it used a single-element
+    # tuple, which made a truncating mutation (`seasons[:1]`) undetectable by construction. A
+    # multi-season tuple is the point: T-007 builds folds by season.
+    loader.assert_called_once_with((2023, 2024), data_dir)

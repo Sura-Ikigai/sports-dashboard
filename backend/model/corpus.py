@@ -273,5 +273,23 @@ def assert_curated(
     if wrong:
         raise CorpusIntegrityError(
             f"season(s) {wrong} do not carry exactly {teams_per_season} team ids — curation did not "
-            "produce this shape. More than {teams_per_season} means an exhibition id survived."
+            f"produce this shape. More than {teams_per_season} means an exhibition id survived."
         )
+
+
+def apply_default_curation(
+    games: Sequence[Game], *, include_exhibitions: bool = False
+) -> list[Game]:
+    """The exclude-by-default policy of D-025(3), expressed here rather than in `dataset.load_games`.
+
+    F-092/F-093: it used to live in `load_games`, which is unreachable from the gate — `dataset.py`
+    needs pandas and its tests `importorskip` out of CI. The first attempt to close that pinned the
+    *signature default* with an `ast` check, which is not the same thing: inverting the flag in the
+    body, or deleting the exclusion outright, both left the default reading `False` and both still
+    reported green under CI's environment. F-061's own docstring had named both hazards — "flipping
+    the default to True, **or inverting the flag**" — and only one was closed.
+
+    Putting the decision in a standard-library module makes it *behaviourally* testable where the
+    gate can actually run it. `load_games` now forwards to this and holds no policy of its own.
+    """
+    return list(games) if include_exhibitions else exclude_exhibitions(games)

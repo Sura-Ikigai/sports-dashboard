@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .corpus import exclude_exhibitions
+from .corpus import apply_default_curation
 from .features import Game
 from .loader import DEFAULT_DATA_DIR, SEASONS, load_completed_games
 
@@ -133,4 +133,7 @@ def load_games(
     modeling.
     """
     games = games_from_frame(load_completed_games(seasons, data_dir))
-    return games if include_exhibitions else exclude_exhibitions(games)
+    # The policy itself lives in `corpus.apply_default_curation` (stdlib), so the gate can test the
+    # behaviour rather than this signature's default — see F-092/F-093. This function holds no
+    # curation policy of its own.
+    return apply_default_curation(games, include_exhibitions=include_exhibitions)
