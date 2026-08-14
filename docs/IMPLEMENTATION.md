@@ -291,6 +291,14 @@ the status index has FIXED rows sitting in the open/accepted table.
         uplift had been stated as 9.6 points, which compares that period's accuracy against the
         *season's* base rate rather than that period's own (.5707). Corrected to **8.1 points**, with
         the wrong baseline named so the error is not silently repaired.
+      - also **`docs/analysis/PHASE-1-RESULT.html`** — a reading version of the same document, sat
+        beside the markdown. Charts follow the dataviz method: form chosen before color, the palette
+        validated with the skill's own script against this page's surfaces (all six checks PASS in
+        both modes), diverging blue↔red for the signed ablation, a zero baseline on every bar, and a
+        hover layer with keyboard-reachable marks. Audited before shipping: no color token is defined
+        only inside a dark block (the unreadable-artifact bug), and **every one of 116 figures on the
+        page traces back to the markdown** — the same provenance standard the document itself is held
+        to, applied to its presentation.
       - the analysis reports the uncomfortable result rather than the flattering one: **D-031** — the
         model ships on `point_diff_diff` alone, and removing any other feature slightly improves it —
         is §3 of the document, not a footnote. It also refuses three things the numbers do not

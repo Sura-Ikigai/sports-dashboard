@@ -1,0 +1,730 @@
+<title>Phase 1 result — NBA win prediction</title>
+<style>
+  /* ─── tokens: light is the bare :root, so the un-stamped (system) state resolves ─────────── */
+  :root {
+    color-scheme: light;
+    --paper:      #f4f6f8;
+    --surface:    #fbfcfd;
+    --surface-2:  #eef1f5;
+    --ink:        #0d1117;
+    --ink-2:      #4c545e;
+    --ink-3:      #8a929c;
+    --rule:       #e3e7ec;
+    --rule-2:     #cfd6de;
+    --accent:     #2a78d6;
+    --accent-dim: #dbe8f8;
+    --counter:    #e34948;
+    --counter-dim:#fadedd;
+    --good:       #0ca30c;
+    --critical:   #d03b3b;
+    --shadow:     0 1px 2px rgba(13,17,23,.05), 0 8px 24px -16px rgba(13,17,23,.18);
+
+    --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --mono:  ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    --col: 66ch;
+    --step--1: clamp(.78rem, .76rem + .1vw, .84rem);
+    --step-0:  clamp(1rem, .97rem + .16vw, 1.09rem);
+    --step-1:  clamp(1.2rem, 1.14rem + .3vw, 1.4rem);
+    --step-2:  clamp(1.55rem, 1.42rem + .62vw, 2rem);
+    --step-3:  clamp(2.1rem, 1.75rem + 1.7vw, 3.4rem);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --paper:      #0e1013;
+      --surface:    #191c20;
+      --surface-2:  #22262c;
+      --ink:        #f2f4f7;
+      --ink-2:      #b6bcc5;
+      --ink-3:      #7d858f;
+      --rule:       #262b31;
+      --rule-2:     #333a42;
+      --accent:     #3987e5;
+      --accent-dim: #16324f;
+      --counter:    #e66767;
+      --counter-dim:#4a2422;
+      --good:       #0ca30c;
+      --critical:   #d03b3b;
+      --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper:      #0e1013;
+    --surface:    #191c20;
+    --surface-2:  #22262c;
+    --ink:        #f2f4f7;
+    --ink-2:      #b6bcc5;
+    --ink-3:      #7d858f;
+    --rule:       #262b31;
+    --rule-2:     #333a42;
+    --accent:     #3987e5;
+    --accent-dim: #16324f;
+    --counter:    #e66767;
+    --counter-dim:#4a2422;
+    --good:       #0ca30c;
+    --critical:   #d03b3b;
+    --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: var(--step-0);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--accent-dim); color: var(--ink); }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+  .wrap { max-width: 1080px; margin-inline: auto; padding-inline: clamp(1.1rem, 4vw, 2.5rem); }
+  .col  { max-width: var(--col); margin-inline: auto; }
+  .col > * + * { margin-top: 1.1em; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: var(--step--1);
+    text-transform: uppercase; letter-spacing: .13em; color: var(--ink-3);
+    margin: 0;
+  }
+
+  /* ─── masthead ────────────────────────────────────────────────────────────────────────── */
+  header.masthead { border-bottom: 1px solid var(--rule); padding: clamp(2.4rem,7vw,4.5rem) 0 2.2rem; }
+  .kicker { display: flex; flex-wrap: wrap; gap: .55rem 1.1rem; align-items: baseline; margin-bottom: 1.6rem; }
+  h1 {
+    font-family: var(--serif); font-weight: 600;
+    font-size: var(--step-3); line-height: 1.04; letter-spacing: -.02em;
+    text-wrap: balance; margin: 0 0 .55rem; max-width: 20ch;
+  }
+  .standfirst {
+    font-size: var(--step-1); line-height: 1.5; color: var(--ink-2);
+    max-width: 54ch; margin: 0; text-wrap: pretty;
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: .45rem;
+    font-family: var(--mono); font-size: var(--step--1); font-weight: 600;
+    text-transform: uppercase; letter-spacing: .1em;
+    padding: .3rem .7rem; border-radius: 999px; white-space: nowrap;
+  }
+  .pill-ship { background: var(--good); color: #fff; }
+  .pill-draft { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--rule-2); }
+  .pill::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: currentColor; }
+
+  /* ─── verdict tiles ───────────────────────────────────────────────────────────────────── */
+  .tiles { display: grid; gap: 1px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+           background: var(--rule); border: 1px solid var(--rule); border-radius: 10px;
+           overflow: hidden; margin: 2.4rem 0 0; box-shadow: var(--shadow); }
+  .tile { background: var(--surface); padding: 1.3rem 1.4rem 1.45rem; display: flex; flex-direction: column; gap: .35rem; }
+  .tile-label { font-family: var(--mono); font-size: var(--step--1); text-transform: uppercase;
+                letter-spacing: .11em; color: var(--ink-3); }
+  .tile-value { font-family: var(--mono); font-size: clamp(2rem, 1.5rem + 2vw, 2.9rem);
+                font-weight: 600; line-height: 1; letter-spacing: -.02em;
+                font-variant-numeric: tabular-nums; color: var(--ink); }
+  .tile-meta  { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-2);
+                font-variant-numeric: tabular-nums; }
+  .met  { color: var(--good); font-weight: 600; }
+  .tile-bar { height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; margin-top: .3rem; }
+  .tile-bar > i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+
+  /* ─── sections ────────────────────────────────────────────────────────────────────────── */
+  section { padding: clamp(2.6rem, 6vw, 4rem) 0; border-bottom: 1px solid var(--rule); }
+  section:last-of-type { border-bottom: 0; }
+  .sec-head { display: flex; gap: 1rem; align-items: baseline; margin-bottom: 1.4rem; }
+  .sec-num { font-family: var(--mono); font-size: var(--step--1); color: var(--accent);
+             font-weight: 600; letter-spacing: .06em; padding-top: .35em; }
+  h2 { font-family: var(--serif); font-weight: 600; font-size: var(--step-2); line-height: 1.15;
+       letter-spacing: -.015em; margin: 0; text-wrap: balance; }
+  h3 { font-family: var(--mono); font-size: var(--step--1); text-transform: uppercase;
+       letter-spacing: .12em; color: var(--ink-3); font-weight: 600; margin: 0 0 .8rem; }
+  p { margin: 0; text-wrap: pretty; }
+  strong { font-weight: 600; }
+  em.q { font-style: normal; font-family: var(--mono); font-size: .92em;
+         background: var(--surface-2); padding: .08em .35em; border-radius: 3px; }
+
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--surface);
+    padding: 1rem 1.2rem; border-radius: 0 8px 8px 0; margin-top: 1.4rem;
+  }
+  .callout.warn { border-left-color: var(--counter); }
+  .callout p + p { margin-top: .7em; }
+
+  /* ─── data panels break the column ────────────────────────────────────────────────────── */
+  .panel {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: 12px;
+    padding: 1.4rem clamp(1rem, 2.5vw, 1.6rem) 1.5rem; margin: 1.8rem 0;
+    box-shadow: var(--shadow);
+  }
+  .panel-head { display: flex; flex-wrap: wrap; justify-content: space-between;
+                gap: .4rem 1rem; align-items: baseline; margin-bottom: 1.1rem; }
+  .panel-title { font-family: var(--serif); font-weight: 600; font-size: var(--step-1);
+                 margin: 0; letter-spacing: -.01em; }
+  .panel-note { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-3); }
+  figcaption { font-family: var(--mono); font-size: var(--step--1); color: var(--ink-2);
+               line-height: 1.5; margin-top: 1rem; text-wrap: pretty; }
+  figure { margin: 0; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; margin-bottom: .9rem;
+            font-family: var(--mono); font-size: var(--step--1); color: var(--ink-2); }
+  .legend span { display: inline-flex; align-items: center; gap: .45rem; }
+  .swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+  .swatch.line { height: 0; border-top: 2px dashed var(--ink-3); border-radius: 0; width: 16px; }
+
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .ax   { font-family: var(--mono); font-size: 11px; fill: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .axl  { font-family: var(--mono); font-size: 11.5px; fill: var(--ink-2); }
+  .val  { font-family: var(--mono); font-size: 12px; font-weight: 600; fill: var(--ink);
+          font-variant-numeric: tabular-nums; }
+  .grid { stroke: var(--rule); stroke-width: 1; }
+  .base { stroke: var(--rule-2); stroke-width: 1; }
+  .refline { stroke: var(--ink-3); stroke-width: 1.5; stroke-dasharray: 4 4; }
+  .mark { cursor: default; }
+  .mark:hover .hit, .mark:focus-visible .hit { opacity: 1; }
+
+  /* ─── tables ──────────────────────────────────────────────────────────────────────────── */
+  .tablewrap { overflow-x: auto; margin: 1.4rem 0; border: 1px solid var(--rule);
+               border-radius: 10px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-family: var(--mono);
+          font-size: var(--step--1); font-variant-numeric: tabular-nums; }
+  caption { text-align: left; padding: .9rem 1rem .2rem; font-family: var(--serif);
+            font-size: var(--step-0); font-weight: 600; color: var(--ink); }
+  th, td { padding: .5rem .85rem; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { color: var(--ink-3); font-weight: 600; text-transform: uppercase;
+             letter-spacing: .07em; font-size: .82em; border-bottom-color: var(--rule-2); }
+  tbody tr:last-child td { border-bottom: 0; }
+  tr.sealed td { background: var(--accent-dim); font-weight: 600; }
+  td.neg { color: var(--counter); font-weight: 600; }
+
+  ol.licence { margin: 1rem 0 0; padding-left: 1.3rem; }
+  ol.licence li { margin-top: .55em; }
+  ol.licence li::marker { font-family: var(--mono); color: var(--counter); font-weight: 600; }
+
+  footer { padding: 2.5rem 0 4rem; color: var(--ink-2); }
+  footer .col { font-size: var(--step--1); }
+
+  /* ─── tooltip ─────────────────────────────────────────────────────────────────────────── */
+  #tip {
+    position: fixed; z-index: 50; pointer-events: none; opacity: 0;
+    transform: translate(-50%, -115%); transition: opacity .12s ease;
+    background: var(--ink); color: var(--paper); font-family: var(--mono);
+    font-size: 12px; line-height: 1.45; padding: .45rem .6rem; border-radius: 6px;
+    white-space: pre; box-shadow: 0 4px 14px rgba(0,0,0,.25); font-variant-numeric: tabular-nums;
+  }
+  #tip[data-show="1"] { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div id="tip" role="status" aria-live="polite"></div>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="kicker">
+      <span class="pill pill-ship">Ship</span>
+      <span class="pill pill-draft">Draft · T-010</span>
+      <span class="eyebrow">Phase 1 · sealed-fold result · 2026-08-12</span>
+    </div>
+    <h1>Four pre-game features, one sealed season.</h1>
+    <p class="standfirst">
+      The bar was ≥62% accuracy on a season the model had never seen — <em>and</em> log loss beating a
+      constant base-rate predictor. Both halves are met. The qualification is that one feature did
+      nearly all of the work.
+    </p>
+
+    <div class="tiles">
+      <div class="tile">
+        <span class="tile-label">Accuracy · sealed 2026</span>
+        <span class="tile-value">.6762</span>
+        <span class="tile-meta">bar ≥ .62 · <span class="met">met</span></span>
+        <span class="tile-bar"><i style="width:76%"></i></span>
+      </div>
+      <div class="tile">
+        <span class="tile-label">Log loss</span>
+        <span class="tile-value">.6020</span>
+        <span class="tile-meta">vs constant .6870 · <span class="met">met</span></span>
+        <span class="tile-bar"><i style="width:62%"></i></span>
+      </div>
+      <div class="tile">
+        <span class="tile-label">AUC</span>
+        <span class="tile-value">.7323</span>
+        <span class="tile-meta">no bar set</span>
+        <span class="tile-bar"><i style="width:47%"></i></span>
+      </div>
+      <div class="tile">
+        <span class="tile-label">Uplift over always-home</span>
+        <span class="tile-value">+12.1</span>
+        <span class="tile-meta">points · always-home .5552</span>
+        <span class="tile-bar"><i style="width:34%"></i></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- §1 ───────────────────────────────────────────────────────────────────────────────── -->
+  <section>
+    <div class="col">
+      <div class="sec-head"><span class="sec-num">§1</span><h2>The verdict</h2></div>
+      <p>
+        Phase 1 existed to answer one question before any product was built on top of it: <strong>can
+        four pre-game features predict NBA winners well enough to be worth shipping?</strong>
+      </p>
+      <p>
+        The bar was set deliberately hard and deliberately <em>paired</em>. Either half alone is
+        gameable — a model can reach 65% accuracy while its probabilities are meaningless, and
+        calibration is the product's whole promise, because a 55% call and an 80% call have to mean
+        different things.
+      </p>
+      <div class="callout">
+        <p><strong>Both halves met on the sealed 2026 season</strong>, which was untouched during
+        development. The recommendation is to ship the analytical core.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- §2 ───────────────────────────────────────────────────────────────────────────────── -->
+  <section>
+    <div class="col">
+      <div class="sec-head"><span class="sec-num">§2</span><h2>All three folds, not one season</h2></div>
+      <p>
+        A single season carries roughly ±2.6 accuracy points of noise at 95% confidence, so a 62% gate
+        decided on one season is substantially decided by chance. The protocol is three
+        expanding-window folds, each training only on seasons preceding its test season.
+      </p>
+    </div>
+
+    <figure class="panel">
+      <div class="panel-head">
+        <p class="panel-title">Every fold clears the bar</p>
+        <span class="panel-note">accuracy · 3,962 evaluation games</span>
+      </div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--accent)"></i> fold accuracy</span>
+        <span><i class="swatch line"></i> reference lines</span>
+      </div>
+      <svg viewBox="0 0 640 210" role="img" aria-label="Fold accuracy: 2024 .6444, 2025 .6503, sealed 2026 .6762 — all above the .62 bar and the .5552 always-home baseline.">
+        <line class="refline" x1="192.8" y1="26" x2="192.8" y2="164"></line>
+        <text class="ax" x="192.8" y="182" text-anchor="middle">.5552</text>
+        <text class="ax" x="192.8" y="196" text-anchor="middle">always-home</text>
+        <line class="refline" x1="375" y1="26" x2="375" y2="164" style="stroke:var(--counter)"></line>
+        <text class="ax" x="375" y="182" text-anchor="middle" style="fill:var(--counter)">.62</text>
+        <text class="ax" x="375" y="196" text-anchor="middle" style="fill:var(--counter)">the bar</text>
+
+        <g class="mark" tabindex="0" data-tip="fold 1 · train 2022–23 → test 2024&#10;accuracy .6444 · log loss .6242 · AUC .7083">
+          <rect class="hit" x="150" y="34" width="460" height="32" fill="var(--surface-2)" opacity="0" rx="4"></rect>
+          <text class="axl" x="140" y="54" text-anchor="end">22–23 → 2024</text>
+          <line x1="192.8" y1="50" x2="443.6" y2="50" stroke="var(--accent)" stroke-width="2"></line>
+          <circle cx="443.6" cy="50" r="6" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"></circle>
+          <text class="val" x="459" y="54">.6444</text>
+        </g>
+        <g class="mark" tabindex="0" data-tip="fold 2 · train 2022–24 → test 2025&#10;accuracy .6503 · log loss .6129 · AUC .7138">
+          <rect class="hit" x="150" y="79" width="460" height="32" fill="var(--surface-2)" opacity="0" rx="4"></rect>
+          <text class="axl" x="140" y="99" text-anchor="end">22–24 → 2025</text>
+          <line x1="192.8" y1="95" x2="460.2" y2="95" stroke="var(--accent)" stroke-width="2"></line>
+          <circle cx="460.2" cy="95" r="6" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"></circle>
+          <text class="val" x="476" y="99">.6503</text>
+        </g>
+        <g class="mark" tabindex="0" data-tip="fold 3 · train 2022–25 → test 2026 (SEALED)&#10;accuracy .6762 · log loss .6020 · AUC .7323">
+          <rect class="hit" x="150" y="124" width="460" height="32" fill="var(--surface-2)" opacity="0" rx="4"></rect>
+          <text class="axl" x="140" y="144" text-anchor="end" style="fill:var(--ink);font-weight:600">22–25 → 2026</text>
+          <line x1="192.8" y1="140" x2="533.1" y2="140" stroke="var(--accent)" stroke-width="3"></line>
+          <circle cx="533.1" cy="140" r="7.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"></circle>
+          <text class="val" x="550" y="144">.6762</text>
+        </g>
+        <text class="ax" x="140" y="158" text-anchor="end" style="fill:var(--accent)">sealed</text>
+      </svg>
+      <figcaption>
+        Spread .0318, standard deviation .0169. Each stem runs from the always-home baseline to the
+        fold's accuracy, so its length is the uplift. The trend is monotonic as the training window
+        grows — the expected direction, but three points are three points, and the increments
+        (+.006, +.026) sit inside the noise a single season carries.
+      </figcaption>
+    </figure>
+
+    <div class="col">
+      <div class="tablewrap">
+        <table>
+          <caption>Per-fold metrics</caption>
+          <thead>
+            <tr><th scope="col">Fold</th><th scope="col">Train</th><th scope="col">Test</th>
+                <th scope="col">Accuracy</th><th scope="col">Log loss</th><th scope="col">AUC</th>
+                <th scope="col">vs constant</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>22–23 → 2024</td><td>2,643</td><td>1,319</td><td>.6444</td><td>.6242</td><td>.7083</td><td>+.0646</td></tr>
+            <tr><td>22–24 → 2025</td><td>3,962</td><td>1,321</td><td>.6503</td><td>.6129</td><td>.7138</td><td>+.0764</td></tr>
+            <tr class="sealed"><td>22–25 → 2026 · sealed</td><td>5,283</td><td>1,322</td><td>.6762</td><td>.6020</td><td>.7323</td><td>+.0850</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- §3 ───────────────────────────────────────────────────────────────────────────────── -->
+  <section>
+    <div class="col">
+      <div class="sec-head"><span class="sec-num">§3</span><h2>Which features carried signal — and the uncomfortable answer</h2></div>
+      <p>
+        Every coefficient sign is the direction basketball says it should be: the better,
+        better-rested, better-formed team is more likely to win. Nothing is backwards, which is the
+        first thing a coefficient table should be checked for.
+      </p>
+      <p><strong>But the coefficients understate how lopsided this is.</strong> Removing each feature
+        and refitting on the sealed fold shows where the signal actually lives.</p>
+    </div>
+
+    <figure class="panel">
+      <div class="panel-head">
+        <p class="panel-title">Remove one feature, refit, re-measure</p>
+        <span class="panel-note">change in sealed-fold accuracy</span>
+      </div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--accent)"></i> removing it <strong>costs</strong> accuracy — load-bearing</span>
+        <span><i class="swatch" style="background:var(--counter)"></i> removing it <strong>improves</strong> the model — inert</span>
+      </div>
+      <svg viewBox="0 0 640 230" role="img" aria-label="Ablation: removing point_diff_diff costs .0371 accuracy; removing rest_diff, home_advantage or form_diff each improves the model slightly.">
+        <line class="base" x1="524" y1="20" x2="524" y2="196"></line>
+        <text class="ax" x="524" y="212" text-anchor="middle">0</text>
+        <text class="ax" x="300" y="212" text-anchor="middle">← accuracy lost</text>
+        <text class="ax" x="590" y="212" text-anchor="middle">gained →</text>
+
+        <g class="mark" tabindex="0" data-tip="point_diff_diff removed&#10;accuracy .6392 (−.0371) · AUC .6822&#10;the feature the model runs on">
+          <rect class="hit" x="180" y="26" width="430" height="34" fill="var(--surface-2)" opacity="0" rx="4"></rect>
+          <text class="axl" x="172" y="47" text-anchor="end" style="fill:var(--ink);font-weight:600">point_diff_diff</text>
+          <rect x="204.9" y="32" width="319.1" height="22" rx="4" fill="var(--accent)"></rect>
+          <text class="val" x="196" y="47" text-anchor="end" style="fill:var(--accent)">−.0371</text>
+        </g>
+        <g class="mark" tabindex="0" data-tip="rest_diff removed&#10;accuracy .6838 (+.0076) · AUC .7356">
+          <rect class="hit" x="180" y="71" width="430" height="34" fill="var(--surface-2)" opacity="0" rx="4"></rect>
+          <text class="axl" x="172" y="92" text-anchor="end">rest_diff</text>
+          <rect x="526" y="77" width="63.4" height="22" rx="4" fill="var(--counter)"></rect>
+          <text class="val" x="597" y="92" style="fill:var(--counter)">+.0076</text>
+        </g>
+        <g class="mark" tabindex="0" data-tip="home_advantage removed&#10;accuracy .6785 (+.0023) · AUC .7335&#10;not identifiable — see the callout below">
+          <rect class="hit" x="180" y="116" width="430" height="34" fill="var(--surface-2)" opacity="0" rx="4"></rect>
+          <text class="axl" x="172" y="137" text-anchor="end">home_advantage</text>
+          <rect x="526" y="122" width="17.8" height="22" rx="4" fill="var(--counter)"></rect>
+          <text class="val" x="551" y="137" style="fill:var(--counter)">+.0023</text>
+        </g>
+        <g class="mark" tabindex="0" data-tip="form_diff removed&#10;accuracy .6778 (+.0015) · AUC .7320">
+          <rect class="hit" x="180" y="161" width="430" height="34" fill="var(--surface-2)" opacity="0" rx="4"></rect>
+          <text class="axl" x="172" y="182" text-anchor="end">form_diff</text>
+          <rect x="526" y="167" width="10.9" height="22" rx="4" fill="var(--counter)"></rect>
+          <text class="val" x="544" y="182" style="fill:var(--counter)">+.0015</text>
+        </g>
+      </svg>
+      <figcaption>
+        Season-to-date point differential carries essentially all of the signal. Removing any of the
+        other three leaves the model <em>slightly better</em>. The honest description is "point
+        differential, lightly adjusted" — not "a four-feature model".
+      </figcaption>
+    </figure>
+
+    <div class="col">
+      <div class="tablewrap">
+        <table>
+          <caption>Coefficients on standardized features, so magnitudes compare directly</caption>
+          <thead>
+            <tr><th scope="col">Feature</th><th scope="col">Fold 1</th><th scope="col">Fold 2</th>
+                <th scope="col">Fold 3 · sealed</th><th scope="col">Direction</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>point_diff_diff</td><td>+0.5543</td><td>+0.6430</td><td>+0.6854</td><td>as expected</td></tr>
+            <tr><td>rest_diff</td><td>+0.1604</td><td>+0.1548</td><td>+0.1569</td><td>as expected</td></tr>
+            <tr><td>form_diff</td><td>+0.0455</td><td>+0.0478</td><td>+0.0598</td><td>as expected</td></tr>
+            <tr><td>home_advantage</td><td>+0.1117</td><td>+0.0030</td><td>+0.0365</td><td class="neg">unstable</td></tr>
+            <tr><td>intercept</td><td>+0.2794</td><td>+0.2615</td><td>+0.2492</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout warn">
+        <p><strong><em class="q">home_advantage</em> was predicted to be uninformative before the
+        model was ever fitted.</strong> Once All-Star exhibition games are excluded, the 2022 season
+        contains <em>zero</em> neutral-site games — leaving fold 1 with 1 neutral game in 2,643 rows.
+        A column that is 1.0 in 2,642 of them is near-perfectly collinear with the intercept, so its
+        coefficient is not identifiable.</p>
+        <p>The measured values (+0.112, +0.003, +0.037) are exactly that instability.
+        <strong>Do not quote a home-court coefficient from this model.</strong> Home-court advantage
+        is real and lives in the intercept; this feature only distinguishes the ~16 neutral-site
+        games in the entire corpus.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- §4 ───────────────────────────────────────────────────────────────────────────────── -->
+  <section>
+    <div class="col">
+      <div class="sec-head"><span class="sec-num">§4</span><h2>Are the probabilities calibrated?</h2></div>
+      <p>
+        This is half the criterion, not a nicety. If a 70% call isn't right about 70% of the time,
+        the number on screen is decoration.
+      </p>
+    </div>
+
+    <figure class="panel">
+      <div class="panel-head">
+        <p class="panel-title">Predicted versus observed</p>
+        <span class="panel-note">sealed fold · dot area ∝ games in bin</span>
+      </div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--accent)"></i> decile bin</span>
+        <span><i class="swatch line"></i> perfect calibration</span>
+      </div>
+      <svg viewBox="0 0 560 470" role="img" aria-label="Calibration curve: bins track the diagonal closely across the populated middle of the range.">
+        <g class="grid">
+          <line x1="70" y1="400" x2="490" y2="400"></line>
+          <line x1="70" y1="310" x2="490" y2="310"></line>
+          <line x1="70" y1="220" x2="490" y2="220"></line>
+          <line x1="70" y1="130" x2="490" y2="130"></line>
+          <line x1="70" y1="40"  x2="490" y2="40"></line>
+        </g>
+        <line class="base" x1="70" y1="400" x2="70" y2="40"></line>
+        <text class="ax" x="60" y="404" text-anchor="end">0</text>
+        <text class="ax" x="60" y="314" text-anchor="end">.25</text>
+        <text class="ax" x="60" y="224" text-anchor="end">.50</text>
+        <text class="ax" x="60" y="134" text-anchor="end">.75</text>
+        <text class="ax" x="60" y="44"  text-anchor="end">1.0</text>
+        <text class="ax" x="70"  y="424" text-anchor="middle">0</text>
+        <text class="ax" x="280" y="424" text-anchor="middle">.50</text>
+        <text class="ax" x="490" y="424" text-anchor="middle">1.0</text>
+        <text class="axl" x="280" y="448" text-anchor="middle">model's predicted probability</text>
+        <text class="axl" x="18" y="220" text-anchor="middle" transform="rotate(-90 18 220)">observed home-win rate</text>
+
+        <line class="refline" x1="70" y1="400" x2="490" y2="40"></line>
+        <text class="ax" x="452" y="72" text-anchor="end" style="fill:var(--ink-3)">perfect</text>
+
+        <polyline points="104.4,400 140.6,338.4 177.5,327.3 219.1,288.4 259.4,231.2 300.6,193 341.7,170.3 383.7,114.9 424.1,101.2 455.6,91.5"
+                  fill="none" stroke="var(--accent)" stroke-width="2" stroke-opacity=".35"></polyline>
+
+        <g class="mark" tabindex="0" data-tip="[0.0, 0.1)  n=2&#10;predicted .082 · observed .000"><circle cx="104.4" cy="400" r="14" fill="var(--accent)" opacity="0"></circle><circle cx="104.4" cy="400" r="3.8" stroke-width="2"></circle></g>
+        <g class="mark" tabindex="0" data-tip="[0.1, 0.2)  n=35&#10;predicted .168 · observed .171"><circle cx="140.6" cy="338.4" r="14" fill="var(--accent)" opacity="0"></circle><circle cx="140.6" cy="338.4" r="6.3" stroke-width="2"></circle></g>
+        <g class="mark" tabindex="0" data-tip="[0.2, 0.3)  n=114&#10;predicted .256 · observed .202"><circle cx="177.5" cy="327.3" r="17" fill="var(--accent)" opacity="0"></circle><circle cx="177.5" cy="327.3" r="8.9" stroke-width="2"></circle></g>
+        <g class="mark" tabindex="0" data-tip="[0.3, 0.4)  n=142&#10;predicted .355 · observed .310"><circle cx="219.1" cy="288.4" r="18" fill="var(--accent)" opacity="0"></circle><circle cx="219.1" cy="288.4" r="9.6" stroke-width="2"></circle></g>
+        <g class="mark" tabindex="0" data-tip="[0.4, 0.5)  n=211&#10;predicted .451 · observed .469"><circle cx="259.4" cy="231.2" r="19" fill="var(--accent)" opacity="0"></circle><circle cx="259.4" cy="231.2" r="11.1" stroke-width="2"></circle></g>
+        <g class="mark" tabindex="0" data-tip="[0.5, 0.6)  n=261&#10;predicted .549 · observed .575"><circle cx="300.6" cy="193" r="20" fill="var(--accent)" opacity="0"></circle><circle cx="300.6" cy="193" r="12" stroke-width="2"></circle></g>
+        <g class="mark" tabindex="0" data-tip="[0.6, 0.7)  n=224&#10;predicted .647 · observed .638"><circle cx="341.7" cy="170.3" r="19" fill="var(--accent)" opacity="0"></circle><circle cx="341.7" cy="170.3" r="11.3" stroke-width="2"></circle></g>
+        <g class="mark" tabindex="0" data-tip="[0.7, 0.8)  n=207&#10;predicted .747 · observed .792"><circle cx="383.7" cy="114.9" r="19" fill="var(--accent)" opacity="0"></circle><circle cx="383.7" cy="114.9" r="11" stroke-width="2"></circle></g>
+        <g class="mark" tabindex="0" data-tip="[0.8, 0.9)  n=112&#10;predicted .843 · observed .830"><circle cx="424.1" cy="101.2" r="17" fill="var(--accent)" opacity="0"></circle><circle cx="424.1" cy="101.2" r="8.9" stroke-width="2"></circle></g>
+        <g class="mark" tabindex="0" data-tip="[0.9, 1.0)  n=14&#10;predicted .918 · observed .857"><circle cx="455.6" cy="91.5" r="14" fill="var(--accent)" opacity="0"></circle><circle cx="455.6" cy="91.5" r="5.1" stroke-width="2"></circle></g>
+      </svg>
+      <figcaption>
+        Across the populated middle the model sits within about five points of truth, with a legible
+        bias: slightly over-confident on away-favoured games (the .2–.4 bins observe fewer home wins
+        than predicted) and slightly under-confident on home-favoured ones. The two extreme bins hold
+        16 games between them — their errors look large and mean very little.
+      </figcaption>
+    </figure>
+
+    <figure class="panel">
+      <div class="panel-head">
+        <p class="panel-title">Confidence means what it says</p>
+        <span class="panel-note">accuracy within each confidence band</span>
+      </div>
+      <svg viewBox="0 0 640 290" role="img" aria-label="Accuracy rises monotonically with the model's confidence: .5212 for coin-flip calls up to .8311 for strong calls.">
+        <g class="grid">
+          <line x1="70" y1="30" x2="620" y2="30"></line>
+          <line x1="70" y1="75" x2="620" y2="75"></line>
+          <line x1="70" y1="120" x2="620" y2="120"></line>
+          <line x1="70" y1="165" x2="620" y2="165"></line>
+        </g>
+        <text class="ax" x="60" y="34" text-anchor="end">1.0</text>
+        <text class="ax" x="60" y="79" text-anchor="end">.75</text>
+        <text class="ax" x="60" y="124" text-anchor="end">.50</text>
+        <text class="ax" x="60" y="169" text-anchor="end">.25</text>
+        <line class="base" x1="70" y1="210" x2="620" y2="210"></line>
+        <line class="refline" x1="70" y1="110.1" x2="620" y2="110.1"></line>
+        <text class="ax" x="620" y="105" text-anchor="end">always-home .5552</text>
+
+        <g class="mark" tabindex="0" data-tip="coin-flip  |p−.5| &lt; .05&#10;17.9% of games · accuracy .5212">
+          <rect class="hit" x="118" y="26" width="114" height="188" fill="var(--surface-2)" opacity="0" rx="4"></rect>
+          <rect x="130" y="116.2" width="90" height="93.8" rx="4" fill="var(--accent)"></rect>
+          <text class="val" x="175" y="108" text-anchor="middle">.5212</text>
+          <text class="axl" x="175" y="230" text-anchor="middle">coin-flip</text>
+          <text class="ax"  x="175" y="246" text-anchor="middle">17.9% of games</text>
+        </g>
+        <g class="mark" tabindex="0" data-tip="lean  |p−.5| .05–.15&#10;32.8% of games · accuracy .6166">
+          <rect class="hit" x="243" y="26" width="114" height="188" fill="var(--surface-2)" opacity="0" rx="4"></rect>
+          <rect x="255" y="99" width="90" height="111" rx="4" fill="var(--accent)"></rect>
+          <text class="val" x="300" y="91" text-anchor="middle">.6166</text>
+          <text class="axl" x="300" y="230" text-anchor="middle">lean</text>
+          <text class="ax"  x="300" y="246" text-anchor="middle">32.8% of games</text>
+        </g>
+        <g class="mark" tabindex="0" data-tip="confident  |p−.5| .15–.25&#10;26.6% of games · accuracy .7208">
+          <rect class="hit" x="368" y="26" width="114" height="188" fill="var(--surface-2)" opacity="0" rx="4"></rect>
+          <rect x="380" y="80.3" width="90" height="129.7" rx="4" fill="var(--accent)"></rect>
+          <text class="val" x="425" y="72" text-anchor="middle">.7208</text>
+          <text class="axl" x="425" y="230" text-anchor="middle">confident</text>
+          <text class="ax"  x="425" y="246" text-anchor="middle">26.6% of games</text>
+        </g>
+        <g class="mark" tabindex="0" data-tip="strong  |p−.5| &gt; .25&#10;22.8% of games · accuracy .8311">
+          <rect class="hit" x="493" y="26" width="114" height="188" fill="var(--surface-2)" opacity="0" rx="4"></rect>
+          <rect x="505" y="60.4" width="90" height="149.6" rx="4" fill="var(--accent)"></rect>
+          <text class="val" x="550" y="52" text-anchor="middle">.8311</text>
+          <text class="axl" x="550" y="230" text-anchor="middle">strong</text>
+          <text class="ax"  x="550" y="246" text-anchor="middle">22.8% of games</text>
+        </g>
+        <text class="axl" x="345" y="274" text-anchor="middle">the model's own confidence, |p − .5|</text>
+      </svg>
+      <figcaption>
+        A monotonic staircase. When the model says a game is close it is right about half the time;
+        when it commits, it is right five times in six. That difference is exactly what the paired
+        criterion was written to protect, and it survives.
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- §5 ───────────────────────────────────────────────────────────────────────────────── -->
+  <section>
+    <div class="col">
+      <div class="sec-head"><span class="sec-num">§5</span><h2>Where the model failed</h2></div>
+      <p>
+        <strong>It rarely commits.</strong> Predictions span .0808 to .9493, and only <strong>12.3%</strong>
+        of games get a call at 80% confidence or better. Nearly a fifth are effectively coin flips.
+        For a product that promises "who will win", roughly half the schedule will read as
+        <em>lean home</em> or <em>lean away</em> rather than a pick. That is an honest limitation of
+        four team-level averages, not a defect.
+      </p>
+      <p><strong>It is weakest early in the season</strong>, exactly where cold start bites.</p>
+
+      <div class="tablewrap">
+        <table>
+          <caption>Accuracy across the sealed season</caption>
+          <thead><tr><th scope="col">Period</th><th scope="col">Games</th><th scope="col">Accuracy</th></tr></thead>
+          <tbody>
+            <tr><td>first 15%</td><td>198</td><td>.6515</td></tr>
+            <tr><td>middle 70%</td><td>925</td><td>.6681</td></tr>
+            <tr><td>last 15%</td><td>199</td><td>.7387</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        An 8.7-point gap between the opening weeks and the closing ones. This vindicates the decision
+        to shrink toward the league mean and <em>keep predicting</em> rather than drop early games:
+        opening-month accuracy is .6515 — below the model's own average, but comfortably over the bar
+        and <strong>8.1 points better than always picking home over those same games</strong> (home
+        teams won .5707 of them, which is the honest comparison; against the season's overall .5552
+        the gap would read 9.6, and that would be the wrong baseline). Dropping those games would
+        have cost roughly 16% of every season, including all of opening month.
+      </p>
+      <div class="callout warn">
+        <p><strong>What it cannot see at all.</strong> No injuries, no roster information, no travel
+        or altitude, no lineup data, no market prices. A star ruled out an hour before tip-off does
+        not move this model. Its errors concentrate where those factors dominate — which is also why
+        17.9% of games look like coin flips: for many games, four team-level averages genuinely do
+        not separate the teams.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- §6 ───────────────────────────────────────────────────────────────────────────────── -->
+  <section>
+    <div class="col">
+      <div class="sec-head"><span class="sec-num">§6</span><h2>Why these numbers can be believed</h2></div>
+      <p>The failure modes for a project like this are silent, so each was designed against and then tested.</p>
+    </div>
+
+    <div class="panel">
+      <div class="tablewrap" style="border:0;border-radius:0;margin:0;background:transparent">
+        <table>
+          <thead><tr><th scope="col">Risk</th><th scope="col" style="text-align:left">How it was closed, and the evidence</th></tr></thead>
+          <tbody>
+            <tr><td style="vertical-align:top">Leakage</td>
+                <td style="text-align:left;white-space:normal">Features computed strictly from games completed before tip-off, enforced inside the module rather than by callers. Proved three ways — a property test that adding games dated at or after the as-of moment changes nothing (with a control proving the test isn't vacuous), re-derivation on 133 real games, and the blunt check: <strong>refitting on shuffled training labels collapses the model to .5552 accuracy — exactly the test-season base rate — with AUC .5494.</strong></td></tr>
+            <tr><td style="vertical-align:top">Training on the future</td>
+                <td style="text-align:left;white-space:normal">Folds validated at construction, and the split asserts the <em>dates</em>, not the season labels: the latest training game must fall strictly before the earliest test game. Labels are a claim; dates are the fact.</td></tr>
+            <tr><td style="vertical-align:top">A corpus that isn't what it claims</td>
+                <td style="text-align:left;white-space:normal">6,615 completed games verified against per-season pinned counts and SHA-256 content hashes; <strong>6,605</strong> after removing ten All-Star exhibition games the source mixes in. The exclusion is verified, not trusted — every season must retain exactly 30 franchises.</td></tr>
+            <tr><td style="vertical-align:top">A remembered baseline</td>
+                <td style="text-align:left;white-space:normal">The widely quoted 58% home-court figure is an artifact of a pre-2020 era; 2021-onward runs ~55.2% against 59.3% before. This compares against <strong>.55534</strong>, the home-win rate of the corpus it actually evaluates on.</td></tr>
+            <tr><td style="vertical-align:top">Arithmetic</td>
+                <td style="text-align:left;white-space:normal">Logistic regression is implemented in the standard library so the artifact can be JSON rather than a pickle — Phase 2 loads it inside the API service, and JSON has no deserialization step that can execute code. Because the fit is ours, it is checked against scikit-learn 1.9.0: <strong>maximum coefficient difference 2.1×10⁻⁸</strong>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="col">
+      <p>
+        <strong>Every number here is reproducible.</strong> <em class="q">PYTHONPATH=backend python -m
+        model.run_evaluation</em> regenerates §1–§4 from committed code and the content-pinned data
+        release. Artifacts are versioned by content hash, so the same data and configuration always
+        produce the same model version, and an edited artifact is refused on load. Sealed-fold model:
+        <em class="q">972d33a83ad9</em>.
+      </p>
+    </div>
+  </section>
+
+  <!-- §7 ───────────────────────────────────────────────────────────────────────────────── -->
+  <section>
+    <div class="col">
+      <div class="sec-head"><span class="sec-num">§7</span><h2>What this does and does not license</h2></div>
+      <p>
+        <strong>It licenses</strong> building the product surface on this core. The paired criterion
+        is met, on a sealed season, with calibration good enough that displaying a probability is
+        defensible rather than decorative.
+      </p>
+      <p><strong>It does not license three things:</strong></p>
+      <ol class="licence">
+        <li><strong>Describing this as a four-feature model.</strong> It is a point-differential model
+          with three near-inert companions.</li>
+        <li><strong>Quoting a home-court coefficient.</strong> Not identifiable here.</li>
+        <li><strong>Assuming the numbers hold live.</strong> Every fold is a backtest. The genuine
+          out-of-sample test is the 2026-27 season, which is why the model retrains on all five
+          seasons before the opener on 2026-09-30 and treats that season as the real trial.</li>
+      </ol>
+
+      <div class="callout">
+        <p><strong>The open question for Phase 2, stated plainly.</strong> This result was produced by
+        one feature. Phase 2 as planned builds persistence, a scheduled job, an API surface and a
+        dashboard on top of it. The alternative is to spend the next cycle on <em>features</em> —
+        Elo, travel, injuries, a properly asymmetric rest treatment — and build the product surface
+        once there is something richer to serve.</p>
+        <p>The bar is cleared either way. Which order to take is a product decision, not an
+        analytical one, and this document does not make it.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="col">
+      <h3>Provenance</h3>
+      <p>
+        Every figure above was produced by committed code against the pinned data release
+        (sportsdataverse, release tag <em class="q">espn_nba_schedules</em>, content-pinned by
+        SHA-256). Fold sizes, per-fold metrics, coefficients and the calibration table come from the
+        evaluation run; the ablation, label-shuffle control, confidence stratification and
+        early/late-season split were computed with the same modules. Nothing here is estimated,
+        rounded from memory, or carried over from an earlier run.
+      </p>
+    </div>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var tip = document.getElementById("tip");
+    function show(e, text) {
+      tip.textContent = text;
+      tip.setAttribute("data-show", "1");
+      var x, y;
+      if (e.touches && e.touches[0]) { x = e.touches[0].clientX; y = e.touches[0].clientY; }
+      else if (typeof e.clientX === "number") { x = e.clientX; y = e.clientY; }
+      else { var r = e.currentTarget.getBoundingClientRect(); x = r.left + r.width / 2; y = r.top; }
+      tip.style.left = Math.max(70, Math.min(window.innerWidth - 70, x)) + "px";
+      tip.style.top = y + "px";
+    }
+    function hide() { tip.removeAttribute("data-show"); }
+    document.querySelectorAll("[data-tip]").forEach(function (el) {
+      var text = el.getAttribute("data-tip").replace(/&#10;/g, "\n");
+      el.addEventListener("mousemove", function (e) { show(e, text); });
+      el.addEventListener("mouseleave", hide);
+      el.addEventListener("focus", function (e) { show(e, text); });
+      el.addEventListener("blur", hide);
+    });
+    document.addEventListener("scroll", hide, { passive: true });
+  })();
+</script>
