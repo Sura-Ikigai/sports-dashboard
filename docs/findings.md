@@ -994,3 +994,37 @@ rather than by being forgotten (§5.4).
   (b) `assert_curated`'s new error ended with a plain string implicitly concatenated to an f-string,
   emitting literal braces. Ruff does not catch it — `RUF` is not in `select`. Status: **FIXED** (b);
   (a) corrected.
+
+### Canon reconciliation findings (filed 2026-08-14 by the main thread, PLAN-v2 T-011/T-012)
+
+- **F-105** (ops, LOW) — **The Sura Media reconciliation's development history is unpushed.**
+  `canon/self-learning-batch-v1` (9 commits: `f26316a`..`ebb1dee`) exists in the factory clone and
+  in the stale `Sports/Dev-System/` clone, and on `origin` there is only `main`. No content is at
+  risk — `ebb1dee`'s tree hash equals the squashed `bd58a22`'s — but the development history of the
+  batch that built the reconciliation loop lives on one disk. Remediation: push the branch from the
+  factory clone. Status: OPEN. reproduced: yes — `git ls-remote --heads origin` returns `main` only.
+
+- **F-106** (process/canon, MEDIUM) — **Canon `26b360f` instructs read-only reviewers to execute.**
+  `agents/logic-reviewer.md` and `agents/security-auditor.md` declare `tools: Read, Grep, Glob` and a
+  description reading "Does NOT edit code, tests, or the tracker", then instruct the agent to mutate
+  source, run `git worktree add` / `git archive <sha> | tar -x`, run test suites, and set a fresh
+  `PYTHONPYCACHEPREFIX` between mutations. None of it is executable without `Write`/`Edit`/`Bash`.
+  This is not a stale file: it was written **by the commit whose stated purpose was fixing the
+  reviewer contract**, and it encodes the engagement's most expensive lesson (F-072 — a reviewer
+  nearly filed three phantom HIGH findings off a tree a peer was patching) into an agent that cannot
+  act on it. It also means the declared roster is not what actually ran during round 3: something
+  patched `features.py` and ran suites, and it was not an agent under this file.
+  Remediation: PLAN-v2 T-014 (instruction/tool coherence assertion in `evaluateAgentIntegrity`,
+  which fails on canon HEAD today) and T-019 (reviewers spawn with harness worktree isolation, and
+  `tools:` updated to match). Status: OPEN. revisit-when: `reconcile-canon`. reproduced: yes —
+  frontmatter and body read directly from canon HEAD.
+
+- **F-107** (process/canon, MEDIUM) — **The factory runs none of its own hooks.**
+  `Client Projects/Dev-System/` has no `.claude/`, so `require-clean-commit.sh` — the Stop hook the
+  factory ships to every project *specifically* to stop a tracker write dying in the working tree —
+  does not run on the factory itself. PLAN-v2 was authored into `docs/plans/` and sat untracked with
+  nothing to notice. The factory is the one repo in the system that is not governed by the system.
+  Remediation: instantiate the Dev-System onto itself (`.claude/` + hooks + a tracker), which is
+  also the strongest available test of PLAN-v2 T-015's composer — a factory that cannot stamp itself
+  cannot claim to be project-agnostic. Status: OPEN. revisit-when: `reconcile-canon`.
+  reproduced: yes — `ls -d .claude` in the factory returns nothing.

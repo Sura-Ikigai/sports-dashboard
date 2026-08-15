@@ -6,6 +6,46 @@ APPEND-ONLY CHRONOLOGY (SYSTEM.md §3, index-vs-log split). The tracker
 Newest entry on top. Keep it lean — a few lines per session; git history carries the detail.
 -->
 
+## 2026-08-14 — Canon reconciliation: grill-me on the Dev-System, and two integrity fixes
+
+- Reviewed both Dev-Systems and this project's whole history against them. The finding that organises
+  everything else: **the deterministic layer compounds and the prose layer does not.** Six canon
+  defects found by using the system (F-018/019/025/035/036/043) were fixed in `checks/`, promoted, and
+  now self-enforce. Six process failures (F-072, F-100..F-104) were fixed with rules to remember — and
+  those are the ones still open. Tracker rule 5 is ordered **a, b, f, e, d, c**, appended mid-incident.
+- **The proof is `26b360f` itself** — the one reconcile cycle that ran. It promoted the reviewer fix as
+  prose into agent bodies, telling a `tools: Read, Grep, Glob` agent to run `git worktree add`,
+  `git archive`, `pytest`, and set `PYTHONPYCACHEPREFIX`. None of it executable. F-072's lesson was
+  promoted into a file that cannot act on it (F-106).
+- **Promotion happened; adoption didn't.** We pushed the reviewer contract to canon on 08-12, stamped
+  `last-reconciled: 26b360f`, and never pulled it back. For two days the agents the runtime loaded
+  still said "write your Review ledger row" while canon and rule 5b said the opposite. `reconcile-canon`
+  step 6 updates the pointer without syncing the files. **Fixed here (T-012).**
+- **The lockfile carried a promotion that never happened.** It claimed F-103's `evaluateAgentIntegrity`
+  went to canon "as part of `26b360f`". `git log -- checks/gate-completeness.mjs` in the factory returns
+  one commit, `bd58a22`; canon's copy is 49 lines without it, ours 59 with it. The check that would have
+  caught the paragraph above is the one that never got promoted. **Corrected here (T-011).**
+- Measured the context cost properly: always-read set (`CLAUDE.md` + tracker) **~11,611 tokens**; every
+  pointer followed, **~55,690**. The only successful scoped reviewer run on record was **53,837**. And
+  the split is already regressing — 366 → 487 lines in one phase — because history didn't stop
+  accumulating, it moved into the task `outcome:` blocks. Squeezed the balloon.
+- Ran **grill-me over ten forks** and wrote **PLAN-v2** into the factory (DRAFT, on a branch, not
+  merged). Every resolution converts a remembered practice into a mechanism: mechanism-only promotion;
+  `learning-notes.md` deleted with `findings.md` as the single intake behind a `canon-debt` threshold;
+  instantiation becomes a composer with a drift check; review currency moves from commit SHAs to
+  declared file sets + content hashes; an 8k token budget on the always-read set; reviewers execute
+  inside harness worktrees; namespaced per-reviewer report files; `reproduced: yes|no` ends a round.
+  Between them those delete Tracker rules 5a–5d and retire F-072, F-100, F-101, F-102, F-104.
+- Filed **F-105** (the Sura Media batch's 9-commit history is unpushed — two local clones, `origin` has
+  only `main`), **F-106**, **F-107** (the factory runs none of its own hooks; PLAN-v2 sat untracked with
+  nothing to notice — the one repo in the system not governed by the system).
+- Marked `Sports/Dev-System/` as **NOT THE FACTORY**. Verified it holds nothing the factory clone lacks
+  — both carry `canon/self-learning-batch-v1` at `ebb1dee`, tree-identical to the squashed `bd58a22` —
+  so deletion is safe; marking is the reversible choice.
+- Worth noting against PLAN-v2's own design: its `canon-debt` threshold of 3 would be **red at 6** today.
+- Ended at: T-011/T-012 `BUILT`, Phase 1 branch pushed to origin for the first time. Next is grilling
+  PLAN-v2 in the factory — Fork 5 hardest, since it rewrites the check that *is* the review gate.
+
 ## 2026-08-12 — T-006 round 3 closed out; T-007 built
 
 - Round 3 came back ⛔⛔ but found **no live defect** — slices A (8/8 closures) and C (17/17 mutations)

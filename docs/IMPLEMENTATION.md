@@ -1,7 +1,7 @@
 # Implementation Tracker — Sports Dashboard
 
 > Source of truth across sessions. Read this first every session.
-> Last updated: 2026-08-10 by Claude (T-006 build session)
+> Last updated: 2026-08-14 by Claude (canon reconciliation — PLAN-v2 T-011/T-012)
 
 ## Status legend
 
@@ -27,9 +27,18 @@ result is not leakage. But **D-031**: ablation shows `point_diff_diff` carries e
 dropping any other feature slightly *improves* the model. T-005…T-009 are all built; T-006/T-007/
 T-008/T-009 are `BUILT` and unreviewed.
 
+**Canon reconciliation is in flight.** A grill-me session on 2026-08-14 resolved ten forks and
+produced **PLAN-v2** in the factory (`Client Projects/Dev-System/docs/plans/PLAN-v2.md`, DRAFT) —
+the thesis being that this engagement's *deterministic* fixes compounded and its *prose* fixes did
+not. T-011/T-012 (above) are its only tasks that execute here; T-013..T-020 are factory work. Note
+that PLAN-v2's own `canon-debt` threshold (3 findings at `revisit-when: reconcile-canon`) would
+already be **red at 6** — F-015, F-100, F-101, F-102, F-106, F-107.
+
 **Next action:** **you review `docs/analysis/PHASE-1-RESULT.md`** — it is drafted but T-010 is
 human-owned, and §3 (the model ships on one feature) and §7 (what the result does *not* license) are
-the parts that most need your judgement rather than mine.
+the parts that most need your judgement rather than mine. Then grill PLAN-v2 in the factory; its
+Fork 5 (declared file sets replacing commit-SHA review currency) is breaking and rewrites the check
+that *is* the review gate.
 
 Then, in order: **(1)** one **batched** review of T-006/T-007/T-008/T-009 — four rounds on T-006
 produced only test-hygiene findings after round 2, so batch rather than repeat that; **(2)** merge
@@ -304,6 +313,51 @@ the status index has FIXED rows sitting in the open/accepted table.
         is §3 of the document, not a footnote. It also refuses three things the numbers do not
         license: calling this a four-feature model, quoting a home-court coefficient (D-024), and
         assuming a backtest holds live (D-017's 2026-27 season is the real trial).
+
+### Canon reconciliation (PLAN-v2 — factory-owned, executed here)
+
+<!-- These two carry PLAN-v2's ids, not this project's sequence, because they are scheduled by the
+     factory plan (Client Projects/Dev-System/docs/plans/PLAN-v2.md) and merely EXECUTED here — the
+     files they correct live in this repo. T-013..T-020 are factory work and do not appear here. -->
+
+- [ ] **T-011** Correct the false provenance in `.claude/CANON-VERSION` — `BUILT` — owner: `human`
+      - acceptance: the `fe27280` entry no longer claims promotion via `26b360f`; F-103 recorded as
+        STILL PROJECT-LOCAL; the stale `Sports/Dev-System/` clone deleted or marked
+        non-authoritative — **all met**
+      - security note: none — but this file is the baseline every later reconcile reads as ground
+        truth, so a claim in it must be verified against the factory, never asserted from intent.
+      - outcome: the false entry is removed and replaced with a dated correction naming the
+        evidence (`git log -- checks/gate-completeness.mjs` returns only `bd58a22`; canon's copy is
+        49 lines without `evaluateAgentIntegrity`, this project's 59 lines with it). F-103 moved to
+        STILL PROJECT-LOCAL with T-014 named as its promotion path. Stale clone marked via
+        `Sports/Dev-System/NOT-THE-FACTORY.md` rather than deleted — **verified safe to delete**
+        (it holds nothing the factory clone lacks; both carry `canon/self-learning-batch-v1` at
+        `ebb1dee`, tree-identical to the squashed `bd58a22`), but marking is the reversible choice.
+      - **found while verifying:** `canon/self-learning-batch-v1` — the Sura Media reconciliation's
+        9-commit development history — exists in two local clones and **not on `origin`**, which
+        carries only `main`. No content is at risk (`bd58a22` has the same tree) but the history is
+        unpushed. Filed as F-105.
+- [ ] **T-012** Sync the reviewer agents to canon `26b360f` — `BUILT` — owner: `human`
+      - acceptance: `.claude/agents/{security-auditor,logic-reviewer}.md` are byte-identical to
+        canon at `26b360f`, closing the gap between `last-reconciled:` and the actual tree — **met**
+      - security note: this changes what the review gate's two mandatory agents are instructed to
+        do. Verify the sync target is the commit the lockfile names, not merely "latest canon".
+      - outcome: both files replaced from `git show 26b360f:agents/<name>.md` and diff-verified
+        identical. This closes divergence #1: the project promoted the reviewer-contract fix to
+        canon on 2026-08-12, stamped `last-reconciled: 26b360f`, and never pulled it back — so for
+        two days the agents the runtime loaded still said "write your Review ledger row and append
+        every issue to Findings" while canon, and Tracker rule 5b, said the opposite.
+      - **the stale text was unsatisfiable, not merely wrong.** All three reviewers are scoped
+        `tools: Read, Grep, Glob`, so the old instruction to write and commit the tracker could
+        never execute. Correct behaviour was held in place only by the main thread overriding canon
+        in every spawn prompt — the undocumented divergence F-101 names.
+      - **known defect accepted, deliberately:** the `26b360f` files now synced here instruct a
+        `Read, Grep, Glob` agent to run `git worktree add`, `git archive`, `pytest` and set
+        `PYTHONPYCACHEPREFIX`. None of it is executable. Syncing propagates that knowingly, because
+        the alternative is a lockfile that lies about the tree. Filed as F-106; PLAN-v2 T-014 adds
+        the coherence check that catches it, T-019 gives reviewers the isolation the prose assumes.
+        Do **not** patch it locally — a third divergent copy is what T-012 exists to end.
+
 ## Decisions log
 
 **Moved to [`docs/decisions.md`](decisions.md)** (append-only). It was 236 lines and growing, and
@@ -332,7 +386,7 @@ every agent was told to read it to act on a task that needed two entries from it
      so — and until this table said so, "closed" was invisible to anyone who had not read the whole
      document. Adding a finding, or changing one's status, means updating this row too. -->
 
-**Open / accepted — the live set (10):**
+**Open / accepted — the live set (15):**
 
 <!-- F-072..F-099 reserved for the in-flight round-3 reviewers; see the note above F-100. -->
 
@@ -364,6 +418,9 @@ every agent was told to read it to act on a task that needed two entries from it
 | **F-100** | MEDIUM | process/canon | MITIGATED by Tracker rule 5a — no finding-number allocator in canon | `reconcile-canon` |
 | **F-102** | MEDIUM | process/canon | MITIGATED by Tracker rule 5c — canon has no notion of a remediation adding code | `reconcile-canon` |
 | **F-104** | LOW | process | OPEN — docs-only review-commit convention enforced by nothing | — |
+| **F-105** | LOW | ops | OPEN — `canon/self-learning-batch-v1` (9 commits) exists in two local clones, never pushed to `origin` | — |
+| **F-106** | MEDIUM | process/canon | OPEN — canon `26b360f` instructs `Read, Grep, Glob` reviewers to run `git worktree`/`pytest`; inert | `reconcile-canon` |
+| **F-107** | MEDIUM | process/canon | OPEN — the factory runs none of its own hooks (no `.claude/`), so work dies in its working tree | `reconcile-canon` |
 
 **Closed (66):** F-042 (FIXED — `corpus.py`, D-025) · F-103 (FIXED — agent-content integrity) · F-061 · F-062 · F-063 · F-064 · F-065 · F-066 · F-067 · F-068 · F-070 · F-071 (T-006 re-review round 2, all FIXED; F-070(b) ACCEPTED) · F-044 · F-045 · F-046 · F-047 · F-048 · F-049 · F-050 (T-006 security review, all FIXED in remediation) · F-051 · F-052 · F-053 · F-054 · F-055 · F-056 · F-058 · F-059 · F-060 (T-006 logic review, all FIXED; every surviving mutation re-run and now caught) · F-002 · F-003 · F-004 · F-005 (all CLOSED as moot or designed out by D-004/D-005) ·
 F-008 · F-009 · F-010 · F-011 · F-012 · F-013 (FIXED @ `d0e661d`, T-001 round 1) · F-014 · F-016 ·
