@@ -1,7 +1,7 @@
 # Implementation Tracker — Sports Dashboard
 
 > Source of truth across sessions. Read this first every session.
-> Last updated: 2026-08-14 by Claude (canon reconciliation — PLAN-v2 T-011/T-012)
+> Last updated: 2026-08-17 by Claude (PLAN phase — grill-me → PLAN-v3-modeling, D-032…D-047)
 
 ## Status legend
 
@@ -19,36 +19,47 @@
 
 ## Current state
 
-**State now:** **Phase 1 has its answer: the ship criterion is MET.** On the sealed 2026 fold —
-never touched during development — accuracy **.6762** against a .62 bar, log loss **.6020** against a
-constant-predictor **.6870**. Both halves of D-008, not one. All three folds clear .62 (.6444/.6503/
-.6762) across 3,962 evaluation games. A label-shuffle control collapses to the base rate, so the
-result is not leakage. But **D-031**: ablation shows `point_diff_diff` carries essentially all of it —
-dropping any other feature slightly *improves* the model. T-005…T-009 are all built; T-006/T-007/
-T-008/T-009 are `BUILT` and unreviewed.
+**State now:** **Phase 1 has its answer (ship criterion MET), and the second cycle is planned.** On
+the sealed 2026 fold accuracy **.6762** against a .62 bar, log loss **.6020** against a
+constant-predictor **.6870** — both halves of D-008. But **D-031**: `point_diff_diff` carries
+essentially all of it. T-006/T-007/T-008/T-009 are `BUILT` and unreviewed; 28 commits sit unmerged on
+`feat/phase-1-analytical-core`.
 
-**Canon reconciliation is in flight.** A grill-me session on 2026-08-14 resolved ten forks and
-produced **PLAN-v2** in the factory (`Client Projects/Dev-System/docs/plans/PLAN-v2.md`, DRAFT) —
-the thesis being that this engagement's *deterministic* fixes compounded and its *prose* fixes did
-not. T-011/T-012 (above) are its only tasks that execute here; T-013..T-020 are factory work. Note
-that PLAN-v2's own `canon-debt` threshold (3 findings at `revisit-when: reconcile-canon`) would
-already be **red at 6** — F-015, F-100, F-101, F-102, F-106, F-107.
+**D-031's open question is now answered, and the answer changed the plan.** A grill-me session on
+2026-08-17 ran two diagnostics against the pinned corpus rather than reasoning from the ablation.
+Rest signal is **large** — home on a back-to-back against a rested opponent wins .4393, the reverse
+.6438, a **20.5-point swing** — but linearity was never the problem; **mass** is (91% of games sit at
+|rest_diff| ≤ 1 where the effect is nil) and so is **cliff placement** (0→1 day is +7.1 points, 2→3+
+is +1.0). And the finding that reframed everything: **`point_diff_diff`, Elo and `form_diff`
+correlate at .87–.92 — three rulers for one latent variable, team strength.** That is why the
+ablation found nothing and why 17.9% of games read as coin flips. **Moving AUC needs a second factor,
+not a better ruler.** Also corrected: the ablation deltas (+.0076, +.0023, +.0015) are all inside a
+season's ±2.6-point noise band, so "removing them helps" was never supportable — "they do nothing
+measurable" is (D-034).
 
-**Next action:** **you review `docs/analysis/PHASE-1-RESULT.md`** — it is drafted but T-010 is
-human-owned, and §3 (the model ships on one feature) and §7 (what the result does *not* license) are
-the parts that most need your judgement rather than mine. Then grill PLAN-v2 in the factory; its
-Fork 5 (declared file sets replacing commit-SHA review currency) is breaking and rewrites the check
-that *is* the review gate.
+**Sixteen decisions resolved, D-032…D-047**, and **`docs/plans/PLAN-v3-modeling.md`** written (DRAFT,
+40 user stories, T-021…T-035). Two of them change standing project facts: **D-038** moves bulk
+history into the application Postgres, **superseding the separate-stores invariant** in *Architecture
+snapshot* below; **D-043** amends `PHASE-1-RESULT.md` §6's reproducibility claim, which stops being
+true once a running database is required. Measured expectations are on the record: Elo ≈ +.008 AUC,
+rest re-encoded ≈ +.005–.015, travel ≈ +.002, **availability unknown and the only real headroom**.
 
-Then, in order: **(1)** one **batched** review of T-006/T-007/T-008/T-009 — four rounds on T-006
-produced only test-hygiene findings after round 2, so batch rather than repeat that; **(2)** merge
-Phase 1 to `main` (28 commits) and advance the reviewed tasks to `DONE`; **(3)** plan Phase 2, where
-the open question is D-031's — build the product surface on a one-feature model, or spend the next
-cycle on features (Elo, travel, injuries) first. Housekeeping when convenient: **F-057's
-`revisit-when: T-009` has fired** and should graduate to *Future hardening* (D-031 confirmed it), and
-the status index has FIXED rows sitting in the open/accepted table.
+**Next action, in order:** **(1)** one **batched** review of T-006/T-007/T-008/T-009 — four rounds on
+T-006 produced only test-hygiene findings after round 2, so batch rather than repeat that;
+**(2)** merge Phase 1 to `main` (28 commits) and advance the reviewed tasks to `DONE`; **(3)** mark
+PLAN-v3-modeling ACTIVE, copy it to `PLAN-current.md`, and start **T-021**. The model must freeze
+before **2026-09-30** (D-042) — measured review throughput in this repo is 3–4 rounds per task
+against ~15 new tasks plus 4 awaiting review, which is the constraint to plan against.
+
+**Canon reconciliation is still in flight** — the factory's **PLAN-v2**
+(`Client Projects/Dev-System/docs/plans/PLAN-v2.md`, DRAFT) owns T-013..T-020; only T-011/T-012
+execute here. Its `canon-debt` threshold (3 findings at `revisit-when: reconcile-canon`) is **red at
+6** — F-015, F-100, F-101, F-102, F-106, F-107. Housekeeping: the status index has FIXED rows sitting
+in the open/accepted table.
 
 **Active plan:** docs/plans/PLAN-current.md (= PLAN-v1, ACTIVE)
+**Next plan:** docs/plans/PLAN-v3-modeling.md (DRAFT — becomes current when Phase 1's review closes;
+numbered v3 because "PLAN-v2" already means the *factory's* plan in this tracker)
 **History:** docs/log.md (append-only, session-by-session)
 
 ## Architecture snapshot
@@ -61,9 +72,15 @@ the status index has FIXED rows sitting in the open/accepted table.
 - **Game status is normalized at the boundary** to exactly `scheduled` | `live` | `final`. ESPN's raw
   status strings never reach the DB or the client.
 - **Every schema change is an Alembic migration.** Never `Base.metadata.create_all()` outside tests.
-- **The app DB (Postgres) and the historical/modeling store are separate concerns.** Bulk history
-  never enters Postgres wholesale or the git repo; the modeling layer reads history and writes only
-  its outputs back for the API to serve.
+- **The historical corpus lives in the application Postgres** (D-038, 2026-08-17). This **supersedes**
+  the previous invariant ("the app DB and the modeling store are separate concerns; bulk history never
+  enters Postgres wholesale"), which held through Phase 1 and was overturned deliberately. Bulk
+  history still **never enters the git repo**. Three constraints replace it, and they are what make
+  the change safe: **schema is owned by migrations, data by `model.ingest`** (D-045); **no query
+  anywhere carries an as-of predicate** — SQL narrows by season or team, `features.py` filters (D-039);
+  and **integrity is verified at the ingest boundary**, not assumed of the table (D-046).
+  Consequence, recorded rather than absorbed: reproducing the reported numbers now requires a running
+  Postgres (D-043), and CI needs a service container for corpus-touching tests (D-044).
 - **One ID space: ESPN's.** The app keys teams on ESPN `team.id` (`teams.external_id`) and the chosen
   historical source (D-004) is ESPN-keyed too, so no translation layer is needed. This is an
   invariant to defend: adding any stats.nba.com-keyed source reintroduces the join problem (F-005).
@@ -314,6 +331,60 @@ the status index has FIXED rows sitting in the open/accepted table.
         license: calling this a four-feature model, quoting a home-court coefficient (D-024), and
         assuming a backtest holds live (D-017's 2026-27 season is the real trial).
 
+### Cycle 2 — second-factor features, Postgres corpus, prediction surface (PLAN-v3-modeling)
+
+<!-- Numbered from T-021: T-013..T-020 are reserved for the factory's PLAN-v2. All fifteen are
+     PLANNED, none started. Full acceptance criteria, security notes and UI/UX intent live in
+     docs/plans/PLAN-v3-modeling.md — the rows below are the index, deliberately compact so this
+     tracker stays cheap to read on every task (CLAUDE.md). Do not duplicate the plan here. -->
+
+- [ ] **T-021** Corpus schema migrations + role grants — `PLANNED` — owner: `backend-engineer`
+      - empty corpus + predictions tables; API role `SELECT`-only, ingest role writes; up/down both
+        clean; **no migration inserts corpus rows** (D-045, D-047)
+- [ ] **T-022** Extend loader: warm-up seasons 2016–2019 + player/team box parquet — `PLANNED` — owner: `backend-engineer`
+      - new pinned counts + content hashes; 30 franchises per season; **verify against an empty data
+        dir** (F-037); parquet is new in this parsing path (D-037)
+- [ ] **T-023** `ingest` — verified loader→Postgres — `PLANNED` — owner: `backend-engineer`
+      - idempotent on game id; hashes and counts verified **before** any write; refuses rather than
+        repairs (D-046)
+- [ ] **T-024** `store` — Postgres read layer — `PLANNED` — owner: `backend-engineer`
+      - narrows by season/team; **contains no as-of predicate**, enforced mechanically; re-asserts
+        curation on read (D-039)
+- [ ] **T-025** `elo` deep module — `PLANNED` — owner: `backend-engineer`
+      - MOV, K=20, home 100, carryover .75; stdlib; golden fixtures + 5 invariants (D-032)
+- [ ] **T-026** `venues` deep module — `PLANNED` — owner: `backend-engineer`
+      - static city table (coords + elevation); travel/altitude/tz; a missing venue **raises** (D-036)
+- [ ] **T-027** `availability` deep module — `PLANNED` — owner: `backend-engineer`
+      - lagged rotation participation; garbage-time zeroes are not absence; takes data through the
+        Context, never queries directly (D-035)
+- [ ] **T-028** `features` v2 — Context + new feature set — `PLANNED` — owner: `backend-engineer`
+      - Context (games + players + venues), signature stays 3 args; emits `elo_diff`, `home_b2b`,
+        `away_b2b`, `rest_edge`, `avail_diff`, `travel_diff`, `altitude`; `point_diff_diff`,
+        `form_diff`, `home_advantage` removed; **leakage property test extended to future player
+        rows**, non-vacuity control kept (D-033, D-034, D-039)
+- [ ] **T-029** `splits` — warm-up isolation — `PLANNED` — owner: `backend-engineer`
+      - a warm-up season reaching a training row must fail a test (D-037)
+- [ ] **T-030** Refit, the **single** 2026 evaluation, freeze — `PLANNED` — owner: `backend-engineer`
+      - selection on 2024/2025 only; set frozen and committed **before** 2026 is touched; exactly one
+        run; JSON artifact (D-030, D-042)
+- [ ] **T-031** `prediction` service + persistence + scheduled job — `PLANNED` — owner: `backend-engineer`
+      - one interface (probability + vector + **per-feature logit contributions** + version) used by
+        both job and API; append-only; 7-day horizon (D-011, D-012)
+- [ ] **T-032** Predictions API — `PLANNED` — owner: `backend-engineer`
+      - prediction + decomposition per game; upcoming; accuracy by confidence band; last pre-tip
+        prediction is the one scored (D-047)
+- [ ] **T-033** TypeScript scorer + gate-pinned contract check — `PLANNED` — owner: `frontend-engineer`
+      - both implementations agree on probability **and** contributions; **runs in the gate**, not
+        locally (D-041, F-091)
+- [ ] **T-034** Game detail surface — `PLANNED` — owner: `frontend-engineer`
+      - waterfall + confidence band + version/as-of; **fenced** what-if (distinct, unpersisted,
+        uncounted); responsive; keyboard + screen-reader path; zero baseline; sign not carried by
+        color alone (D-040)
+- [ ] **T-035** Amend §6 + write the cycle-2 analysis — `PLANNED` — owner: `human`
+      - §6's reproducibility claim amended for the Postgres dependency; analysis held to T-010's
+        standard (every figure re-derived and string-matched); **a null result on availability is a
+        reportable outcome** (D-043)
+
 ### Canon reconciliation (PLAN-v2 — factory-owned, executed here)
 
 <!-- These two carry PLAN-v2's ids, not this project's sequence, because they are scheduled by the
@@ -393,7 +464,7 @@ every agent was told to read it to act on a task that needed two entries from it
 | ID | Sev | Area | Status | Fires when |
 |----|-----|------|--------|-----------|
 | **F-001** | HIGH | security | ACCEPTED — no authorization boundary exists anywhere in the app | `first-user-scoped-data` |
-| **F-057** | MEDIUM | data/design | OPEN — `home_advantage` collinear with the intercept in early folds (see D-024) | `T-009` |
+| **F-057** | MEDIUM | data/design | RESOLVED BY REMOVAL — `home_advantage` is cut from the feature set entirely (D-033). Its `revisit-when: T-009` fired, D-031 confirmed the instability empirically (+0.112/+0.003/+0.037 across folds), and the feature is designed out rather than mitigated. Home-court advantage stays in the intercept | — |
 | **F-015** | LOW | ops | ACCEPTED — `ui-ux-reviewer` declared but not mechanically enforced | `reconcile-canon` |
 | **F-006** | LOW | ops | OPEN — `docker-compose.prod.yaml` is a 0-byte file | — |
 | **F-007** | LOW | ops | OPEN — `ci.yml` duplicates every gate check | — |

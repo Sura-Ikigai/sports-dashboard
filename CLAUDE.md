@@ -30,11 +30,21 @@ Stack overlay: `stacks/nextjs-fastapi-postgres.md`
 - **There is no RLS and no auth.** Postgres enforces nothing about who may read or write a row.
   Every endpoint touching user-scoped data must check the caller in FastAPI, explicitly. See F-001.
 
-## Data boundary (this project has two stores — keep them separate)
-- **Postgres** is the *application* store: live teams/games synced from ESPN, and model outputs.
-- The **historical store** holds bulk history from sportsdataverse (D-004), seasons 2022–2026. It
-  never enters Postgres wholesale and never enters git — `.gitignore` blocks
-  `*.sqlite`/`*.duckdb`/`*.parquet`/`data/`. Its shape is a planning decision (T-002/T-003).
+## Data boundary (one store as of D-038 — read the three constraints)
+- **Postgres holds everything**: live teams/games synced from ESPN, model outputs, and — since
+  **D-038** (2026-08-17) — the bulk historical corpus. This **supersedes** the previous two-store
+  rule ("bulk history never enters Postgres wholesale"), which governed Phase 1.
+- Bulk history still **never enters git** — `.gitignore` blocks `*.sqlite`/`*.duckdb`/`*.parquet`/`data/`.
+- Three constraints make the single store safe, and none is optional:
+  - **Migrations own schema; `model.ingest` owns data** (D-045). No migration inserts corpus rows.
+  - **No query carries an as-of predicate** (D-039). SQL narrows by season or team; the as-of filter
+    stays inside `features.py`, where T-006's property test proves it. Writing `WHERE date < :as_of`
+    anywhere moves an integrity control into call sites and voids that proof.
+  - **Integrity is verified at the ingest boundary** (D-046) — content hashes over source bytes
+    before parsing, pinned counts, and `corpus.assert_curated` re-run on read.
+- Consequences, recorded not absorbed: reproducing reported numbers needs a running Postgres (D-043),
+  CI needs a service container for corpus-touching tests (D-044), and the API's DB role is
+  `SELECT`-only on corpus tables while ingest holds a separate writing role (D-047).
 - **Everything is ESPN-keyed — keep it that way.** The app's `teams.external_id` and the historical
   source share one ID space, so no translation layer exists or is needed. Adding a stats.nba.com-keyed
   source reintroduces a real join problem (F-005) — read that finding first, and use the published

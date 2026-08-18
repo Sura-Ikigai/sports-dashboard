@@ -313,3 +313,153 @@
   Consequence for Phase 2: a simpler model is cheaper to serve and easier to explain, and the three
   weak features are candidates for removal — but not before T-010 has recorded the result as it
   stands. (Supersedes nothing.)
+- **D-032** 2026-08-17 — **Margin-of-victory Elo replaces `point_diff_diff`.** K=20, home adjustment
+  100, season carryover 0.75. Measured on the 2024+2025 dev seasons (2,640 games, 2026 deliberately
+  untouched): MOV Elo scores **AUC .7149 alone** against `point_diff_diff`'s **.7073**, at
+  **correlation .9187**. Plain win/loss Elo scores .7093 and K=40 scores .7086 — margin is what earns
+  the gain, and a high K over-reacts. The two are not complements: MOV Elo *is* an opponent-adjusted
+  point differential, the same margin information with strength of schedule folded in. Keeping both
+  buys roughly +.002 and costs coefficient interpretability, which is the same trap D-024 documented
+  for `home_advantage` — and §3 of the analysis is a coefficient table while user story 30 promises an
+  explanation of why a team was favored. Elo's residual on `point_diff_diff` still ranks at AUC .566,
+  which is the orthogonal signal replacement captures and addition would double-count. On the 13.6%
+  of games where the two pick different winners, Elo is right .522 — near a coin flip, so this is a
+  modest upgrade honestly labeled, not a breakthrough. (Supersedes PLAN-v1's feature set.)
+- **D-033** 2026-08-17 — **`form_diff` and `home_advantage` are removed.** Form is a shrunk win rate
+  over ten games — a worse ruler for the strength factor Elo now measures, correlated with it and
+  with point differential in the .87–.92 band, and it ablated at +.0015 (inside noise). Home
+  advantage was never identifiable (D-024/F-057): the corpus holds ~16 neutral-site games, so the
+  column is 1.0 almost everywhere and near-perfectly collinear with the intercept. Home-court
+  advantage is real and stays in the intercept. F-057's `revisit-when: T-009` fired and is resolved
+  by this entry. (Supersedes nothing; completes D-031's open question.)
+- **D-034** 2026-08-17 — **Rest is re-encoded as `home_b2b`, `away_b2b` and a bucketed `rest_edge`.**
+  The capped linear day-difference measured nothing, and a diagnostic against the pinned corpus
+  established why — the failure is not linearity. The marginal curve is already monotonic (.4857 /
+  .5116 / .5577 / .5714 / .6667 across rest_diff −2→+2), so a linear term *can* fit that shape. Two
+  other things kill it. **Mass**: 3,694 of 6,476 games sit at rest_diff 0 and another 2,228 at ±1, so
+  91% of the corpus is where rest does nothing and the fit is dragged to the null; the tail carrying
+  the effect is 5.9% of games. **Cliff placement**: home rest 0→1 is **+7.1 points**, 1→2 is +2.6,
+  2→3+ is +1.0 — one slope cannot fit a step and a plateau. The raw signal is large: home on a
+  back-to-back against a 2+-day-rested opponent wins **.4393**; the reverse wins **.6438**, a
+  **20.5-point swing** around a .5553 baseline, with mean home margin swinging −0.10 to +3.59.
+  Separate home and away indicators because the effect need not be symmetric. **Also corrects how
+  D-031 was being read**: one season carries ±2.6 accuracy points at 95%, and the ablation deltas
+  (+.0076, +.0023, +.0015) are all inside that band. "Removing them improves the model" is not
+  supported; "they do nothing measurable" is — which points at the encoding, not at deletion.
+  (Refines D-031's interpretation; supersedes PLAN-v1's `rest_diff`.)
+- **D-035** 2026-08-17 — **Availability is lagged rotation participation, never same-game.** Player
+  box scores exist upstream for every season (`espn_nba_player_boxscores`, ~750 KB/season, ~175k
+  player-game rows across 2022–2026), but they record *who actually played*, which is post-game
+  information. Using them for the game being predicted is textbook leakage, and "played 0 minutes"
+  additionally correlates with blowouts and garbage time, so it would partly encode the outcome.
+  Availability is therefore derived strictly from games completed **before** the as-of moment: each
+  team's rotation defined by trailing minutes, then the share of that rotation's minutes that
+  actually played in recent games. It catches multi-game absences — which is most star injuries — and
+  **cannot** catch a game-day scratch. That limitation is a consequence of choosing a construction
+  whose leakage-freedom is structural rather than procedural, and it is reported rather than hidden.
+  Rejected: a live injury report (no historical archive exists, so it is untrainable until a season
+  of snapshots accumulates) and a train-lagged/serve-live hybrid (the feature would mean different
+  things at train and serve time, which is exactly the skew D-011 exists to prevent).
+  (Supersedes nothing — this is the first feature outside team-level aggregates.)
+- **D-036** 2026-08-17 — **Travel and altitude derive from the venue city already in the corpus.** The
+  schedule rows carry `venue_full_name`, `venue_address_city`, `venue_address_state`, `venue_indoor`
+  and a tz-aware `game_date_time`, so travel distance since a team's previous game, timezone shift
+  and an altitude flag need no new data source — only a static city table with coordinates and
+  elevation. A venue absent from that table raises; a silent zero would read as "no travel".
+  Expected value is small (~+.002) and it is included because it is nearly free given D-034's work,
+  not because it is expected to matter on its own. (Supersedes nothing.)
+- **D-037** 2026-08-17 — **Seasons 2016–2019 are ingested as Elo warm-up state only.** Elo converges
+  from its initial rating over roughly a season, so starting at 2022 means fold 1 trains on burn-in
+  noise. The same pinned release carries schedules back to at least 2013 (verified by request). But
+  extending the *training* window crosses a regime change: home-win rate measured here runs ~55.2%
+  from 2021 onward against 59.3% before (D-007/D-026), and 2020–2021 were bubble and limited-crowd
+  seasons. So warm-up games feed the rating recursion and **never** become training or test rows —
+  T-029 asserts it. This buys converged ratings without mixing eras. (Supersedes nothing.)
+- **D-038** 2026-08-17 — **Bulk history moves into the application Postgres, superseding the
+  separate-stores invariant.** The tracker's *Architecture snapshot* has said "The app DB (Postgres)
+  and the historical/modeling store are separate concerns. Bulk history never enters Postgres
+  wholesale"; this entry overturns it deliberately, at the owner's decision, and that snapshot line
+  must be rewritten rather than quietly dropped. The driver is that this cycle joins schedules,
+  player participation and venues across ten seasons, and hand-rolled frame manipulation is where
+  correctness bugs hide. The volume does not justify infrastructure on its own (~12 MB, ~175k rows) —
+  the argument is queryability and auditability, not scale. Recorded cost: the alternative considered
+  and rejected was an embedded DuckDB over parquet, which would have preserved single-command
+  reproducibility; the owner chose Postgres on the grounds that this is a real project. That cost is
+  paid explicitly in D-043 and D-044 rather than absorbed. (**Supersedes** the separate-stores
+  invariant in `docs/IMPLEMENTATION.md` → Architecture snapshot.)
+- **D-039** 2026-08-17 — **SQL narrows; `features` filters. No query carries an as-of predicate.**
+  Reading history from SQL makes `WHERE date < :as_of` the natural thing to write, and that would
+  move the integrity control out of the tested module and into every call site — exactly what T-006's
+  security note forbids, and the class of defect F-044 already was (an as-of an hour past tip-off
+  moved `point_diff_diff` from 6.0 to 32.0). Queries may reduce rows by season or by team for
+  performance; the strict `<` filter, the target-game exclusion and `FeatureLeakageError` all stay
+  inside the feature module, where they are enforced and tested. **The test that makes this real**: a
+  store query deliberately returning future rows must still produce identical feature vectors. T-024
+  additionally adds a mechanical check that fails if a date predicate appears in the store module —
+  the same enforcement style as T-009's `ast` argument-forwarding check. (Supersedes nothing;
+  preserves T-006's security note under D-038.)
+- **D-040** 2026-08-17 — **The game detail surface is a decomposition waterfall plus a fenced what-if
+  panel.** The linear model chosen in D-032/D-033 is the best possible model for an explanation UI:
+  per-feature contributions are additive in log-odds, so the waterfall is exact arithmetic rather
+  than an approximation — a gradient-boosted model would need SHAP to estimate what this yields
+  directly. That is now a reason to keep the model class linear, recorded here so a future
+  "just use LightGBM" proposal has to argue against it. The what-if panel answers the owner's ask for
+  interactivity, but it manufactures probabilities the model was never evaluated on, so hypothetical
+  state is visually distinct, never persisted, and never counted in the accuracy record.
+  (Supersedes nothing; realizes PLAN-v1 user stories 25 and 30.)
+- **D-041** 2026-08-17 — **A TypeScript scorer is permitted, and a gate check is what permits it.**
+  The what-if panel needs instant recompute, which means a second implementation of the scoring path
+  in the browser — precisely what D-011's single-feature-function design exists to prevent. Rather
+  than forbid it or accept the skew, both implementations run over a grid of feature vectors in the
+  gate and must agree to floating-point tolerance on **both** the probability and the per-feature
+  contribution decomposition. This is the project's standing pattern: make the guarantee mechanical
+  rather than asserted (T-006's as-of filter, T-009's `ast` check, T-010's string-matched figures).
+  The check runs in CI, not locally — F-091 is the precedent for why. (Refines D-011.)
+- **D-042** 2026-08-17 — **Full scope, model frozen before 2026-09-30.** Predictions are keyed by
+  `model_version` (D-012), so a mid-season model change would be recorded rather than hidden — but it
+  would split the live trial into two partial seasons, neither with a full sample. D-017 designates
+  2026-27 as the genuine out-of-sample trial, so the model freezes before the opener and the season
+  runs on one version. The owner considered and rejected a thin end-to-end slice and a
+  frontend-first-on-v1 sequencing, on the grounds that nothing should be half-built when the trial
+  begins. Recorded constraint, not an objection: this repo's measured review throughput is 4 rounds
+  for T-001, 4 for T-005, 3 so far for T-006, against ~15 new tasks plus 4 awaiting review.
+  (Supersedes nothing; scopes D-017's trial.)
+- **D-043** 2026-08-17 — **The reproducibility claim is amended, not quietly broken.** `PHASE-1-RESULT.md`
+  §6 says every number is reproducible from committed code and the pinned data release with one
+  command. Under D-038 the pipeline requires a running Postgres, so that sentence stops being true
+  the moment the corpus moves. It is amended to state the dependency explicitly (T-035). The
+  underlying property — same data and configuration produce the same `model_version` — is unchanged;
+  what changes is what a reader must have running to reproduce it. (**Supersedes** the unqualified
+  §6 claim.)
+- **D-044** 2026-08-17 — **CI provisions a Postgres service container for corpus-touching tests.**
+  Consequence of D-038. The standing hazard is F-037/F-091's: a test that skips in CI is not a test,
+  and this project has lost review rounds to exactly that. `features.py` and its siblings stay
+  standard-library only (D-021/D-016) so the *feature* tests still run without a database; the
+  service container is for `ingest`, `store` and anything reading the corpus. Any test that would
+  skip must be justified in its task's outcome. (Supersedes nothing.)
+- **D-045** 2026-08-17 — **Migrations own schema; `ingest` owns data.** A data load inside an Alembic
+  migration has no coherent `downgrade()` — delete every row, or only the ones that revision added? —
+  and this project's two existing migrations are cleanly reversible DDL, a property one data
+  migration would forfeit for the whole chain. It would also make CI pay to download and parse ten
+  seasons on every `alembic upgrade head`, and it would put regenerable derived data into an audit
+  trail meant for irreversible structural change. So `alembic upgrade head` creates empty corpus
+  tables and `model.ingest` populates them, idempotent on game id. The verification machinery already
+  written in `loader.py` keeps running at ingest, which is where it belongs. (Supersedes nothing.)
+- **D-046** 2026-08-17 — **Integrity is verified at the ingest boundary; the database is trusted
+  after.** T-005 pins per-season SHA-256 hashes over source bytes, which stops meaning anything once
+  rows live in a mutable table. Rather than invent a table-level integrity scheme, the guarantee moves
+  to the boundary: source bytes are still hashed and verified before parsing (existing code, zero
+  additional cost), pinned per-season counts still assert, and `corpus.assert_curated` — per-season
+  counts plus the 30-franchise invariant, standard library — re-runs on read, which would catch a
+  mutated table. The owner accepted trusting the store; this narrows what is actually being trusted
+  to "the database, after a verified ingest, with a cheap invariant checked on the way out."
+  (Refines T-005's content pinning under D-038.)
+- **D-047** 2026-08-17 — **No authorization boundary; model results are public.** All readers are
+  equivalent and every visitor may see every model output, so no RLS and no per-caller checks are
+  built (this is the standing state F-001 documents, now made deliberate for this surface rather than
+  merely unaddressed). One concrete consequence is mitigated: `POST /nba/sync/teams` and
+  `POST /nba/sync/games` are unauthenticated write endpoints that under D-038 share a database with
+  the training corpus. The mitigation is grants, not row-level security — the API's database role
+  holds `SELECT` only on corpus tables and the ingest job holds a separate writing role, so no API
+  bug can reach training data. T-021 asserts it by connecting as the API role and proving a write is
+  refused. F-001 stays ACCEPTED and fires on `first-user-scoped-data`. (Scopes F-001.)

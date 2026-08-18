@@ -523,3 +523,44 @@ Newest entry on top. Keep it lean — a few lines per session; git history carri
   ledger write invalidates the ✅ it is recording. F-016/F-017 were therefore deferred, not fixed.
 - Ended at: T-001 `REVIEWED` at `d0e661d` on `chore/dev-system-instantiation`. Next is the PLAN phase
   for the modeling layer.
+
+## 2026-08-17 — PLAN phase for the second cycle (grill-me → PLAN-v3-modeling)
+
+- **Grilled the owner's four proposed features and two of them turned out to already exist.**
+  `form_diff` *is* "shrunk win rate over the last ten games" and `rest_diff` *is* days rest capped at
+  five — both shipped in T-006, both ablated at zero in D-031. The session opened by putting that in
+  front of the owner rather than building what was asked for.
+- **Ran two diagnostics against the pinned corpus instead of arguing.** Rest: the raw signal is
+  large — home on a back-to-back against a rested opponent wins .4393, the reverse .6438, a
+  20.5-point swing around a .5553 baseline. But linearity was *not* the problem: the marginal curve
+  is already monotonic. The problem is mass (91% of games sit at |rest_diff| ≤ 1, where the effect is
+  nil) and cliff placement (0→1 day is +7.1 points; 2→3+ is +1.0). Elo: MOV Elo scores AUC .7149
+  alone against `point_diff_diff`'s .7073 — but at correlation .92, with Elo right only .522 of the
+  time on the games where they disagree.
+- **The finding that reframed the whole plan:** `point_diff_diff`, Elo and `form_diff` correlate at
+  .87–.92. They are three measurements of one latent variable — team strength. That is why the
+  ablation found nothing, and why 17.9% of games read as coin flips. Moving AUC needs a *second
+  factor*, not a better ruler for the first. Of the owner's four asks, exactly one (availability) is
+  a second factor.
+- **Corrected an over-reading of D-031 that would have driven the wrong plan.** One season carries
+  ±2.6 accuracy points at 95%; the ablation deltas (+.0076, +.0023, +.0015) are all inside it. The
+  supportable statement is "these features do nothing measurable," not "removing them helps" — the
+  difference between deleting them and fixing their encoding. D-034 records it.
+- **Resolved sixteen decisions, D-032…D-047.** Feature set (Elo replaces point differential; form and
+  home advantage cut; rest re-encoded as dummies; lagged availability; travel/altitude; warm-up
+  seasons as Elo state only), store (corpus into the app Postgres, superseding the separate-stores
+  invariant), integrity (SQL narrows but never filters as-of; verification moves to the ingest
+  boundary), surface (decomposition waterfall + fenced what-if; a gate-pinned TS scorer), and
+  schedule (full scope frozen before the 2026-09-30 opener).
+- **The owner overturned a standing invariant knowingly.** D-038 puts bulk history into the
+  application Postgres. DuckDB-over-parquet was recommended and declined; the cost is paid explicitly
+  in D-043 (§6's reproducibility claim amended) and D-044 (CI needs a service container) rather than
+  absorbed silently.
+- **Wrote `docs/plans/PLAN-v3-modeling.md`** — 40 user stories, 15 tasks (T-021…T-035, numbered clear
+  of the factory's reserved T-013…T-020). Deliberately **not** copied to `PLAN-current.md`: PLAN-v1
+  is still ACTIVE with T-006…T-009 `BUILT` and unreviewed, and pointing the tracker at a DRAFT would
+  misrepresent state to the next session. No GitHub issue — the owner asked for the plan file only.
+- **Numbered v3, skipping v2**, because this tracker already uses "PLAN-v2" for the *factory's* plan
+  whose T-011/T-012 execute here. A second PLAN-v2 would collide in the tracker and in conversation.
+- Ended at: PLAN-v3-modeling `DRAFT` on `feat/phase-1-analytical-core`. Next is the batched review of
+  T-006…T-009, then the merge, then T-021.
