@@ -564,3 +564,44 @@ Newest entry on top. Keep it lean — a few lines per session; git history carri
   whose T-011/T-012 execute here. A second PLAN-v2 would collide in the tracker and in conversation.
 - Ended at: PLAN-v3-modeling `DRAFT` on `feat/phase-1-analytical-core`. Next is the batched review of
   T-006…T-009, then the merge, then T-021.
+
+## 2026-08-21 — batched review round, T-006/T-007/T-008/T-009 @ `eacc066`
+
+- **Ran both mandatory reviewers concurrently against all four tasks in one round** (D-029's
+  batching rationale: T-006's four earlier rounds produced only test-hygiene findings after round 2).
+  Blocks allocated in writing *before* spawning, per rule 5a — security F-110–F-124, logic
+  F-125–F-139, main thread F-140+ — and each reviewer appended to its own file, so the two concurrent
+  writers could not interleave the way F-100 did.
+- **Result: 7 of 8 verdicts ✅ at `eacc066`. One ⛔ — T-007/logic, F-125 — and its fix is test-only.**
+  No HIGH, no CRITICAL. Nothing found that blocks the merge on its own.
+- **The round's stated top priority came back clean.** The logic-reviewer reproduced every headline
+  figure from committed code and the pinned corpus: .6444/.6503/.6762 accuracy, the log losses, the
+  AUCs, 6,605 curated games, 3,962 evaluation games, every calibration decile, and D-026's .55534 by
+  independent recount (3668/6605 = .555337). 168/168 tests pass. No published claim is wrong.
+- **Verified rather than trusted.** Every load-bearing claim in both reports was independently
+  reproduced by the main thread before transcription: the absent `test_loader.py`, the absent
+  `run_evaluation` test, the `save_artifact` docstring against its own body, the `loader.py`
+  signature-default trap — and F-125 by re-running the mutation in a fresh `git archive` copy with
+  its own `PYTHONPYCACHEPREFIX` (16/16 green against the mutant). Shared tree confirmed clean before,
+  during and after; both reviewers left it untouched.
+- **F-113 is the finding that matters, and it is forward-looking rather than a defect in shipped
+  code.** The as-of filter is structural; history *completeness* is not — it lives in a docstring, and
+  D-038 removes the single caller that satisfied it trivially. It is the exact complement of D-039:
+  that decision closes the leaky direction, but permits "narrow by season or team" with no definition
+  of *sufficient*. The failure is silent because an under-narrowed history produces shrinkage priors,
+  byte-identical to opening night. Season-narrowing is safe today only because `MAX_REST_DAYS = 5.0`
+  happens to sit below the 120–133 day offseason — arithmetic, not design. And **T-028's Elo breaks it
+  outright**, being running state across all prior seasons including the D-037 warm-up.
+- **Two small process corrections made during transcription, both recorded rather than silently
+  fixed.** The logic-reviewer returned its LOW batch labelled "D-029" — a *decision* number, not a
+  finding — renumbered to F-126 from its own block. And the earlier `eacc066` commit was described in
+  its message as "docs-only" when it touched `CLAUDE.md`, which sits outside `docs/` and therefore
+  *did* move the code tip; harmless here because per-task ownership held and the gate stayed green,
+  but the claim was wrong as written.
+- **F-106 was live and cost nothing this round only because it was anticipated.** The canon agent
+  files instruct `Read, Grep, Glob` reviewers to run worktrees and pytest; the reviewers were spawned
+  with tooling that could actually do it, and the isolation rules from rule 5d were restated in the
+  spawn prompts rather than relied on from canon.
+- Ended at: round transcribed, four ledger rows written, F-110…F-114 / F-125 / F-126 in
+  `docs/findings.md` and the status index. Next is remediation of F-125 + F-110, the F-113 decision,
+  then a scoped re-review and the merge.

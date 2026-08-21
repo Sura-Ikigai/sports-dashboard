@@ -1028,3 +1028,121 @@ rather than by being forgotten (§5.4).
   also the strongest available test of PLAN-v2 T-015's composer — a factory that cannot stamp itself
   cannot claim to be project-agnostic. Status: OPEN. revisit-when: `reconcile-canon`.
   reproduced: yes — `ls -d .claude` in the factory returns nothing.
+
+## Round: batched T-006/T-007/T-008/T-009 @ `eacc066` — 2026-08-21
+
+<!-- Blocks allocated in writing before spawning (Tracker rule 5a): security-auditor F-110–F-124,
+     logic-reviewer F-125–F-139, main thread F-140+. Both reviewers ran concurrently, each appending
+     to its own scratchpad file, and the shared tree was verified clean before, during and after.
+     Transcribed by the main thread (rule 5b) — verdicts and reproductions copied, never paraphrased.
+     Every claim below marked "verified by main thread" was independently reproduced before transcription. -->
+
+- **F-110** (T-009 / integrity-of-documentation, MEDIUM) — **`save_artifact`'s docstring asserts a
+  safety property the function does not have.** `backend/model/estimator.py:248-249` states *"`.gitignore`
+  covers `/models/`; this refuses to write anywhere else so an artifact cannot be committed by
+  accident."* The body does `path.parent.mkdir(parents=True, exist_ok=True)` then `path.write_text(...)`
+  — there is no path check of any kind. It will happily create and write into a tracked directory.
+  This is F-037's defect class verbatim: a documented guarantee that nothing enforces, in a file whose
+  whole point is that the artifact is safe. The project's own tests writing to `tmp_path` are the
+  proof it does not refuse.
+  Remediation: either implement the containment check (resolve the path and assert it is inside the
+  ignored `/models/` dir, the same shape `loader.py` already uses for its data dir), or delete the
+  claim. Implementing it is preferable — D-042 gives T-030 one artifact-producing run.
+  Status: OPEN. reproduced: **yes — verified by main thread** (read the function body at `eacc066`).
+
+- **F-111** (T-006 / test coverage, MEDIUM) — **`loader.py` has no test file at all.** There is no
+  `backend/tests/test_loader.py`; the tests directory contains `test_corpus`, `test_dataset`,
+  `test_espn_client`, `test_estimator`, `test_evaluate`, `test_features`, `test_health`,
+  `test_nba_service`, `test_splits` and nothing else. Every verification branch T-005 was hardened to
+  add — content-hash mismatch, header/size/UTF-8 refusals, the redirect scheme+host allowlist, path
+  traversal containment, refusal of an unpinned season, per-season `game_id` uniqueness — has zero
+  automated coverage, and all of them are pure functions that need no network to exercise.
+  This is materially worse than when it was written: **D-046 just made that machinery the integrity
+  guarantee for the entire Postgres corpus** ("verified at the ingest boundary; the database is
+  trusted after"), and **T-022 is about to add a parquet parsing path to the same module**.
+  Remediation: fold into **T-022**, which already opens `loader.py`. Add `test_loader.py` covering
+  every refusal branch before the parquet path is written, not after.
+  Status: OPEN. reproduced: **yes — verified by main thread** (`ls backend/tests/`).
+
+- **F-112** (T-009 / test coverage, MEDIUM) — **`run_evaluation.py` has no test of any kind.**
+  `grep -rln run_evaluation backend/tests/` returns nothing. Its fold-orchestration logic — which
+  train/test frames reach `fit` and `predict_proba` — is verified only by manual runs. Transposing
+  `fit(train_x, ...)` and `predict_proba(test_x)` would produce a fully leaked headline number and
+  not one test in the 168-test suite would fail.
+  **Found independently by both reviewers this round**, which is the strongest signal the round
+  produced. It matters now because D-042 gives **T-030 exactly one evaluation run against 2026**, and
+  that run's orchestration is the least-tested code in the pipeline.
+  Remediation: fold into **T-030**, before the run that cannot be repeated. A test asserting the
+  fold's train frame never intersects its test frame, and that the fitted model is the one scored,
+  is sufficient.
+  Status: OPEN. reproduced: **yes — verified by main thread** (`grep -rln run_evaluation backend/tests/`).
+
+- **F-113** (T-006 / integrity, MEDIUM — forward-looking under D-038/D-039) — **the as-of filter is
+  structural, but history *completeness* is enforced only by a comment, and D-038 removes the one
+  caller that satisfied it trivially.** `compute_features` genuinely guarantees "no game dated at or
+  after `as_of` enters the vector". It does not guarantee, and structurally cannot detect, "every game
+  before `as_of` that should have entered, did." Both are required for a feature vector to be honest;
+  only the first is a control. The second currently lives in a docstring at `features.py:504-507`
+  ("Pass the full collection — do NOT pre-filter it").
+  It holds today because there is exactly one caller (`run_evaluation.py:56`) passing the entire
+  in-memory 6,605-game corpus. **D-039 closes the leaky direction well** — no as-of predicate, plus
+  T-024's mechanical check — **but it explicitly permits "reduce rows by season or by team" and
+  nothing states or checks what a *sufficient* narrowing is.**
+  The failure is silent by construction: an under-narrowed history yields shrinkage priors, which is
+  **byte-identical** to what opening night legitimately produces, because D-015 deliberately removed
+  the drop-early-games symptom that would have exposed it. F-045 closed the *type-mismatch* route to
+  this failure; the *incomplete-history* route to the identical failure is open, and D-038 makes it
+  reachable. `features.py:162-174` already names the hazard in its own prose: T-009 would read an
+  all-priors matrix as "the features carry no signal — no-ship" rather than "the pipeline is broken".
+  Narrowings D-039 permits, checked against the current features: **by team** — safe. **by season** —
+  safe *today, coincidentally*: `_rest_days` is not season-scoped, so a season's first game returns
+  `MAX_REST_DAYS`, and with full history its predecessor is 120–133 days back (T-007's measured
+  offseason) which also clamps to 5.0. The two agree only because the cap sits below the offseason
+  gap. **by date range or any `LIMIT`** — silently wrong, no symptom.
+  **T-028 sharpens it decisively:** `elo_diff` (D-032) is running state across all prior seasons
+  *including* D-037's 2016–2019 warm-up. A season-narrowed history cannot produce a correct Elo and
+  fails the same silent way.
+  Remediation: give `GameHistory` a **declared coverage** — the season and/or team set it was built
+  to represent — and have `compute_features` raise `FeatureInputError` when the target's season or
+  either team id falls outside it. `GameHistory.of` is already the single chokepoint (it already
+  refuses subclasses per F-050 and generators per F-045), so this converts an instruction into a
+  check using machinery that exists. Cheap at `eacc066` (one module, 40 tests, one caller);
+  expensive after T-024 and T-028 exist.
+  Status: OPEN. revisit-when: `before-T-024`.
+
+- **F-114** (all four tasks / test + refusal hygiene, LOW — the D-029 batch for this round, 8 items)
+  — batched per Tracker rule 5f. The promoted "test-does-not-pin-what-it-claims" class was searched
+  for specifically; the closest candidate is the stale 3-arg `Unfiltered._records_before` override at
+  `test_features.py:724` (the real signature has taken 4 args since F-068), which does **not** qualify
+  because the test still fails if the guard is removed. Notable items: `loader._verify_season` and
+  `verify_completed_counts` bind `EXPECTED_COMPLETED_COUNTS` as a **signature default** (the F-070
+  trap, now laid directly across the tests F-111 asks for — fix while writing them); `load_artifact`
+  leaks `AttributeError`/`KeyError` rather than the module's own `EstimatorError`.
+  Status: OPEN (backlog). reproduced: signature defaults verified by main thread at `loader.py:352,405`.
+
+- **F-125** (T-007 / logic, MEDIUM — the promoted "test does not pin what it claims" class) —
+  **`splits.py`'s temporal leak guard has its exact-equality boundary unpinned by any test.**
+  `backend/model/splits.py:129` reads `if latest_train >= earliest_test:`. Mutating `>=` to `>` in an
+  isolated copy leaves **all 16 `test_splits.py` tests passing**. The production code is correct; what
+  is missing is any test of the module's own stated invariant at its boundary — and T-007's whole
+  claim is that it asserts *dates* rather than season labels because "labels are a claim; dates are
+  the fact."
+  Promoted from LOW to MEDIUM under Tracker rule 5f: NBA schedules routinely have simultaneous
+  tip-offs, so an exact-timestamp tie between a fold's last training game and its first test game is
+  a narrow but real scenario, not a contrived one.
+  Remediation: **test-only, no production change.** Add a fixture with a training game whose tip-off
+  exactly equals the earliest test game's, asserting the fold error still fires.
+  Status: OPEN. reproduced: **yes — verified by main thread**, independently of the reviewer:
+  `git archive eacc066` to a temp dir, `sed` the operator, fresh `PYTHONPYCACHEPREFIX`, 16/16 passed
+  against the mutant. Shared tree confirmed clean before and after.
+
+- **F-126** (T-008/T-009 / test hygiene, LOW — the D-029 batch from logic-reviewer, 3 items) —
+  `estimator.py`'s `l2 < 0` and singular-matrix error paths are unexercised; `run_evaluation.py` has
+  no test file (tracked properly as **F-112**, listed here only for completeness of the batch); the
+  stale 3-arg fixture signature in `test_features.py` (harmless, never invoked — same item the
+  security batch reached independently at F-114).
+  **Numbering note:** the logic-reviewer returned this batch labelled "D-029", which is a *decision*
+  number (the decision that LOW findings batch), not a finding number. Corrected to F-126 from that
+  reviewer's allocated block during transcription — recorded rather than silently fixed, because a
+  finding that never got a number is a finding the status index cannot track.
+  Status: OPEN (backlog).
