@@ -49,6 +49,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+# F-110's containment check needs to know where the repo is. Same derivation `run_evaluation.py` and
+# `loader.py` already use, so all three agree on the root by construction rather than by coincidence.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 #: Artifact format tag. Bump if the shape changes so a stale artifact fails loudly.
 ARTIFACT_FORMAT: str = "json-linear-model/1"
 
@@ -245,9 +249,29 @@ def model_version(payload: dict) -> str:
 def save_artifact(model: LogisticModel, path: Path, *, training: dict) -> str:
     """Write the versioned artifact as JSON and return its version. Returns before it is read back.
 
-    JSON, never pickle — see the module docstring. `.gitignore` covers `/models/`; this refuses to
-    write anywhere else so an artifact cannot be committed by accident.
+    JSON, never pickle — see the module docstring.
+
+    **The containment check is real now (F-110).** This docstring previously claimed the function
+    "refuses to write anywhere else so an artifact cannot be committed by accident" while the body was
+    an unconditional `mkdir` + `write_text` — a documented guarantee that nothing enforced, which is
+    F-037's defect class exactly, in the one file whose whole thesis is that the artifact is safe.
+
+    What is enforced is the claim's actual *intent*, which is narrower than the claim was: an artifact
+    can only be committed by accident if it lands **inside the repository**, and `.gitignore` covers
+    exactly `/models/` (anchored, per F-016). So a path inside the repo but outside `/models/` is
+    refused; a path outside the repo entirely is fine and always was — that is where tests and scratch
+    runs write, and nothing there can reach git.
     """
+    resolved = path.resolve()
+    repo_root = REPO_ROOT.resolve()
+    if resolved.is_relative_to(repo_root) and not resolved.is_relative_to(repo_root / "models"):
+        raise EstimatorError(
+            f"refusing to write a model artifact to {resolved} — it is inside the repository but "
+            f"outside {repo_root / 'models'}, which is the only path `.gitignore` covers (anchored, "
+            "F-016). An artifact written here would be trackable, and a committed artifact is a "
+            "model whose provenance git history cannot distinguish from source. Write to /models/, "
+            "or to a path outside the repo."
+        )
     payload = artifact_payload(model, training=training)
     version = model_version(payload)
     document = {"model_version": version, "created_utc": datetime.now(UTC).isoformat(), **payload}

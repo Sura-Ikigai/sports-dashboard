@@ -1,7 +1,7 @@
 # Implementation Tracker — Sports Dashboard
 
 > Source of truth across sessions. Read this first every session.
-> Last updated: 2026-08-17 by Claude (PLAN phase — grill-me → PLAN-v3-modeling, D-032…D-047)
+> Last updated: 2026-08-21 by Claude (batched review round T-006..T-009 + remediation of F-125/F-110/F-113)
 
 ## Status legend
 
@@ -22,8 +22,8 @@
 **State now:** **Phase 1 has its answer (ship criterion MET), and the second cycle is planned.** On
 the sealed 2026 fold accuracy **.6762** against a .62 bar, log loss **.6020** against a
 constant-predictor **.6870** — both halves of D-008. But **D-031**: `point_diff_diff` carries
-essentially all of it. T-006/T-007/T-008/T-009 are `BUILT` and unreviewed; 28 commits sit unmerged on
-`feat/phase-1-analytical-core`.
+essentially all of it. T-006/T-007/T-008/T-009 are `BUILT`, now reviewed once and remediated;
+**32** commits sit unmerged on `feat/phase-1-analytical-core`.
 
 **D-031's open question is now answered, and the answer changed the plan.** A grill-me session on
 2026-08-17 ran two diagnostics against the pinned corpus rather than reasoning from the ablation.
@@ -64,21 +64,32 @@ symptom that would expose it. Season-narrowing is safe today only by arithmetic 
 (`MAX_REST_DAYS = 5.0` sits below the 120–133 day offseason), and **T-028's `elo_diff` breaks it
 outright** — Elo is running state across all prior seasons including D-037's warm-up.
 
-**Next action, in order:** **(1)** remediate — **F-125** (test-only, unblocks T-007) and **F-110**
-(one line), plus a decision on **F-113**: fixing it now costs one scoped re-review of `features.py`
-while it has 40 tests and one caller; deferring it to T-028 means retrofitting an integrity control
-through live call sites. **(2)** scoped re-review (D-028) — and per rule 5c, declare that F-113's fix
-**adds** a declared-coverage concept to `GameHistory` that no reviewer has seen. **(3)** advance to
+**REMEDIATION IS DONE — F-125, F-110 and F-113 are all FIXED** (main thread, not handed off). The
+F-113 decision was taken the way the round argued for: fix it now, while `features.py` has one caller,
+rather than retrofit an integrity control through live call sites after T-024 and T-028 exist.
+Suite **168 → 183**, gate **8/8**. Three things were verified rather than asserted: both new guards
+are **non-vacuous** (removing them in an isolated copy fails exactly the four new guard tests and
+nothing else); F-125's test was re-proved against the *original* mutation (`>=`→`>` fails it, 16/16
+others pass); and **the published numbers are unchanged, by re-running the real pipeline** — .6762 /
+.6020 / .7323, the coefficients, every calibration decile, and **`model_version 972d33a83ad9`**, the
+same content hash as `PHASE-1-RESULT.md` §6. A matching content hash is the strongest available
+evidence the fitted model is bit-identical.
+
+**Next action, in order:** **(1)** **scoped re-review** (D-028) of the remediation diff. Per rule 5c
+it **ADDED** code no reviewer has seen: `features.Coverage` (new public frozen dataclass with
+validation), `GameHistory._require_covers` and its call site, a keyword-only `coverage` parameter and
+`_coverage` slot, `estimator.REPO_ROOT`, the containment branch in `save_artifact`, and 15 tests.
+The reviewer — not the builder — decides whether that earns a full pass. **(2)** advance to
 `REVIEWED` → `DONE` and merge to `main` (**32** commits on `feat/phase-1-analytical-core`) — **a hard
 prerequisite, not housekeeping: `REVIEWED` is currency-checked and `DONE` is exempt, so T-005 and
 T-006 must reach `DONE` before T-022 touches `loader.py` and T-028 touches `features.py`, or the gate
-fails and you owe a re-review of Phase 1 code.** **(4)** mark PLAN-v3-modeling ACTIVE, copy to
+fails and you owe a re-review of Phase 1 code.** **(3)** mark PLAN-v3-modeling ACTIVE, copy to
 `PLAN-current.md`, start **T-021**. The model must freeze before **2026-09-30** (D-042).
 
 **Findings routed to cycle-2 tasks rather than fixed now:** F-111 → **T-022** (already opening
 `loader.py`; write `test_loader.py` before the parquet path, not after) · F-112 → **T-030** (before
-the one run D-042 allows) · F-113 → decision above, `revisit-when: before-T-024` · F-114/F-126 →
-test-hygiene backlog.
+the one run D-042 allows) · F-114/F-126 → test-hygiene backlog. **F-113 was NOT deferred** — it was
+fixed in this cycle, which is why T-024's acceptance can now say what a sufficient narrowing is.
 
 **Canon reconciliation is still in flight** — the factory's **PLAN-v2**
 (`Client Projects/Dev-System/docs/plans/PLAN-v2.md`, DRAFT) owns T-013..T-020; only T-011/T-012
@@ -512,9 +523,9 @@ so this *is* the currency scope):
 | Task  | security-auditor | logic-reviewer | ui-ux-reviewer | notes |
 |-------|------------------|----------------|----------------|-------|
 | T-002 | ✅ 34759ed       | ✅ 34759ed     | n/a            | Closed as superseded by T-005 (D-027) — the ✅s are T-005's, on the same code. Not a review of its own; the row exists so a DONE task carries a verdict, per canon. n/a: no user-facing surface |
-| T-009 | ✅ eacc066       | ✅ eacc066     | n/a            | r1 (batched) — security F-110 (docstring asserts an unenforced containment), F-112 (`run_evaluation.py` untested, found by **both** reviewers). Logic ✅ with a coverage-gap note, not a blocker; it reproduced every headline number exactly from committed code + pinned data. n/a: offline module |
-| T-008 | ✅ eacc066       | ✅ eacc066     | n/a            | r1 (batched) — clean both sides. Logic hand-verified the calibration binning edge cases and confirmed D-026's .55534 by independent recount (3668/6605 = .555337). n/a: offline module |
-| T-007 | ✅ eacc066       | ⛔ F-125       | n/a            | r1 (batched) — **⛔ logic**: the `>=` temporal boundary is unpinned; mutating to `>` leaves 16/16 green. Production code is correct — the gap is test coverage of the module's own stated invariant, so the fix is test-only. Reproduced independently by the main thread before transcription. n/a: offline module |
+| T-009 | ✅ eacc066*      | ✅ eacc066*    | n/a            | *stale: code changed after the ✅ (remediation). r1 (batched) — security F-110 (docstring asserts an unenforced containment), F-112 (`run_evaluation.py` untested, found by **both** reviewers). Logic ✅ with a coverage-gap note, not a blocker; it reproduced every headline number exactly from committed code + pinned data. n/a: offline module |
+| T-008 | ✅ eacc066*      | ✅ eacc066*    | n/a            | *stale: code changed after the ✅ (remediation). r1 (batched) — clean both sides. Logic hand-verified the calibration binning edge cases and confirmed D-026's .55534 by independent recount (3668/6605 = .555337). n/a: offline module |
+| T-007 | ✅ eacc066       | ⛔→remediated  | n/a            | **F-125 FIXED; awaiting scoped re-review.** r1 (batched) — **⛔ logic**: the `>=` temporal boundary is unpinned; mutating to `>` leaves 16/16 green. Production code is correct — the gap is test coverage of the module's own stated invariant, so the fix is test-only. Reproduced independently by the main thread before transcription. n/a: offline module |
 | T-006 | ✅ eacc066       | ✅ eacc066     | n/a            | r1 (batched, this round) — security F-111 (no `test_loader.py`), **F-113** (history completeness enforced by comment only; the complement of D-039 and the round's most consequential finding). Logic ✅. · **earlier rounds:** r2 ⛔⛔ @d8257b6: F-044..F-060 all verified CLOSED by both; both ⛔ on `corpus.py` (added in the remediation, never reviewed) — F-065 curation wiped a whole corpus silently, F-061 the safety default was untested, F-071 stale bytecode made local runs untrustworthy. Remediated. · r1 ⛔⛔ @34759ed: security F-044 (target's own result reachable via `history`) · logic F-051 HIGH (7 mutations survived; 3 change 5,000+ real vectors). Remediated — awaiting re-review. n/a: offline module, no user-facing surface |
 | T-005 | ✅ 34759ed       | ✅ 34759ed     | n/a            | 4 rounds: ✅/⛔ @32110ce (F-026/F-027 HIGH) · ⛔⛔ @e2d2558 (F-037 broke real downloads) · ✅✅ @8eae86c · re-review ✅✅ @34759ed after `406dd09` touched loader.py (F-039 docstring; both reviewers proved it AST-identical, security re-ran the download from an empty dir). n/a: no user-facing surface |
 | T-001 | ✅ 763101e       | ✅ 763101e     | n/a            | 4 rounds: r1 ⛔⛔@d8e3515 · r2 ✅✅@d0e661d · r3 logic ✅/security ⛔@fef3dc8 (F-019) · r4 ✅✅@763101e. n/a: no user-facing surface changed |
@@ -537,11 +548,11 @@ so this *is* the currency scope):
 
 | ID | Sev | Area | Status | Fires when |
 |----|-----|------|--------|-----------|
-| **F-113** | MEDIUM | integrity | OPEN — history *completeness* is enforced by a comment, not a check; D-038 removes the caller that satisfied it. Silent failure: an under-narrowed history is byte-identical to opening night. Breaks Elo outright | `before-T-024` |
-| **F-125** | MEDIUM | logic/tests | OPEN — `splits.py`'s `>=` boundary unpinned; mutating to `>` leaves 16/16 green. Test-only fix. **Blocks T-007** | — |
+| **F-113** | MEDIUM | integrity | **FIXED** — `features.Coverage` + `GameHistory._require_covers`, checked before any feature is computed. Residual stated, not papered over: a raw sequence declares nothing, so narrowing must be *declared* (T-024's job) because it cannot be *detected* | — |
+| **F-125** | MEDIUM | logic/tests | **FIXED** — exact-tie fixture + a control one microsecond earlier. Test-only; `splits.py` was already correct. Re-proved non-vacuous by re-running the original mutation | — |
 | **F-111** | MEDIUM | tests | OPEN — `loader.py` has no test file; every T-005 refusal branch uncovered, and D-046 just made that machinery the corpus integrity guarantee | `T-022` |
 | **F-112** | MEDIUM | tests | OPEN — `run_evaluation.py` untested; a transposed fit/predict would leak the headline silently. **Found by both reviewers** | `T-030` |
-| **F-110** | MEDIUM | docs/integrity | OPEN — `save_artifact`'s docstring claims it "refuses to write anywhere else"; no such check exists | — |
+| **F-110** | MEDIUM | docs/integrity | **FIXED** — containment implemented as the claim's *intent*, which is narrower: refuses a path inside the repo but outside the gitignored `/models/`. Outside the repo stays allowed (where the 15 existing tests write) | — |
 | **F-114** | LOW | tests/hygiene | OPEN (backlog) — security batch, 8 items; incl. the F-070 signature-default trap at `loader.py:352,405` | — |
 | **F-126** | LOW | tests/hygiene | OPEN (backlog) — logic batch, 3 items; renumbered from the reviewer's mislabelled "D-029" | — |
 | **F-001** | HIGH | security | ACCEPTED — no authorization boundary exists anywhere in the app | `first-user-scoped-data` |

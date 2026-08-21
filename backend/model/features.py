@@ -299,6 +299,69 @@ class _TeamGame:
     opponent_id: str
 
 
+@dataclass(frozen=True)
+class Coverage:
+    """What a history CLAIMS to contain -- the other half of the as-of guarantee (F-113).
+
+    The as-of filter guarantees *"no game dated at or after `as_of` entered this vector."* It cannot
+    guarantee the complementary half -- *"every game before `as_of` that should have entered, did"* --
+    because a history that is missing games is indistinguishable from a history whose teams simply had
+    not played yet. Both halves are required for a feature vector to be honest; until now only the
+    first was a control and the second was an instruction in a docstring.
+
+    That was harmless while exactly one caller existed, passing the entire in-memory corpus. It stops
+    being harmless under D-038/D-039: history arrives from SQL, and D-039 permits narrowing *"by
+    season or by team"* without defining what a **sufficient** narrowing is. An under-narrowed history
+    produces shrinkage priors, which is **byte-identical** to what opening night legitimately produces
+    -- D-015 deliberately removed the drop-early-games symptom that would otherwise expose it -- so the
+    failure is silent by construction. F-045 closed the *type-mismatch* route to that same silent
+    all-priors failure; this closes the *incomplete-history* route to it.
+
+    So a narrowing caller **declares** what it narrowed by, and `compute_features` refuses a target the
+    declaration does not cover. Every field defaults to `None` meaning "unrestricted", so a caller
+    passing the full corpus declares nothing and behaves exactly as it did before.
+
+    Fields:
+        teams: the team ids this history contains every game for. `None` = every team.
+        complete_from: the moment this history's record *begins*. `None` = "this is the beginning of
+            the record", which is a claim only a caller that loaded the full corpus may make.
+        complete_to: the moment this history's record *ends*. `None` = "through the end of the
+            record". A window reaching past this is refused.
+    """
+
+    teams: frozenset[str] | None = None
+    complete_from: datetime | None = None
+    complete_to: datetime | None = None
+
+    def __post_init__(self) -> None:
+        for label in ("complete_from", "complete_to"):
+            value = getattr(self, label)
+            if value is not None:
+                _require_aware(value, f"Coverage.{label}")
+        if (
+            self.complete_from is not None
+            and self.complete_to is not None
+            and self.complete_from >= self.complete_to
+        ):
+            raise FeatureInputError(
+                f"Coverage.complete_from ({self.complete_from.isoformat()}) must be strictly before "
+                f"complete_to ({self.complete_to.isoformat()}) -- an empty or inverted range cannot "
+                "describe a history that contains anything"
+            )
+        if self.teams is not None:
+            if not isinstance(self.teams, frozenset):
+                raise FeatureInputError(
+                    f"Coverage.teams must be a frozenset of team ids or None, got "
+                    f"{type(self.teams).__name__} -- a mutable set would let a caller widen a "
+                    "declaration after the check read it"
+                )
+            if not self.teams:
+                raise FeatureInputError(
+                    "Coverage.teams is empty -- a history covering no teams cannot produce any "
+                    "feature. Pass None to declare 'every team'."
+                )
+
+
 class GameHistory:
     """An immutable, team-indexed view of a completed-game collection.
 
@@ -313,9 +376,9 @@ class GameHistory:
     6,615-game history, which is ~44M comparisons scanned naively and a bisect per team here.
     """
 
-    __slots__ = ("_dates", "_records")
+    __slots__ = ("_coverage", "_dates", "_records")
 
-    def __init__(self, games: Sequence[Game]) -> None:
+    def __init__(self, games: Sequence[Game], *, coverage: Coverage | None = None) -> None:
         # F-045: a one-shot iterator is the declared-looking input that fails silently. Building an
         # index consumes it, so a *second* call with the same generator sees an empty history, falls
         # back to every prior, and raises nothing -- indistinguishable from a legitimate cold start.
@@ -327,6 +390,12 @@ class GameHistory:
                 f"{type(games).__name__}. A generator or other one-shot iterator is refused: it "
                 "would be consumed by the first call and silently yield priors on every later one."
             )
+
+        if coverage is not None and not isinstance(coverage, Coverage):
+            raise FeatureInputError(
+                f"coverage must be a Coverage or None, got {type(coverage).__name__}"
+            )
+        self._coverage: Coverage = coverage if coverage is not None else Coverage()
 
         by_team: dict[str, list[_TeamGame]] = {}
         seen_ids: set[str] = set()
@@ -434,6 +503,53 @@ class GameHistory:
                 )
         return tuple(kept)
 
+    def _require_covers(self, target: Matchup, as_of: datetime) -> None:
+        """Refuse a target this history does not claim to cover (F-113).
+
+        Runs before any feature is computed, because the failure it guards against has no symptom
+        after the fact: an incomplete history returns shrinkage priors, and a vector of priors is
+        exactly what a legitimate opening-night game produces.
+
+        The three checks correspond to the three ways D-039's permitted narrowings can go wrong.
+        """
+        coverage = self._coverage
+
+        if coverage.teams is not None:
+            absent = [t for t in (target.home_id, target.away_id) if t not in coverage.teams]
+            if absent:
+                raise FeatureInputError(
+                    f"history declares coverage of {len(coverage.teams)} team(s) and does not "
+                    f"include {absent} -- game {target.game_id!r} is {target.away_id!r} at "
+                    f"{target.home_id!r}. A team-narrowed query fetched the wrong teams; without this "
+                    "check that team's features would be computed from an empty window and returned "
+                    "as priors, which is indistinguishable from a team that has not played yet."
+                )
+
+        if coverage.complete_from is not None:
+            # Blunt on purpose. Every look-back feature in this module is unbounded in time:
+            # `_rest_days` is explicitly NOT season-scoped (a season's first game reads back into the
+            # previous season), and D-032's `elo_diff` is running state across *all* prior seasons
+            # including D-037's 2016-2019 warm-up. So no lower bound is ever sufficient, and a
+            # season-narrowed history is wrong for both -- today only silently, because MAX_REST_DAYS
+            # happens to sit below the 120-133 day offseason (T-007's measured figure). That is
+            # arithmetic, not design, and D-032 removes even that coincidence.
+            raise FeatureInputError(
+                f"history declares its record begins at {coverage.complete_from.isoformat()}, so it "
+                "cannot support features that look back past that moment -- `rest_diff` is not "
+                "season-scoped, and `elo_diff` (D-032) is running state over every prior season. "
+                "Narrow by team, never by season or date range. If you loaded the full corpus and it "
+                "simply starts where it starts, declare complete_from=None: that is the claim 'this "
+                "is the beginning of the record', and it is the loader's to make, not a query's."
+            )
+
+        if coverage.complete_to is not None and as_of > coverage.complete_to:
+            raise FeatureInputError(
+                f"as_of {as_of.isoformat()} is after this history's declared record end "
+                f"{coverage.complete_to.isoformat()} -- the as-of window would extend past what the "
+                "history claims to contain, and the games in the gap would be silently missing rather "
+                "than absent."
+            )
+
 
 def _shrink(observed: float, n: int, prior: float) -> float:
     """Blend a team's own `n`-game observation toward `prior` with weight `n/(n+k)` (D-015).
@@ -506,6 +622,10 @@ def compute_features(
             collection -- do NOT pre-filter it. Filtering is this module's job, and a caller
             that filters is a caller that can filter wrongly. Must contain only final games
             (see the module docstring's precondition) and no duplicate `game_id`.
+            **If you must narrow it, say so** (F-113): build a `GameHistory` with an explicit
+            `Coverage` and this function will refuse a target the declaration does not cover.
+            A raw sequence declares nothing, so it is taken at its word -- which is why the
+            instruction above is still an instruction and the declaration is the check.
         target: the pre-game `Matchup`. Use `Game.matchup` for a completed game.
         as_of: the prediction moment, timezone-aware. Training: the target's own tip-off (prefer
             `compute_training_features`). Inference: the current moment, before tip-off.
@@ -533,6 +653,9 @@ def compute_features(
         )
 
     index = GameHistory.of(history)
+    # F-113: the completeness half of the guarantee, checked BEFORE anything is computed. An
+    # incomplete history yields priors, and priors are what a legitimate opening night looks like.
+    index._require_covers(target, as_of)
     home = index._records_before(target.home_id, as_of, target.game_id, target.away_id)
     away = index._records_before(target.away_id, as_of, target.game_id, target.home_id)
 

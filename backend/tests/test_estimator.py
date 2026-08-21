@@ -200,3 +200,55 @@ def test_an_artifact_in_an_unknown_format_is_refused(tmp_path):
     path.write_text(json.dumps({"format": "pickle/2", "model_version": "x"}))
     with pytest.raises(EstimatorError, match="refusing to guess"):
         load_artifact(path)
+
+
+# --- F-110: the containment check the docstring used to only claim ------------------------------
+
+
+def test_an_artifact_inside_the_repo_but_outside_models_is_refused():
+    """F-110 — the docstring claimed this refused; the body was an unconditional write.
+
+    The claim's real intent is narrower than the claim was: an artifact can only be committed by
+    accident if it lands inside the repository, and `.gitignore` covers exactly `/models/` (anchored,
+    F-016). So this is the case that must fail — a plausible-looking path that git would happily
+    track.
+    """
+    from model.estimator import REPO_ROOT
+
+    with pytest.raises(EstimatorError, match="inside the repository but outside"):
+        save_artifact(
+            _model(),
+            REPO_ROOT / "backend" / "model" / "accidental.json",
+            training={"seasons": [2022], "n_games": 300},
+        )
+    assert not (REPO_ROOT / "backend" / "model" / "accidental.json").exists()
+
+
+def test_an_artifact_outside_the_repo_is_allowed(tmp_path):
+    """The control (F-051's lesson): a check that refused everything would pass the test above and
+    break every existing caller. Outside the repo, nothing can reach git — which is why the whole
+    suite already writes to tmp_path and must keep working."""
+    version = save_artifact(
+        _model(), tmp_path / "model.json", training={"seasons": [2022], "n_games": 300}
+    )
+    assert version
+    assert (tmp_path / "model.json").exists()
+
+
+def test_an_artifact_in_the_models_dir_is_allowed():
+    """The path production actually uses (`run_evaluation.ARTIFACT_DIR`). Gitignored, so writing and
+    removing a probe here cannot dirty the tree — asserted rather than assumed."""
+    import subprocess
+
+    from model.estimator import REPO_ROOT
+
+    path = REPO_ROOT / "models" / "f110-probe.json"
+    try:
+        assert save_artifact(_model(), path, training={"seasons": [2022], "n_games": 300})
+        assert path.exists()
+        porcelain = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=REPO_ROOT, capture_output=True, text=True
+        ).stdout
+        assert "f110-probe.json" not in porcelain
+    finally:
+        path.unlink(missing_ok=True)

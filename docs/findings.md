@@ -1146,3 +1146,67 @@ rather than by being forgotten (§5.4).
   reviewer's allocated block during transcription — recorded rather than silently fixed, because a
   finding that never got a number is a finding the status index cannot track.
   Status: OPEN (backlog).
+
+### Remediation of the 2026-08-21 round — F-125, F-110, F-113
+
+<!-- Appended, not edited (rule 3). The status index in IMPLEMENTATION.md is the derived view that
+     answers "is it still open?"; this is the evidence. -->
+
+- **F-125 — FIXED.** `test_split_refuses_a_training_game_at_exactly_the_first_test_tipoff` added to
+  `backend/tests/test_splits.py`. **No production change** — `splits.py:129` was already correct; the
+  gap was that nothing pinned it. Built as a fixture whose training game tips at *exactly*
+  `min(g.date for g in test)`, paired with a **control** one microsecond earlier that must still be
+  accepted (F-051's lesson: a test asserting only the raise would also pass against a module that
+  refused everything).
+  **Verified non-vacuous the same way the finding was found:** copied the tree to a temp dir, mutated
+  `>=` to `>`, fresh `PYTHONPYCACHEPREFIX` — the new test **FAILS** (`DID NOT RAISE FoldError`) while
+  the other 16 pass. Against the unmutated module all 17 pass.
+
+- **F-110 — FIXED, and the fix is narrower than the original claim.** The docstring asserted
+  `save_artifact` *"refuses to write anywhere else"*; the body was an unconditional `mkdir` +
+  `write_text`. Implementing the claim literally was impossible — the existing 15 estimator tests
+  legitimately write to `tmp_path`, and refusing that would break every one of them.
+  So the *intent* was implemented instead, which is genuinely narrower and honest about it: an
+  artifact can only be committed by accident if it lands **inside the repository**, and `.gitignore`
+  covers exactly `/models/` (anchored, F-016). A path inside the repo but outside `/models/` now
+  raises `EstimatorError`; a path outside the repo is allowed and always was. The docstring is
+  rewritten to say what is enforced and to record that it previously did not enforce it.
+
+- **F-113 — FIXED.** `Coverage` added to `features.py`: a frozen declaration of what a history
+  *claims to contain* (`teams`, `complete_from`, `complete_to`, each `None` = unrestricted), checked
+  by `GameHistory._require_covers` **before any feature is computed** — because the failure has no
+  symptom afterwards.
+  Three checks, one per way D-039's permitted narrowings go wrong: a target whose teams the history
+  does not cover is refused; **any** declared `complete_from` is refused outright (every look-back
+  feature here is unbounded in time — `_rest_days` is not season-scoped and D-032's `elo_diff` is
+  running state over every prior season, so no lower bound is ever sufficient, which is precisely
+  what makes season-narrowing wrong); and an `as_of` past a declared `complete_to` is refused.
+  **The residual is real and stated rather than papered over:** a raw sequence declares nothing and is
+  taken at its word, so the docstring instruction "pass the full collection" is still an instruction
+  for that path. Narrowing cannot be *detected*, only *declared* — T-024's store is the caller that
+  must declare, and this is the API that lets it.
+
+**Verification of the remediation as a whole:**
+- Suite **168 → 183**, all passing. Gate **8/8**.
+- **Both new guards proved non-vacuous by mutation**: removing `_require_covers`' call site and the
+  containment check in an isolated copy fails exactly four of the new tests
+  (`..._refuses_a_target_it_does_not_cover`, `..._declaring_a_start_is_refused...`,
+  `..._as_of_past_the_declared_record_end...`, `..._inside_the_repo_but_outside_models_is_refused`)
+  and nothing else.
+- **The published numbers are unchanged, verified by re-running the real pipeline**, not by argument:
+  `PYTHONPATH=backend python -m model.run_evaluation` reproduces .6762 / .6020 / .7323, the
+  coefficients, spread .0318, stdev .0169, every calibration decile — and emits
+  **`model_version 972d33a83ad9`**, the same content hash as the sealed-fold model in
+  `PHASE-1-RESULT.md` §6. A content hash matching is the strongest available evidence the fitted
+  model is bit-identical, so `features.py` changed behaviour for no production call path.
+
+**Rule 5c — what this remediation ADDED (new code no reviewer has seen):**
+1. `features.Coverage` — new public frozen dataclass, with `__post_init__` validation (tz-awareness,
+   ordered range, non-empty `frozenset` teams — the mutable-set refusal matters, a plain `set` could
+   be widened after the check read it).
+2. `GameHistory._require_covers` — new method, and a new call site inside `compute_features`.
+3. `GameHistory.__init__` — new keyword-only `coverage` parameter and a new `_coverage` slot.
+4. `estimator.REPO_ROOT` — new module constant (same derivation `run_evaluation.py` and `loader.py`
+   already use, so all three agree by construction).
+5. The containment branch in `save_artifact`.
+6. 15 new tests across `test_features.py`, `test_splits.py`, `test_estimator.py`.

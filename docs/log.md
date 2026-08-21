@@ -605,3 +605,45 @@ Newest entry on top. Keep it lean — a few lines per session; git history carri
 - Ended at: round transcribed, four ledger rows written, F-110…F-114 / F-125 / F-126 in
   `docs/findings.md` and the status index. Next is remediation of F-125 + F-110, the F-113 decision,
   then a scoped re-review and the merge.
+
+## 2026-08-21 (cont.) — remediation of F-125, F-110, F-113
+
+- **Ran the remediation in the main thread rather than handing to `backend-engineer`**, at the owner's
+  direction. All three MEDIUMs from the round are FIXED.
+- **F-125 — test-only.** `splits.py:129` was already correct; nothing pinned its `=` boundary. Added a
+  fixture whose training game tips at *exactly* the earliest test game's instant, plus a control one
+  microsecond earlier that must still be accepted — because a test asserting only the raise would
+  also pass against a module that refused everything (F-051's lesson, applied deliberately).
+  Re-proved against the original mutation: `>=`→`>` makes the new test fail and the other 16 pass.
+- **F-110 — implemented the intent, not the literal claim, and said so.** The docstring asserted
+  `save_artifact` "refuses to write anywhere else"; the body was an unconditional write. Implementing
+  it literally was impossible — 15 existing tests write to `tmp_path` and refusing that breaks all of
+  them. What is enforced instead is the claim's actual purpose: an artifact can only be committed by
+  accident *inside the repo*, and `.gitignore` covers exactly `/models/` (anchored, F-016). So a path
+  inside the repo but outside `/models/` raises; outside the repo stays allowed. The docstring now
+  records that it previously enforced nothing.
+- **F-113 — fixed now rather than deferred**, which was the round's own argument and the more
+  expensive-later option. `Coverage` declares what a history *claims to contain*; `_require_covers`
+  checks it **before any feature is computed**, because the failure has no symptom afterwards. The
+  blunt part is deliberate: **any** declared `complete_from` is refused, because every look-back
+  feature here is unbounded in time — `_rest_days` is not season-scoped and D-032's `elo_diff` is
+  running state over every prior season — so no lower bound is ever sufficient. That is precisely what
+  makes season-narrowing wrong, and it converts D-039's undefined "sufficient narrowing" into a rule
+  T-024 can be written against.
+- **The residual is stated rather than papered over.** A raw sequence declares nothing and is taken at
+  its word. Narrowing cannot be *detected*, only *declared* — so the docstring instruction survives
+  for that path, and T-024's store is the caller that must declare.
+- **Verified three ways, none of them by argument.** (1) Both new guards proved **non-vacuous** by
+  mutation: removing `_require_covers`' call site and the containment branch in an isolated copy fails
+  exactly the four new guard tests and nothing else. (2) Suite 168 → **183**, gate **8/8**. (3) **The
+  published numbers are unchanged, by re-running the real pipeline** — .6762 / .6020 / .7323, the
+  coefficients, every calibration decile, and `model_version` **972d33a83ad9**, the same content hash
+  as `PHASE-1-RESULT.md` §6. A matching content hash means the fitted model is bit-identical, so
+  nothing on the production path changed behaviour.
+- **One lint convention learned the boring way:** ruff's `DTZ001` flags the naive datetime the
+  `Coverage` validation test *needs*. The repo already had the answer at `test_features.py:468` —
+  `# noqa: DTZ001 -- the point of the test` — so the new test follows it rather than inventing a
+  second convention.
+- Ended at: remediation complete, tree clean, gate 8/8. The four ledger ✅s are marked stale in
+  substance (code changed after them). Next is the **scoped re-review** (D-028) of the remediation
+  diff — and per rule 5c the hand-off declares what was ADDED, not just changed.

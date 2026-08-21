@@ -25,6 +25,7 @@ from model.features import (
     MAX_REST_DAYS,
     PRIOR_WIN_RATE,
     SHRINKAGE_K,
+    Coverage,
     FeatureInputError,
     FeatureLeakageError,
     Game,
@@ -821,3 +822,100 @@ def test_game_validates_its_team_ids_not_just_matchup():
     with pytest.raises(FeatureInputError, match="home_id must be a str"):
         Game(game_id="g", date=at(0), season=SEASON, home_id=1, away_id="B",
              home_score=110, away_score=100)
+
+
+# --- Coverage: the completeness half of the guarantee (F-113) -------------------------------------
+
+_NAIVE = datetime(2024, 1, 1)  # noqa: DTZ001 -- the point of the test, same as line 468
+
+
+def test_an_incomplete_history_silently_returns_priors_when_it_declares_nothing():
+    """F-113, stated as the failure it is — this is what the check exists to stop.
+
+    A history that does not contain the target's teams produces a vector of shrinkage priors, and a
+    vector of priors is EXACTLY what a legitimate opening-night game produces (D-015 removed the
+    drop-early-games symptom that would otherwise expose it). Nothing raises, nothing is logged, and
+    T-009 would read the resulting matrix as "the features carry no signal" rather than "the pipeline
+    is broken". This test pins the hazard so the next test's value is legible.
+    """
+    wrong_teams = [game("g1", 0, "C", "D", 120, 100), game("g2", 2, "D", "C", 99, 90)]
+    target = matchup("t", 10, "A", "B")
+
+    features = compute_features(wrong_teams, target, at(10))
+
+    assert features["form_diff"] == 0.0
+    assert features["point_diff_diff"] == 0.0
+    assert features["rest_diff"] == 0.0  # both teams "fully rested" — they simply are not in here
+
+
+def test_a_team_narrowed_history_refuses_a_target_it_does_not_cover():
+    """The same history as above, declaring what it actually is, now fails closed."""
+    wrong_teams = [game("g1", 0, "C", "D", 120, 100), game("g2", 2, "D", "C", 99, 90)]
+    index = GameHistory(wrong_teams, coverage=Coverage(teams=frozenset({"C", "D"})))
+
+    with pytest.raises(FeatureInputError, match="does not include"):
+        compute_features(index, matchup("t", 10, "A", "B"), at(10))
+
+
+def test_a_team_narrowed_history_still_computes_the_teams_it_does_cover():
+    """The control (F-051's lesson). Without this, a check that refused EVERYTHING would pass the
+    test above perfectly — and the declared-coverage feature would be worse than useless."""
+    games = [game("g1", 0, "A", "B", 120, 100), game("g2", 2, "B", "A", 99, 90)]
+    target = matchup("t", 10, "A", "B")
+
+    declared = compute_features(
+        GameHistory(games, coverage=Coverage(teams=frozenset({"A", "B"}))), target, at(10)
+    )
+    undeclared = compute_features(games, target, at(10))
+
+    assert declared == undeclared
+    assert declared["point_diff_diff"] != 0.0  # real signal, not priors
+
+
+def test_declaring_an_empty_coverage_is_identical_to_declaring_nothing():
+    """Backwards compatibility, asserted rather than assumed: every existing caller passes a raw
+    sequence, and `Coverage()` must mean exactly what they already get."""
+    games = [game("g1", 0, "A", "B", 120, 100), game("g2", 2, "B", "A", 99, 90)]
+    target = matchup("t", 10, "A", "B")
+
+    assert compute_features(GameHistory(games, coverage=Coverage()), target, at(10)) == (
+        compute_features(games, target, at(10))
+    )
+
+
+def test_a_history_declaring_a_start_is_refused_because_lookback_is_unbounded():
+    """`rest_diff` is not season-scoped and D-032's `elo_diff` is running state over every prior
+    season, so NO lower bound is sufficient. Season-narrowing is the case this forbids."""
+    games = [game("g1", 0, "A", "B", 120, 100), game("g2", 2, "B", "A", 99, 90)]
+    index = GameHistory(games, coverage=Coverage(complete_from=at(-1)))
+
+    with pytest.raises(FeatureInputError, match="record begins at"):
+        compute_features(index, matchup("t", 10, "A", "B"), at(10))
+
+
+def test_an_as_of_past_the_declared_record_end_is_refused():
+    games = [game("g1", 0, "A", "B", 120, 100), game("g2", 2, "B", "A", 99, 90)]
+    index = GameHistory(games, coverage=Coverage(complete_to=at(5)))
+
+    with pytest.raises(FeatureInputError, match="declared record end"):
+        compute_features(index, matchup("t", 10, "A", "B"), at(10))
+
+    # control: an as_of inside the declared range is fine
+    assert compute_features(index, matchup("t2", 4, "A", "B"), at(4))["point_diff_diff"] != 0.0
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"complete_from": _NAIVE}, "Coverage.complete_from is a naive datetime"),
+        ({"complete_to": _NAIVE}, "Coverage.complete_to is a naive datetime"),
+        ({"complete_from": at(9), "complete_to": at(1)}, "strictly before"),
+        ({"teams": frozenset()}, "covering no teams"),
+        ({"teams": {"A", "B"}}, "must be a frozenset"),
+    ],
+)
+def test_a_malformed_coverage_is_refused_at_construction(kwargs, match):
+    """A declaration that cannot be trusted is worse than no declaration — it reads as a guarantee.
+    The mutable-set case matters most: a plain set could be widened after the check read it."""
+    with pytest.raises(FeatureInputError, match=match):
+        Coverage(**kwargs)

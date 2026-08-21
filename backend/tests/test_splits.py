@@ -163,6 +163,52 @@ def test_split_trusts_the_dates_over_the_season_labels():
         split_games([*games, intruder], WALK_FORWARD_FOLDS[0])
 
 
+def test_split_refuses_a_training_game_at_exactly_the_first_test_tipoff():
+    """F-125 — the guard is `>=`, and nothing pinned the `=`.
+
+    Mutating `latest_train >= earliest_test` to `>` in `splits.py` left all 16 tests in this file
+    passing, so the boundary of the module's own stated invariant ("a fold must never train on its own
+    future") was unverified. This is not a contrived tie: NBA schedules routinely tip several games at
+    the same instant, so a training game sharing a timestamp with the first test game is a real, if
+    narrow, arrangement — and a game played *simultaneously* with the first test game is not in that
+    fold's past.
+
+    Deliberately paired with a control below, for the reason T-006 paid a round to learn (F-051): a
+    test that only asserts the raise would also pass against a module that refused everything.
+    """
+    games = _corpus()
+    fold = WALK_FORWARD_FOLDS[0]
+    train, test = split_games(games, fold)
+    earliest_test = min(g.date for g in test)
+
+    # a 2022-labelled game tipping at exactly the first test game's instant
+    tie = Game(
+        game_id="exact-tie",
+        date=earliest_test,
+        season=2022,
+        home_id="t00",
+        away_id="t01",
+        home_score=110,
+        away_score=100,
+    )
+    with pytest.raises(FoldError, match="Trust the dates"):
+        split_games([*games, tie], fold)
+
+    # control: one microsecond earlier is legitimately in the past and must still be accepted
+    just_before = Game(
+        game_id="just-before",
+        date=earliest_test - timedelta(microseconds=1),
+        season=2022,
+        home_id="t00",
+        away_id="t01",
+        home_score=110,
+        away_score=100,
+    )
+    train_ok, _ = split_games([*games, just_before], fold)
+    assert any(g.game_id == "just-before" for g in train_ok)
+    assert len(train_ok) == len(train) + 1
+
+
 def test_split_is_temporally_clean_on_every_fold():
     """The property stated positively, across all three folds."""
     games = _corpus()
