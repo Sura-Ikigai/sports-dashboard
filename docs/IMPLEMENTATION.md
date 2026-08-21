@@ -482,6 +482,31 @@ every agent was told to read it to act on a task that needed two entries from it
      allocation: two reviewers both given it will both use it, which is exactly what produced two
      conflicting F-061..F-066 sets that had to be reconciled by hand (F-100). -->
 
+### Round 2 (scoped re-review) — 2026-08-21, remediation diff `eacc066..08ae6e4`
+
+<!-- Blocks allocated before spawning, again. Each reviewer CONTINUES in the unused remainder of its
+     own round-1 block rather than getting a fresh range: the ranges are already disjoint, and
+     reallocating would make round-1 and round-2 numbers interleave for no benefit. -->
+
+| reviewer | block (remainder of its round-1 range) | round-1 usage |
+|---|---|---|
+| `security-auditor` | **F-115 – F-124** | used F-110–F-114 |
+| `logic-reviewer` | **F-127 – F-139** | used F-125; F-126 assigned by the main thread in transcription |
+| main thread | **F-140 +** | — |
+
+**Scope (D-028 — a re-review is scoped by default, and the *reviewer* decides if it earns a full
+pass, not the builder):** the diff `eacc066..08ae6e4` over `backend/` — 347 insertions across
+`estimator.py`, `features.py`, `test_estimator.py`, `test_features.py`, `test_splits.py`.
+
+**Rule 5c — what the remediation ADDED, declared so the re-review scopes it as new code rather than
+discovering it:** `features.Coverage` (new public frozen dataclass with `__post_init__` validation) ·
+`GameHistory._require_covers` and its call site in `compute_features` · `GameHistory.__init__`'s
+keyword-only `coverage` parameter and `_coverage` slot · `estimator.REPO_ROOT` · the containment
+branch in `save_artifact` · 15 tests. Twice in this project the code that failed the next round was
+code that arrived with the previous remediation and had never been reviewed by anyone.
+
+---
+
 **Finding-number blocks — disjoint, allocated in writing:**
 
 | reviewer | block | scope |
