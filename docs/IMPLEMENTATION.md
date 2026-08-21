@@ -440,6 +440,48 @@ every agent was told to read it to act on a task that needed two entries from it
 
 `grep -n 'D-0NN' docs/decisions.md` for the ones a task actually cites — task entries name them.
 
+## Review round — 2026-08-21, batched T-006/T-007/T-008/T-009 @ `0daaf29`
+
+<!-- Written BEFORE any reviewer was spawned, per Tracker rule 5a. "Start at F-0NN" is not an
+     allocation: two reviewers both given it will both use it, which is exactly what produced two
+     conflicting F-061..F-066 sets that had to be reconciled by hand (F-100). -->
+
+**Finding-number blocks — disjoint, allocated in writing:**
+
+| reviewer | block | scope |
+|---|---|---|
+| `security-auditor` | **F-110 – F-124** | T-006/7/8/9, all four at once |
+| `logic-reviewer` | **F-125 – F-139** | T-006/7/8/9, all four at once |
+| main thread | **F-140 +** | well clear of both |
+
+**Batched deliberately.** T-006 has already had three rounds and produced only test-hygiene findings
+after round 2 (D-029). Batching four tasks into one round is the alternative to repeating that.
+
+**Task file ownership** (derived from commit subjects — the same rule `review-ledger-current` uses,
+so this *is* the currency scope):
+
+- **T-006** — `features.py`, `corpus.py`, `dataset.py`, `loader.py` + `test_features.py`,
+  `test_corpus.py`, `test_dataset.py`. Note it owns `loader.py`: a T-006 commit touched it, so
+  T-005's and T-006's currency are coupled through that file.
+- **T-007** — `splits.py`, `test_splits.py`
+- **T-008** — `evaluate.py`, `test_evaluate.py`
+- **T-009** — `estimator.py`, `run_evaluation.py`, `test_estimator.py`
+
+**Round constraints handed to both reviewers:**
+
+1. **Reviewers do not run tests in the shared tree.** F-072: two concurrent round-3 slices corrupted
+   each other within minutes — one patched `features.py` in place while the other ran the suite, and
+   the second nearly filed three phantom HIGH findings off runs inside a patch window. Any mutation
+   testing goes in `git worktree` / `git archive` to a temp dir, with a fresh `PYTHONPYCACHEPREFIX`
+   per run and `git status --porcelain` snapshotted around every run.
+2. **F-106 is live and affects this round.** The canon agent files synced in T-012 instruct
+   `Read, Grep, Glob`-scoped reviewers to run `git worktree`, `git archive` and `pytest` — none of
+   which those tools can execute. The main thread runs anything a reviewer needs executed.
+3. **F-040…F-079 are CLOSED.** Do not re-file them; cite them if a regression is found.
+4. **LOW findings batch into one test-hygiene entry per round** (D-029, rule 5f) — **except** "this
+   test does not pin what it claims to pin", which is promoted to MEDIUM and tracked individually.
+   That class has twice been a real safety gap wearing a LOW label (F-059 → F-061; F-055).
+
 ## Review ledger
 
 | Task  | security-auditor | logic-reviewer | ui-ux-reviewer | notes |
