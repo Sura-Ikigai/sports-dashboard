@@ -46,7 +46,11 @@ rest re-encoded ≈ +.005–.015, travel ≈ +.002, **availability unknown and t
 
 **Next action, in order:** **(1)** one **batched** review of T-006/T-007/T-008/T-009 — four rounds on
 T-006 produced only test-hygiene findings after round 2, so batch rather than repeat that;
-**(2)** merge Phase 1 to `main` (28 commits) and advance the reviewed tasks to `DONE`; **(3)** mark
+**(2)** merge to `main` (**32** commits on `feat/phase-1-analytical-core`, measured — the "28" this
+line carried was stale) and advance the reviewed tasks to `DONE` — **this is a hard prerequisite, not
+housekeeping: `REVIEWED` is currency-checked and `DONE` is exempt, so T-005 and T-006 must reach
+`DONE` before T-022 touches `loader.py` and T-028 touches `features.py`, or the gate fails and you
+owe a re-review of Phase 1 code**; **(3)** mark
 PLAN-v3-modeling ACTIVE, copy it to `PLAN-current.md`, and start **T-021**. The model must freeze
 before **2026-09-30** (D-042) — measured review throughput in this repo is 3–4 rounds per task
 against ~15 new tasks plus 4 awaiting review, which is the constraint to plan against.
