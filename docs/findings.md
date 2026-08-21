@@ -1210,3 +1210,109 @@ rather than by being forgotten (§5.4).
    already use, so all three agree by construction).
 5. The containment branch in `save_artifact`.
 6. 15 new tests across `test_features.py`, `test_splits.py`, `test_estimator.py`.
+
+## Round 2 (scoped re-review) @ `08ae6e4` — 2026-08-21
+
+<!-- Blocks: security F-115–F-124, logic F-127–F-139 (remainders of their round-1 ranges).
+     Both reviewers verdicted the remediation that closed F-125/F-110/F-113. THE REVIEWERS
+     DISAGREED on whether T-006/T-009 pass; the ledger records the ⛔ because the check requires
+     BOTH mandatory reviewers ✅ — the rule resolved it, the main thread did not adjudicate. -->
+
+- **F-115** (T-006 / integrity, MEDIUM) — **`Coverage`'s validation is escapable by subclass.**
+  `GameHistory.__init__` admitted coverage via `isinstance`, so a frozen-dataclass subclass overriding
+  `__post_init__` without `super()` skips all four validations.
+  **Reproduced by the main thread:** a six-line `LooseCoverage` accepted a **mutable** `set`, was
+  accepted by `GameHistory`, and the declaration was then widened *after* the index was built
+  (`{'A','B'}` → `{'A','B','C'}`). That is precisely the hazard `Coverage`'s own error message names.
+  The irony is the point: **F-050 established `type(...) is cls` for `GameHistory.of` for exactly this
+  reason**, and the new control installed inside that same class used `isinstance`.
+  Status: **FIXED** (round 3) — exact-type check, with the F-050 reasoning quoted at the call site.
+
+- **F-116** (T-009 / integrity, MEDIUM) — **`REPO_ROOT = parents[2]` was an unverified positional
+  guess that fails open two ways.** Move the module one directory and it silently designates the wrong
+  directory as the repo — F-016's hazard re-entering through the check written to prevent it.
+  **And it is worse than a hypothetical:** `backend/Dockerfile` is `WORKDIR /app` + `COPY . .` with
+  `backend/` as the build context, so in the container this module sits at `/app/model/estimator.py`
+  and `parents[2]` resolves to **`/`**. Every path is then "inside the repo" and outside `/models/`,
+  so **every artifact write in the container would raise**. D-016 puts this module inside the API
+  service and T-031 adds the scheduled job that writes — a live path, not a theoretical one.
+  Status: **FIXED** (round 3) — `_repo_root()` searches upward for `.git` and returns `None` when
+  there is none. Not a heuristic: the hazard is "gets committed", and `.git` is exactly what makes
+  committing possible; where there is none the check correctly does not apply. `.exists()` not
+  `.is_dir()`, because `.git` is a file in a linked worktree and reviewers run from worktrees.
+
+- **F-117** (T-009 / tests, MEDIUM — promoted per rule 5f) — **the only test asserting the
+  `.gitignore` coupling could not fail.** It asserted `"f110-probe.json" not in git status
+  --porcelain`. **Reproduced by the main thread in a scratch repo:** git *collapses* an untracked
+  directory to a single `?? models/` entry, so the filename never appears whether or not `/models/`
+  is ignored — the assertion passed either way. The `returncode` was also unchecked.
+  Status: **FIXED** (round 3) — `git check-ignore -q` with its return code asserted.
+
+- **F-118** (T-006 / tests, MEDIUM — promoted per rule 5f) — **`_require_covers`' `complete_to`
+  boundary was unpinned**; mutating `>` to `>=` left the suite green (main thread reproduced: 133
+  model tests pass against the mutant). **This is F-125's exact defect class, committed inside
+  F-125's own remediation.** Found independently by **both** reviewers — see F-128, retained as the
+  duplicate.
+  Status: **FIXED** (round 3) — the boundary is pinned in both directions: `as_of == complete_to` is
+  allowed (the window is everything strictly before `as_of`, which is exactly what is covered), and
+  one microsecond later is refused.
+
+- **F-119** (T-009 / tests, MEDIUM — promoted per rule 5f) — **deleting `path.resolve()` left the
+  suite green.** The reviewer verified the mechanism itself is sound (traversal, symlinks in both
+  directions, relative paths and APFS case-folding all land safe) — but nothing protected it.
+  Status: **FIXED** (round 3) — parametrized `..`-traversal cases plus a symlink pointing from
+  outside the repo to inside it.
+
+- **F-120** (round-2 security LOW batch, D-029, 4 items) — non-hermetic test writes into the real
+  checkout; `Coverage` was the only frozen dataclass without `slots=True`; the containment error
+  message's claim that `/models/` is "the only path `.gitignore` covers" is false (`data/`,
+  `*.parquet` and others are covered too); `_coverage` is reassignable.
+  Status: **PARTLY FIXED** (round 3) — `slots=True` added; the false claim rewritten. **`_coverage`
+  reassignability ACCEPTED**: it requires reaching into a private attribute, which is a different
+  threat model from F-115 (that one was reachable through the *public* API by passing a subclass).
+  This module cannot defend against `h._records = ...` either, and pretending otherwise would be
+  security theatre. Test hermeticity improved via `try/finally` but the probe still writes a real
+  file — the alternative is not testing the path production uses.
+
+- **F-127** (T-006 / logic, MEDIUM — promoted per rule 5f) — `Coverage.__post_init__`'s
+  `complete_from >= complete_to` ordering guard had its **zero-width-range** boundary unpinned;
+  mutating `>=` to `>` left every test green. Same class as F-118, in the same remediation.
+  Status: **FIXED** (round 3).
+
+- **F-128** (T-006 / logic, MEDIUM) — **duplicate of F-118, retained deliberately.** The logic
+  reviewer found the `complete_to` boundary independently of the security auditor, without either
+  seeing the other's report. Append-only, so both numbers stand; **F-118 is canonical** and carries
+  the status. Two independent reviewers converging on one defect is evidence about the defect, not
+  noise in the ledger, and collapsing it to one number would erase that.
+
+- **F-129** (round-2 logic LOW batch, D-029, 4 items) — the containment test lacked `try/finally`, so
+  a regression of the guard would leave `backend/model/accidental.json` in the checkout rather than
+  merely failing (the reviewer reproduced this literally while mutating); an untested type guard; an
+  unchecked `Coverage.teams` element type; untested partial-team coverage.
+  Status: **PARTLY FIXED** (round 3) — `try/finally` added to every test that writes. The remaining
+  three stay in the backlog.
+
+### Remediation round 3 — F-115, F-116, F-117, F-118/F-128, F-119, F-127
+
+**Every fix mutation-tested, because round 2 caught the previous remediation shipping tests that
+could not fail.** Each mutation was applied in an isolated copy with a fresh `PYTHONPYCACHEPREFIX`;
+the shared tree was never touched.
+
+| mutation | result |
+|---|---|
+| `type(coverage) is not Coverage` → `isinstance` | 1 failed — F-115 pinned |
+| `as_of > complete_to` → `>=` | 1 failed — F-118 pinned |
+| `complete_from >= complete_to` → `>` | 1 failed — F-127 pinned |
+| drop `path.resolve()` | 3 failed — F-119 pinned |
+| `_repo_root()` → `Path("/")` (the container bug) | 8 failed — F-116 pinned |
+| remove `/models/` from `.gitignore` | 1 failed — F-117 pinned |
+
+Suite **183 → 191**, gate **8/8**, and the pipeline still emits `model_version 972d33a83ad9`.
+
+**Correction to the round-2 remediation's own evidence, per the logic reviewer.** That entry called a
+matching content hash "the strongest available evidence" the fitted model is bit-identical. That is
+**overstated**: `fit`, `artifact_payload` and `model_version` were byte-unchanged and
+`run_evaluation.py` was untouched, so the code-level argument was already conclusive before the hash
+was computed. The hash is **confirmatory, not independent proof**. Recorded rather than quietly
+softened, because overstating evidence in a findings file is the same failure as overstating it in a
+report.

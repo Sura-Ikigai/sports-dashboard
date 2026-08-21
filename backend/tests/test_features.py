@@ -15,6 +15,7 @@ Standard library only, like the module: CI installs `requirements.txt`, which ha
 """
 
 import random
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -919,3 +920,48 @@ def test_a_malformed_coverage_is_refused_at_construction(kwargs, match):
     The mutable-set case matters most: a plain set could be widened after the check read it."""
     with pytest.raises(FeatureInputError, match=match):
         Coverage(**kwargs)
+
+
+def test_a_coverage_subclass_is_refused():
+    """F-115 — the same rule F-050 established for GameHistory, applied to the control installed
+    inside it. Under `isinstance` a frozen-dataclass subclass overriding __post_init__ without
+    super() skipped every validation: it accepted a MUTABLE set, and the declaration was then widened
+    after the index was built. A declaration that can be edited after it is checked is not one."""
+
+    @dataclass(frozen=True)
+    class LooseCoverage(Coverage):
+        def __post_init__(self):  # deliberately does not call super()
+            pass
+
+    loose = LooseCoverage(teams={"A", "B"})  # a plain set, which Coverage itself refuses
+    with pytest.raises(FeatureInputError, match="must be exactly a Coverage"):
+        GameHistory([], coverage=loose)
+
+
+def test_the_complete_to_boundary_is_inclusive_at_the_exact_instant():
+    """F-118/F-128 — found independently by BOTH reviewers, and the same defect class as F-125,
+    committed in F-125's own remediation. `>` vs `>=` was unpinned: mutating it left 133 tests green.
+
+    The correct semantics: `complete_to` is the moment the record ends, and the as-of window is
+    everything STRICTLY before `as_of`. So `as_of == complete_to` asks for exactly what the history
+    covers and must be allowed; one microsecond later must not.
+    """
+    games = [game("g1", 0, "A", "B", 120, 100), game("g2", 2, "B", "A", 99, 90)]
+    index = GameHistory(games, coverage=Coverage(complete_to=at(5)))
+
+    # exactly at the declared end — allowed
+    assert compute_features(index, matchup("t", 5, "A", "B"), at(5))["point_diff_diff"] != 0.0
+
+    # one microsecond past it — refused
+    just_after = at(5) + timedelta(microseconds=1)
+    with pytest.raises(FeatureInputError, match="declared record end"):
+        compute_features(index, matchup("t2", 6, "A", "B"), just_after)
+
+
+def test_a_zero_width_coverage_range_is_refused():
+    """F-127 — the `complete_from >= complete_to` guard's exact-equality boundary was unpinned;
+    mutating `>=` to `>` left every test green. A range whose ends coincide contains nothing, so a
+    history declaring it is claiming to cover no instant at all."""
+    same = at(3)
+    with pytest.raises(FeatureInputError, match="strictly before"):
+        Coverage(complete_from=same, complete_to=same)

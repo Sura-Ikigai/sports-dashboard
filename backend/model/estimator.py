@@ -49,9 +49,31 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-# F-110's containment check needs to know where the repo is. Same derivation `run_evaluation.py` and
-# `loader.py` already use, so all three agree on the root by construction rather than by coincidence.
-REPO_ROOT = Path(__file__).resolve().parents[2]
+
+def _repo_root() -> Path | None:
+    """The git working tree this module lives in, or `None` if it does not live in one (F-116).
+
+    Deliberately **not** a positional guess. The first version of this was `parents[2]`, copied from
+    `run_evaluation.py` — an unverified assumption about directory depth that fails open in two ways.
+    Move this module one directory and `parents[2]` silently designates the wrong directory as the
+    repo, which is F-016's hazard re-entering through the very check written to prevent it. And under
+    `backend/Dockerfile` (`WORKDIR /app`, `COPY . .` with `backend/` as the build context) this module
+    lands at `/app/model/estimator.py`, so `parents[2]` resolves to **`/`** — every path is then
+    "inside the repo" and outside `/models/`, so every artifact write in the container would raise.
+    D-016 puts this module inside the API service, so that is a live path, not a hypothetical.
+
+    Searching upward for `.git` is not a heuristic, it is the definition. The hazard being guarded
+    against is "an artifact gets committed by accident", and `.git` is precisely what makes committing
+    possible. Where there is none — the container, an installed wheel, an extracted tarball — there is
+    nothing to commit to and the containment check correctly does not apply.
+
+    `.exists()` rather than `.is_dir()`: `.git` is a directory in a normal clone and a *file* in a
+    linked worktree, and reviewers run this from worktrees (Tracker rule 5d).
+    """
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / ".git").exists():
+            return candidate
+    return None
 
 #: Artifact format tag. Bump if the shape changes so a stale artifact fails loudly.
 ARTIFACT_FORMAT: str = "json-linear-model/1"
@@ -257,20 +279,29 @@ def save_artifact(model: LogisticModel, path: Path, *, training: dict) -> str:
     F-037's defect class exactly, in the one file whose whole thesis is that the artifact is safe.
 
     What is enforced is the claim's actual *intent*, which is narrower than the claim was: an artifact
-    can only be committed by accident if it lands **inside the repository**, and `.gitignore` covers
-    exactly `/models/` (anchored, per F-016). So a path inside the repo but outside `/models/` is
-    refused; a path outside the repo entirely is fine and always was — that is where tests and scratch
-    runs write, and nothing there can reach git.
+    can only be committed by accident if it lands **inside a git working tree**, and `/models/` is
+    gitignored (anchored, per F-016). So a path inside the repo but outside `/models/` is refused; a
+    path outside the repo entirely is fine and always was — that is where tests and scratch runs
+    write, and nothing there can reach git. Where there is no git tree at all (the container, D-016's
+    API service) the check does not apply, because there is nothing to commit to — see `_repo_root`.
+
+    `path.resolve()` before comparing is load-bearing, not tidiness: it collapses `..` traversal and
+    follows symlinks, so `models/../backend/x.json` and a symlink pointing into the tree are both
+    caught. F-119 added the tests that pin it.
     """
     resolved = path.resolve()
-    repo_root = REPO_ROOT.resolve()
-    if resolved.is_relative_to(repo_root) and not resolved.is_relative_to(repo_root / "models"):
+    repo_root = _repo_root()
+    if (
+        repo_root is not None
+        and resolved.is_relative_to(repo_root)
+        and not resolved.is_relative_to(repo_root / "models")
+    ):
         raise EstimatorError(
-            f"refusing to write a model artifact to {resolved} — it is inside the repository but "
-            f"outside {repo_root / 'models'}, which is the only path `.gitignore` covers (anchored, "
-            "F-016). An artifact written here would be trackable, and a committed artifact is a "
-            "model whose provenance git history cannot distinguish from source. Write to /models/, "
-            "or to a path outside the repo."
+            f"refusing to write a model artifact to {resolved} — it is inside the git working tree "
+            f"at {repo_root} but outside {repo_root / 'models'}, the gitignored directory model "
+            "artifacts belong in (anchored, F-016). An artifact written here would be trackable, and "
+            "a committed artifact is a model whose provenance git history cannot distinguish from "
+            "source. Write to /models/, or to a path outside the repository."
         )
     payload = artifact_payload(model, training=training)
     version = model_version(payload)

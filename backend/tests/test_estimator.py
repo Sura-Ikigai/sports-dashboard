@@ -25,6 +25,7 @@ from model.estimator import (
     DEFAULT_L2,
     EstimatorError,
     LogisticModel,
+    _repo_root,
     artifact_payload,
     fit,
     load_artifact,
@@ -202,31 +203,60 @@ def test_an_artifact_in_an_unknown_format_is_refused(tmp_path):
         load_artifact(path)
 
 
-# --- F-110: the containment check the docstring used to only claim ------------------------------
+# --- F-110/F-116/F-117/F-119: the containment check, and the things that must protect it ---------
+
+
+def _probe_model_path(name):
+    root = _repo_root()
+    assert root is not None, "these tests run from a git working tree"
+    return root, root / "models" / name
 
 
 def test_an_artifact_inside_the_repo_but_outside_models_is_refused():
     """F-110 — the docstring claimed this refused; the body was an unconditional write.
 
     The claim's real intent is narrower than the claim was: an artifact can only be committed by
-    accident if it lands inside the repository, and `.gitignore` covers exactly `/models/` (anchored,
-    F-016). So this is the case that must fail — a plausible-looking path that git would happily
-    track.
+    accident if it lands inside a git working tree, and `/models/` is gitignored (anchored, F-016).
+    So this is the case that must fail — a plausible-looking path git would happily track.
     """
-    from model.estimator import REPO_ROOT
+    root = _repo_root()
+    stray = root / "backend" / "model" / "accidental.json"
+    try:
+        with pytest.raises(EstimatorError, match="inside the git working tree"):
+            save_artifact(_model(), stray, training={"seasons": [2022], "n_games": 300})
+        assert not stray.exists()
+    finally:
+        # F-129: without this, a future regression of the guard leaves a stray file in the checkout
+        # rather than merely failing — which is how a test becomes a source of the mess it detects.
+        stray.unlink(missing_ok=True)
 
-    with pytest.raises(EstimatorError, match="inside the repository but outside"):
-        save_artifact(
-            _model(),
-            REPO_ROOT / "backend" / "model" / "accidental.json",
-            training={"seasons": [2022], "n_games": 300},
-        )
-    assert not (REPO_ROOT / "backend" / "model" / "accidental.json").exists()
+
+@pytest.mark.parametrize("relative", ["models/../backend/sneaky.json", "models/./../alembic.ini"])
+def test_the_containment_check_resists_traversal(relative):
+    """F-119 — deleting `path.resolve()` left the whole suite green, so nothing pinned the mechanism
+    the check depends on. `..` inside an otherwise-legal path is the obvious way past a naive
+    prefix comparison."""
+    root = _repo_root()
+    with pytest.raises(EstimatorError, match="inside the git working tree"):
+        save_artifact(_model(), root / relative, training={"seasons": [2022], "n_games": 300})
+
+
+def test_the_containment_check_follows_symlinks(tmp_path):
+    """F-119, the other half. A symlink OUTSIDE the repo pointing INSIDE it is a path that looks
+    innocent and is not — `resolve()` is what collapses it, and this is what pins that."""
+    root = _repo_root()
+    link = tmp_path / "innocent.json"
+    link.symlink_to(root / "backend" / "model" / "via-symlink.json")
+    try:
+        with pytest.raises(EstimatorError, match="inside the git working tree"):
+            save_artifact(_model(), link, training={"seasons": [2022], "n_games": 300})
+    finally:
+        (root / "backend" / "model" / "via-symlink.json").unlink(missing_ok=True)
 
 
 def test_an_artifact_outside_the_repo_is_allowed(tmp_path):
-    """The control (F-051's lesson): a check that refused everything would pass the test above and
-    break every existing caller. Outside the repo, nothing can reach git — which is why the whole
+    """The control (F-051's lesson): a check that refused everything would pass every test above and
+    break every existing caller. Outside the repo nothing can reach git — which is why the whole
     suite already writes to tmp_path and must keep working."""
     version = save_artifact(
         _model(), tmp_path / "model.json", training={"seasons": [2022], "n_games": 300}
@@ -236,19 +266,51 @@ def test_an_artifact_outside_the_repo_is_allowed(tmp_path):
 
 
 def test_an_artifact_in_the_models_dir_is_allowed():
-    """The path production actually uses (`run_evaluation.ARTIFACT_DIR`). Gitignored, so writing and
-    removing a probe here cannot dirty the tree — asserted rather than assumed."""
-    import subprocess
-
-    from model.estimator import REPO_ROOT
-
-    path = REPO_ROOT / "models" / "f110-probe.json"
+    """The path production actually uses (`run_evaluation.ARTIFACT_DIR`)."""
+    _, path = _probe_model_path("f110-probe.json")
     try:
         assert save_artifact(_model(), path, training={"seasons": [2022], "n_games": 300})
         assert path.exists()
-        porcelain = subprocess.run(
-            ["git", "status", "--porcelain"], cwd=REPO_ROOT, capture_output=True, text=True
-        ).stdout
-        assert "f110-probe.json" not in porcelain
     finally:
         path.unlink(missing_ok=True)
+
+
+def test_the_models_dir_is_actually_gitignored():
+    """F-117 — the previous version of this could not fail.
+
+    It asserted `"f110-probe.json" not in git status --porcelain`. But git COLLAPSES an untracked
+    directory to a single `?? models/` entry, so the filename never appears whether or not `/models/`
+    is ignored — the assertion passed either way. `git check-ignore` asks the question directly, and
+    its return code is checked rather than its (empty on failure) stdout.
+    """
+    import subprocess
+
+    root, path = _probe_model_path("f110-gitignore-probe.json")
+    result = subprocess.run(
+        ["git", "check-ignore", "-q", str(path)], cwd=root, check=False
+    )
+    assert result.returncode == 0, (
+        f"{path} is NOT gitignored — the containment check permits writing here precisely because "
+        "`.gitignore` covers it (F-016). If that coupling breaks, the check is permitting a path git "
+        "would track."
+    )
+
+
+def test_the_repo_root_is_found_by_git_not_by_counting_directories(monkeypatch):
+    """F-116 — `parents[2]` was an unverified positional guess that fails open two ways: move the
+    module and it designates the wrong directory; run it under `backend/Dockerfile` (WORKDIR /app,
+    COPY . .) and it resolves to `/`, refusing EVERY write in the container. D-016 puts this module
+    in the API service, so that is a live path."""
+    root = _repo_root()
+    assert root is not None
+    assert (root / ".git").exists(), "the root must be identified by git, not by depth"
+    assert (root / "backend").is_dir()
+
+    # Where there is no git tree — container, wheel, tarball — there is nothing to commit to, so the
+    # check must NOT apply. Previously this case raised on every path.
+    monkeypatch.setattr("model.estimator._repo_root", lambda: None)
+    inside = root / "backend" / "model" / "container-style.json"
+    try:
+        assert save_artifact(_model(), inside, training={"seasons": [2022], "n_games": 300})
+    finally:
+        inside.unlink(missing_ok=True)

@@ -299,7 +299,7 @@ class _TeamGame:
     opponent_id: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Coverage:
     """What a history CLAIMS to contain -- the other half of the as-of guarantee (F-113).
 
@@ -391,9 +391,20 @@ class GameHistory:
                 "would be consumed by the first call and silently yield priors on every later one."
             )
 
-        if coverage is not None and not isinstance(coverage, Coverage):
+        # F-115: `type(...) is`, deliberately not `isinstance` -- the same rule F-050 established for
+        # `GameHistory.of`, applied to the second integrity control installed in this class. Under
+        # `isinstance` a frozen-dataclass subclass overriding `__post_init__` without `super()` skips
+        # every validation in `Coverage`, which was demonstrated taking a **mutable** set and having
+        # the declaration widened after the index was built -- exactly the hazard `Coverage`'s own
+        # error message names. A declaration that can be edited after it is checked is not a
+        # declaration.
+        if coverage is not None and type(coverage) is not Coverage:
             raise FeatureInputError(
-                f"coverage must be a Coverage or None, got {type(coverage).__name__}"
+                f"coverage must be exactly a Coverage or None, got {type(coverage).__name__}. A "
+                "subclass is refused: overriding __post_init__ skips the validation that makes a "
+                "declaration trustworthy, and a coverage that can be widened after this index was "
+                "built would silently re-open the incomplete-history failure (F-113). Compose with a "
+                "Coverage instead of inheriting from it."
             )
         self._coverage: Coverage = coverage if coverage is not None else Coverage()
 

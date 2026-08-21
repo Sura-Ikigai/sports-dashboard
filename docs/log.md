@@ -647,3 +647,50 @@ Newest entry on top. Keep it lean — a few lines per session; git history carri
 - Ended at: remediation complete, tree clean, gate 8/8. The four ledger ✅s are marked stale in
   substance (code changed after them). Next is the **scoped re-review** (D-028) of the remediation
   diff — and per rule 5c the hand-off declares what was ADDED, not just changed.
+
+## 2026-08-21 (cont.) — round 2 re-review, and round 3 remediation
+
+- **The scoped re-review found five MEDIUMs in the previous remediation, and the two reviewers
+  disagreed.** Security ⛔ on T-006 (F-115, F-118) and T-009 (F-116, F-117, F-119); logic ✅ on all
+  four, treating its own F-127/F-128 as non-blocking because the new code has no live production
+  caller yet. **The rule decided it, not a judgement call** — `review-ledger-current` requires both
+  mandatory reviewers ✅, so the ⛔ stands. Logic's reasoning was defensible and F-116 defeats it: the
+  container path is a live caller waiting at T-031.
+- **Recorded plainly rather than softened: the remediation that closed F-125 committed F-125's own
+  defect class twice.** F-118 (`complete_to`) and F-127 (the ordering guard) are both "the boundary
+  of a comparison is unpinned by any test" — the class the logic reviewer promoted to MEDIUM in round
+  1 — repeated inside the fix for it. Both reviewers found F-118 independently (logic filed F-128);
+  both numbers retained, F-118 canonical, because two reviewers converging is evidence about the
+  defect rather than noise in the ledger.
+- **F-116 turned out worse than the reviewer could confirm, and it was in the file the owner had
+  open.** `REPO_ROOT = parents[2]` under `backend/Dockerfile` (`WORKDIR /app`, `COPY . .`, build
+  context `backend/`) resolves to **`/`** — so `save_artifact` would have raised on *every* write
+  inside the container, and D-016 puts that module in the API service. The fix stops guessing: search
+  upward for `.git` and return `None` when there is none. That is not a heuristic — the hazard is
+  "gets committed", and `.git` is precisely what makes committing possible, so where there is none
+  the check correctly does not apply.
+- **F-117 was a test that could not fail**, which is the class this project keeps paying for. It
+  asserted a filename was absent from `git status --porcelain`; git collapses an untracked directory
+  to `?? models/`, so the filename never appears either way. Reproduced in a scratch repo before
+  accepting it. Now `git check-ignore -q` with the return code asserted.
+- **F-115 was the mistake that should least have been made.** F-050 established `type(...) is cls`
+  for `GameHistory.of` precisely because a subclass could override the as-of filter; the new control
+  installed *inside that same class* used `isinstance`. Reproduced: a six-line subclass overriding
+  `__post_init__` took a mutable set and had its declaration widened after the index was built.
+- **Round 3 fixed all six, and every fix was mutation-tested BEFORE being claimed** — the discipline
+  round 2 caught missing. Six mutations, six caught: exact-type→isinstance (1 fail), `complete_to`
+  `>`→`>=` (1), ordering `>=`→`>` (1), drop `path.resolve()` (3), `_repo_root()`→`Path("/")` (8),
+  remove `/models/` from `.gitignore` (1). Suite 183 → **191**, gate 8/8, `972d33a83ad9` unchanged.
+- **One evidence claim corrected rather than quietly softened.** The round-2 remediation called a
+  matching content hash "the strongest available evidence" the model is bit-identical. The logic
+  reviewer pointed out it is *confirmatory*, not independent proof — `fit`, `artifact_payload` and
+  `model_version` were byte-unchanged and `run_evaluation.py` untouched, so the code-level argument
+  was already conclusive. Overstating evidence in a findings file is the same failure as overstating
+  it in a report, so the correction is recorded in both places.
+- **Two things deliberately NOT fixed, with reasons.** `_coverage` reassignability (F-120) is
+  ACCEPTED: it requires reaching into a private attribute, a different threat model from F-115's
+  public-API escape, and this module cannot defend against `h._records = ...` either. And the
+  `/models/` probe still writes a real file — the alternative is not testing the path production uses.
+- Ended at: round 3 complete, tree clean, gate 8/8, suite 191. Next is the **round-3 re-review**,
+  scope `08ae6e4..HEAD`; rule 5c additions are `_repo_root()` (replacing the `REPO_ROOT` constant),
+  `slots=True` on `Coverage`, the exact-type guard, and 8 tests.

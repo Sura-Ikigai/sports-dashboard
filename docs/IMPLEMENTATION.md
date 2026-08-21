@@ -72,14 +72,36 @@ are **non-vacuous** (removing them in an isolated copy fails exactly the four ne
 nothing else); F-125's test was re-proved against the *original* mutation (`>=`→`>` fails it, 16/16
 others pass); and **the published numbers are unchanged, by re-running the real pipeline** — .6762 /
 .6020 / .7323, the coefficients, every calibration decile, and **`model_version 972d33a83ad9`**, the
-same content hash as `PHASE-1-RESULT.md` §6. A matching content hash is the strongest available
-evidence the fitted model is bit-identical.
+same content hash as `PHASE-1-RESULT.md` §6. **Correction, per the round-2 logic reviewer:** that was
+first written as "the strongest available evidence", which overstates it — `fit`, `artifact_payload`
+and `model_version` were byte-unchanged and `run_evaluation.py` untouched, so the code-level argument
+was already conclusive and the hash is *confirmatory*, not independent proof.
 
-**Next action, in order:** **(1)** **scoped re-review** (D-028) of the remediation diff. Per rule 5c
-it **ADDED** code no reviewer has seen: `features.Coverage` (new public frozen dataclass with
-validation), `GameHistory._require_covers` and its call site, a keyword-only `coverage` parameter and
-`_coverage` slot, `estimator.REPO_ROOT`, the containment branch in `save_artifact`, and 15 tests.
-The reviewer — not the builder — decides whether that earns a full pass. **(2)** advance to
+**ROUND 2 (scoped re-review) FOUND FIVE MEDIUMs IN THAT REMEDIATION, and the reviewers disagreed.**
+Security returned **⛔ on T-006** (F-115, F-118) and **⛔ on T-009** (F-116, F-117, F-119); logic
+returned ✅ on all four, calling its own two MEDIUMs (F-127, F-128) non-blocking because the new code
+has no live production caller. **The rule resolved it, not a judgement call:** the check requires
+*both* mandatory reviewers ✅, so the ⛔ stands. Logic's reasoning was sound but F-116 defeats it —
+the container path *is* a live caller waiting at T-031.
+
+**The part worth not softening: the remediation that closed F-125 committed F-125's own defect class,
+twice.** F-118 (`complete_to`) and F-127 (the ordering guard) are both "the boundary of a comparison
+is unpinned by any test" — the class the logic reviewer promoted to MEDIUM in round 1, repeated inside
+the fix for it. F-118 was found *independently by both reviewers* (logic filed it as F-128; both
+numbers are retained, F-118 canonical, because two reviewers converging is evidence about the defect).
+And **F-116 was worse than the reviewer could confirm**: `parents[2]` under `backend/Dockerfile`
+(`WORKDIR /app`, `COPY . .`) resolves to `/`, so `save_artifact` would have raised on **every** write
+inside the container — with D-016 putting that module in the API service.
+
+**ROUND 3 REMEDIATION IS DONE — all six MEDIUMs FIXED**, and this time **every fix was
+mutation-tested before being claimed**, because round 2 caught the previous one shipping tests that
+could not fail: exact-type→`isinstance` (1 fail), `complete_to` `>`→`>=` (1), ordering `>=`→`>` (1),
+drop `path.resolve()` (3), `_repo_root()`→`Path("/")` (8), remove `/models/` from `.gitignore` (1).
+Suite **183 → 191**, gate **8/8**, `model_version 972d33a83ad9` still emitted.
+
+**Next action, in order:** **(1)** **round-3 re-review** — scope is `08ae6e4..HEAD`. Per rule 5c it
+ADDED: `estimator._repo_root()` (replacing the `REPO_ROOT` constant), `slots=True` on `Coverage`, the
+exact-type guard, and 8 tests. **(2)** advance to
 `REVIEWED` → `DONE` and merge to `main` (**32** commits on `feat/phase-1-analytical-core`) — **a hard
 prerequisite, not housekeeping: `REVIEWED` is currency-checked and `DONE` is exempt, so T-005 and
 T-006 must reach `DONE` before T-022 touches `loader.py` and T-028 touches `features.py`, or the gate
@@ -548,10 +570,10 @@ so this *is* the currency scope):
 | Task  | security-auditor | logic-reviewer | ui-ux-reviewer | notes |
 |-------|------------------|----------------|----------------|-------|
 | T-002 | ✅ 34759ed       | ✅ 34759ed     | n/a            | Closed as superseded by T-005 (D-027) — the ✅s are T-005's, on the same code. Not a review of its own; the row exists so a DONE task carries a verdict, per canon. n/a: no user-facing surface |
-| T-009 | ✅ eacc066*      | ✅ eacc066*    | n/a            | *stale: code changed after the ✅ (remediation). r1 (batched) — security F-110 (docstring asserts an unenforced containment), F-112 (`run_evaluation.py` untested, found by **both** reviewers). Logic ✅ with a coverage-gap note, not a blocker; it reproduced every headline number exactly from committed code + pinned data. n/a: offline module |
-| T-008 | ✅ eacc066*      | ✅ eacc066*    | n/a            | *stale: code changed after the ✅ (remediation). r1 (batched) — clean both sides. Logic hand-verified the calibration binning edge cases and confirmed D-026's .55534 by independent recount (3668/6605 = .555337). n/a: offline module |
-| T-007 | ✅ eacc066       | ⛔→remediated  | n/a            | **F-125 FIXED; awaiting scoped re-review.** r1 (batched) — **⛔ logic**: the `>=` temporal boundary is unpinned; mutating to `>` leaves 16/16 green. Production code is correct — the gap is test coverage of the module's own stated invariant, so the fix is test-only. Reproduced independently by the main thread before transcription. n/a: offline module |
-| T-006 | ✅ eacc066       | ✅ eacc066     | n/a            | r1 (batched, this round) — security F-111 (no `test_loader.py`), **F-113** (history completeness enforced by comment only; the complement of D-039 and the round's most consequential finding). Logic ✅. · **earlier rounds:** r2 ⛔⛔ @d8257b6: F-044..F-060 all verified CLOSED by both; both ⛔ on `corpus.py` (added in the remediation, never reviewed) — F-065 curation wiped a whole corpus silently, F-061 the safety default was untested, F-071 stale bytecode made local runs untrustworthy. Remediated. · r1 ⛔⛔ @34759ed: security F-044 (target's own result reachable via `history`) · logic F-051 HIGH (7 mutations survived; 3 change 5,000+ real vectors). Remediated — awaiting re-review. n/a: offline module, no user-facing surface |
+| T-009 | ⛔ r2 → fixed r3 | ✅ 08ae6e4     | n/a            | **r2 security ⛔** F-116 (`parents[2]`→`/` in the container: every write would raise), F-117 (gitignore test could not fail), F-119. All FIXED r3, mutation-tested. Awaiting r3 verdicts. · r1 (batched) — security F-110 (docstring asserts an unenforced containment), F-112 (`run_evaluation.py` untested, found by **both** reviewers). Logic ✅ with a coverage-gap note, not a blocker; it reproduced every headline number exactly from committed code + pinned data. n/a: offline module |
+| T-008 | ✅ 08ae6e4       | ✅ 08ae6e4     | n/a            | r2: `evaluate.py` is absent from the diff entirely, so r1's verdict carries forward under D-028 file scoping. **Settled.** · r1 (batched) — clean both sides. Logic hand-verified the calibration binning edge cases and confirmed D-026's .55534 by independent recount (3668/6605 = .555337). n/a: offline module |
+| T-007 | ✅ 08ae6e4       | ✅ 08ae6e4     | n/a            | **r2 CLEARS the round-1 ⛔** — logic re-proved F-125's fix by mutation *and* checked the control isn't vacuous by mutating the guard to refuse everything. `splits.py` byte-unchanged. **Settled.** · r1 (batched) — **⛔ logic**: the `>=` temporal boundary is unpinned; mutating to `>` leaves 16/16 green. Production code is correct — the gap is test coverage of the module's own stated invariant, so the fix is test-only. Reproduced independently by the main thread before transcription. n/a: offline module |
+| T-006 | ⛔ r2 → fixed r3 | ✅ 08ae6e4     | n/a            | **r2 security ⛔** F-115 (subclass escape), F-118 (boundary, = F-125's class). Logic ✅ but filed F-127/F-128. All FIXED r3, mutation-tested. Awaiting r3 verdicts. · r1 (batched) — security F-111 (no `test_loader.py`), **F-113** (history completeness enforced by comment only; the complement of D-039 and the round's most consequential finding). Logic ✅. · **earlier rounds:** r2 ⛔⛔ @d8257b6: F-044..F-060 all verified CLOSED by both; both ⛔ on `corpus.py` (added in the remediation, never reviewed) — F-065 curation wiped a whole corpus silently, F-061 the safety default was untested, F-071 stale bytecode made local runs untrustworthy. Remediated. · r1 ⛔⛔ @34759ed: security F-044 (target's own result reachable via `history`) · logic F-051 HIGH (7 mutations survived; 3 change 5,000+ real vectors). Remediated — awaiting re-review. n/a: offline module, no user-facing surface |
 | T-005 | ✅ 34759ed       | ✅ 34759ed     | n/a            | 4 rounds: ✅/⛔ @32110ce (F-026/F-027 HIGH) · ⛔⛔ @e2d2558 (F-037 broke real downloads) · ✅✅ @8eae86c · re-review ✅✅ @34759ed after `406dd09` touched loader.py (F-039 docstring; both reviewers proved it AST-identical, security re-ran the download from an empty dir). n/a: no user-facing surface |
 | T-001 | ✅ 763101e       | ✅ 763101e     | n/a            | 4 rounds: r1 ⛔⛔@d8e3515 · r2 ✅✅@d0e661d · r3 logic ✅/security ⛔@fef3dc8 (F-019) · r4 ✅✅@763101e. n/a: no user-facing surface changed |
 
@@ -573,6 +595,15 @@ so this *is* the currency scope):
 
 | ID | Sev | Area | Status | Fires when |
 |----|-----|------|--------|-----------|
+| **F-115** | MEDIUM | integrity | **FIXED** (r3) — `Coverage` validation was escapable by subclass; `isinstance` → exact-type, the rule F-050 already set for `GameHistory` | — |
+| **F-116** | MEDIUM | integrity | **FIXED** (r3) — `parents[2]` resolved to `/` under `backend/Dockerfile`, refusing **every** container write. Now searches upward for `.git`, `None` = check inapplicable | — |
+| **F-117** | MEDIUM | tests | **FIXED** (r3) — the gitignore test could not fail (git collapses untracked dirs to `?? models/`). Now `git check-ignore -q` + returncode | — |
+| **F-118** | MEDIUM | tests | **FIXED** (r3) — `complete_to` boundary unpinned. **F-125's defect class, inside F-125's own fix.** Found independently by both reviewers (dup: F-128) | — |
+| **F-119** | MEDIUM | tests | **FIXED** (r3) — dropping `path.resolve()` left the suite green; traversal + symlink cases added | — |
+| **F-127** | MEDIUM | tests | **FIXED** (r3) — zero-width `Coverage` range boundary unpinned | — |
+| **F-128** | MEDIUM | tests | **DUPLICATE of F-118**, retained. Two reviewers converging independently is evidence, not ledger noise | — |
+| **F-120** | LOW | hygiene | **PARTLY FIXED** (r3) — `slots=True` + false error-message claim fixed. `_coverage` reassignability **ACCEPTED**: private-attribute reach, a different threat model from F-115's public-API escape | — |
+| **F-129** | LOW | hygiene | **PARTLY FIXED** (r3) — `try/finally` on every writing test; three items remain in backlog | — |
 | **F-113** | MEDIUM | integrity | **FIXED** — `features.Coverage` + `GameHistory._require_covers`, checked before any feature is computed. Residual stated, not papered over: a raw sequence declares nothing, so narrowing must be *declared* (T-024's job) because it cannot be *detected* | — |
 | **F-125** | MEDIUM | logic/tests | **FIXED** — exact-tie fixture + a control one microsecond earlier. Test-only; `splits.py` was already correct. Re-proved non-vacuous by re-running the original mutation | — |
 | **F-111** | MEDIUM | tests | OPEN — `loader.py` has no test file; every T-005 refusal branch uncovered, and D-046 just made that machinery the corpus integrity guarantee | `T-022` |
