@@ -1,15 +1,11 @@
 # Plan v3 — Second-factor features, a Postgres corpus, and an explainable prediction surface
 
-> **Status:** DRAFT   ·   **Version:** v3   ·   **Date:** 2026-08-17
-> **Supersedes:** PLAN-v1.md (on activation)   ·   **Tracker:** docs/IMPLEMENTATION.md
-> **Issue:** none — deliberately. This file is the only output of the planning session.
-
-> **This is NOT `PLAN-current.md` yet.** PLAN-v1 remains ACTIVE while T-006…T-009 sit `BUILT` and
-> unreviewed. This becomes current when Phase 1's review gate closes and the owner marks it ACTIVE.
+> **Status:** DRAFT — not started. Activates when `phase-1-analytical-core.md` merges.
+> **Date:** 2026-08-17 (grill-me, 16 decisions D-032..D-047)   ·   **Supersedes:** the archived PLAN-v1.
 >
-> Numbered **v3**, skipping v2, because this project's tracker already uses "PLAN-v2" to mean the
-> *factory's* plan (`Client Projects/Dev-System/docs/plans/PLAN-v2.md`), whose T-011/T-012 execute
-> here. A second PLAN-v2 would collide in both the tracker and conversation.
+> Reformatted 2026-08-24 for one-file-per-feature. Scope below (T-021..T-035, 40 user stories) is
+> unchanged; the tracker and `PLAN-current.md` pointers it referenced no longer exist — this file is
+> its own status. Decisions D-001..D-047 are in `docs/archive/decisions.md`.
 
 ---
 

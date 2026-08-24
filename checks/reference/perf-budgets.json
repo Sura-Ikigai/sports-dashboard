@@ -1,8 +1,0 @@
-{
-  "_comment": "Reference perf budgets (upper bounds, ms unless noted). Tune per project. Consumed by checks/perf-budgets.mjs against a Lighthouse result or a flat metrics map.",
-  "lcp": 2500,
-  "fcp": 1800,
-  "tbt": 300,
-  "cls": 0.1,
-  "tti": 3800
-}

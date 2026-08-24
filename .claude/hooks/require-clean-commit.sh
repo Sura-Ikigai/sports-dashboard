@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop hook — enforce "commit on completion" (SYSTEM.md section 3.3 / 6.3).
+# Stop hook — blocks a clean stop while the git tree is dirty (Dev-System WORKFLOW.md).
 #
 # Blocks a clean stop while the project's git tree has uncommitted changes, so a
 # tracker/wiki update can't be left to die in the working tree at the session
@@ -25,7 +25,7 @@ cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null || exit 0
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
 if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
-  reason="Uncommitted changes in the project. Per the tracker contract (SYSTEM.md section 3.3, Write on completion): before ending, update docs/IMPLEMENTATION.md (task status + Session anchor), then run 'git add -A && git commit'. Use 'git status' to see what is pending. This nudge fires once."
+  reason="Uncommitted changes in the project. Before ending: update the active plan file in docs/plans/ (Status line, phase checkboxes, any findings remediated), then run 'git add -A && git commit'. Use 'git status' to see what is pending. If this is leftover debug instrumentation, strip it first. This nudge fires once."
   printf '{"decision":"block","reason":"%s"}\n' "$reason"
   exit 0
 fi
