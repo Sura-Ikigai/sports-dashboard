@@ -1,24 +1,26 @@
 # Sports Dashboard — CLAUDE.md
 
-## Read these first
-- `docs/IMPLEMENTATION.md` ← current state + tasks + review ledger, **ALWAYS read before acting**.
-  Deliberately kept small (~350 lines) so reading it is cheap on every task.
-- `docs/plans/PLAN-current.md` ← the active plan
+## Workflow
 
-## Read on demand — do NOT read end to end
-- `docs/findings.md` — every finding's evidence and remediation (append-only, large and growing).
-  The *status index* in `IMPLEMENTATION.md` tells you whether a finding is open; come here only for
-  the ones a task cites. `grep -n 'F-0NN' docs/findings.md`
-- `docs/decisions.md` — the decisions log (append-only). `grep -n 'D-0NN' docs/decisions.md`
-- `docs/log.md` — session-by-session chronology.
+`grill-me` → `to-prd` → build (main session) → `/review` → debug (`/caveman`) → lessons.
+Full description: `../../Client Projects/Dev-System/WORKFLOW.md`. Skills and the two review agents
+are global, in `~/.claude/`.
 
-These three were split out of the tracker on 2026-08-10: it had reached 1,367 lines, 74% of it
-history, and every agent was told to read all of it — 2,176 lines of process to review 2,206 lines
-of code. Splitting cut mandatory reading by 74% and, more importantly, stopped it growing per task.
+- **`docs/plans/<feature>.md`** — one file per feature: intent, decisions, phases, findings,
+  remediations. Read the active one before acting.
+  - `phase-1-analytical-core.md` — BUILT, reviewed, 12 findings carried, **unmerged**
+  - `modeling-second-cycle.md` — DRAFT, activates when phase 1 merges
+- **`docs/archive/`** — history only, do not read by default. `decisions.md` (D-001…D-047),
+  `findings.md` (F-001…F-140, full evidence), `log.md`, the old tracker, superseded plans.
+  **Grep it, never read it end to end:** `grep -n 'D-0NN' docs/archive/decisions.md`.
+- `docs/superpowers/` — Stage 3 was built with a different workflow; historical record only.
+
+Review findings are **advisory** and land in the plan file as a checklist. What blocks is
+deterministic: `ci.yml`'s two jobs, which are the required status checks on `main`.
 
 ## Stack
 Next.js 16 App Router (React 19) · FastAPI · Postgres 16 (Docker Compose) · Alembic
-Stack overlay: `stacks/nextjs-fastapi-postgres.md`
+Invariants and domain notes are below — there is no separate stack overlay file.
 
 ## Invariants (never violate)
 - FastAPI is the only DB writer. The frontend calls FastAPI, never Postgres directly.
@@ -53,11 +55,25 @@ Stack overlay: `stacks/nextjs-fastapi-postgres.md`
 ## Agents available
 backend-engineer · frontend-engineer · security-auditor · logic-reviewer · ui-ux-reviewer
 
-## The gate
+## Domain notes
 
-**Local setup (required — the gate exits 1 without it).** `ruff` and `pytest` are not in
-`requirements.txt` and are not installed globally; they live in `backend/venv`, which must be built
-on **Python 3.11** (`nba_service` uses `datetime.UTC`, which is 3.11+):
+- **Backend** — FastAPI routes, services, data access. It is the only DB writer and the only caller
+  of third-party APIs. Schema changes ship as Alembic migrations.
+- **Frontend** — Next.js 16 App Router, React 19, server-vs-client component split. Calls FastAPI
+  through `NEXT_PUBLIC_API_URL`; never Postgres, never ESPN.
+- **Modeling** — pure modules under `backend/model/`, fixture-tested. Assert *which outputs* a
+  fixture produces, never the internal formula. The analytical core is deliberately shaped this way
+  so defects surface at the unit boundary.
+- **Bytecode cache when mutation-testing.** CPython validates `.pyc` by `(mtime, size)`, so a
+  size-preserving mutation reverted within the same second leaves valid-looking stale bytecode and
+  you score a mutation against the *previous* mutant. Use a fresh `PYTHONPYCACHEPREFIX` per run and
+  re-assert a green baseline between mutations. (This is how F-125 was confirmed.)
+
+## Checks
+
+Local setup is required — `ruff` and `pytest` are not in `requirements.txt` and not installed
+globally. They live in `backend/venv`, which must be built on **Python 3.11** (`nba_service` uses
+`datetime.UTC`, 3.11+):
 
 ```bash
 python3.11 -m venv backend/venv
@@ -65,25 +81,27 @@ backend/venv/bin/pip install -r backend/requirements.txt
 backend/venv/bin/pip install ruff==0.16.0 pytest==9.1.1 pytest-asyncio==1.4.0 respx==0.23.1
 ```
 
-Then run the gate with that venv on `PATH` (activate it, or prefix the command):
+Run them with that venv on `PATH`:
 
 ```bash
-PATH="$PWD/backend/venv/bin:$PATH" node checks/run-gate.mjs --stack stacks/nextjs-fastapi-postgres.md
+PATH="$PWD/backend/venv/bin:$PATH" backend/venv/bin/pytest backend/tests
+PATH="$PWD/backend/venv/bin:$PATH" backend/venv/bin/ruff check backend
+cd frontend && npm run lint && npx tsc --noEmit && npm test
 ```
 
-CI provisions the same tools itself via `pip install`, so `.github/workflows/gate.yml` needs no venv.
+**`.github/workflows/ci.yml` is what blocks.** Its two jobs — `Frontend — Lint & Type Check` and
+`Backend — Lint & Tests` — are the required status checks on `main`. CI provisions its own tools, so
+no venv there.
 
-It runs the two meta-checks (`gate-completeness`, `review-ledger-current`) plus fe-typecheck,
-fe-lint, fe-unit, be-lint, be-unit — same runner locally and in CI, so "green" means one thing.
-Canon gates this project does **not** yet run: `a11y`, `perf`, `authz-deny` (tooling/auth absent —
-tracked in *Future hardening*, deliberately undeclared so `gate-completeness` stays honest).
+> The canon `gate.yml` and `checks/` were removed 2026-08-24. The `gate` job was never a required
+> status check; `ci.yml` always was. Two of the checks it ran were meta-checks over the tracker and
+> review ledger, both of which no longer exist.
 
-## Workflow
-Plan (grill-me → to-PRD → versioned plan → tracker tasks) →
-Build (delegate by owner) → Review (gate) → **update the tracker and `git commit` on completion**.
-Each milestone (§5.4): capture candidate learnings to `docs/learning-notes.md`.
+## Environments
 
-## Note on `docs/superpowers/`
-Stage 3 was built with a different (superpowers) workflow; its plan and design doc live there as a
-historical record. `docs/plans/` is the Dev-System's home for plans going forward — don't add to
-`docs/superpowers/`.
+**local → prod.** `docker-compose.yaml` is local; `docker-compose.prod.yaml` is production —
+note it is currently a **0-byte file** (F-006, open in `docs/plans/phase-1-analytical-core.md`).
+
+There is no Supabase and no Vercel here, so the Supabase/Vercel MCP warnings in `WORKFLOW.md` do not
+apply to this project. Debugging tools that do: the local stack's logs, `pytest -k`, and Playwright
+MCP against the local frontend.
