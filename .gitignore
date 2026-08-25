@@ -1,9 +1,40 @@
-.env
-.env.local
-.env*.local
+# Every .env variant, then re-admit the committed template. `.env` + `.env*.local` alone left
+# `.env.production` / `.env.development` -- the exact names Next.js loads by convention -- trackable.
+.env*
+!.env.example
 __pycache__/
 *.pyc
 venv/
 .next/
 node_modules/
 .superpowers/
+
+# --- data stores: NEVER commit the historical corpus ---
+# The modeling corpus is multi-GB (the staged Kaggle NBA DB is 2.35 GB). It lives outside the repo
+# and is rebuilt from its source, never versioned here. These patterns are a backstop, not the plan.
+*.sqlite
+*.sqlite3
+*.duckdb
+*.db
+*.db-journal
+*.parquet
+*.feather
+*.arrow
+*.h5
+*.csv.gz
+*.tar.xz
+data/
+archive/
+
+# Model artifacts -- outputs belong in the store or the registry, never in git.
+# `/models/` is ANCHORED to the repo root (F-016): an unanchored `models/` matches at any depth, so a
+# routine backend/models.py -> backend/models/ refactor would land untracked and silent.
+*.pkl
+*.joblib
+*.onnx
+/models/
+
+# --- local check runs ---
+.pytest_cache/
+.ruff_cache/
+coverage/
