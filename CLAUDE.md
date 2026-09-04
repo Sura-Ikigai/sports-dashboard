@@ -8,8 +8,9 @@ are global, in `~/.claude/`.
 
 - **`docs/plans/<feature>.md`** — one file per feature: intent, decisions, phases, findings,
   remediations. Read the active one before acting.
-  - `phase-1-analytical-core.md` — BUILT, reviewed, 12 findings carried, **unmerged**
-  - `modeling-second-cycle.md` — DRAFT, activates when phase 1 merges
+  - `modeling-second-cycle.md` — **ACTIVE** (T-021…T-035). This is the one to read before acting.
+  - `phase-1-analytical-core.md` — **MERGED** 2026-08-25 (PR #3). History, plus 12 carried findings
+    that are still open — each names the cycle-2 task that absorbs it.
 - **`docs/archive/`** — history only, do not read by default. `decisions.md` (D-001…D-047),
   `findings.md` (F-001…F-140, full evidence), `log.md`, the old tracker, superseded plans.
   **Grep it, never read it end to end:** `grep -n 'D-0NN' docs/archive/decisions.md`.

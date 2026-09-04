@@ -1,11 +1,13 @@
 # Phase 1 — analytical core (T-006 · T-007 · T-008 · T-009)
 
-**Status:** BUILT and reviewed through round 3, remediated, **not merged** — 38 commits on
-`feat/phase-1-analytical-core`. Ship criterion **MET**: sealed 2026 fold accuracy `.6762` against a
-`.62` bar, log loss `.6020` against a constant-predictor `.6870` (both halves of D-008).
-12 findings carried below, none blocking. Next cycle is planned in
+**Status:** BUILT, reviewed through round 3, remediated, and **MERGED** — PR #3, 49 commits from
+`feat/phase-1-analytical-core`, merged to `main` 2026-08-25 as `30871d8`. Ship criterion **MET**:
+sealed 2026 fold accuracy `.6762` against a `.62` bar, log loss `.6020` against a constant-predictor
+`.6870` (both halves of D-008). 12 findings carried below, none blocking — they are **not closed by
+the merge**; each names the cycle-2 task that absorbs it. The next cycle is now active in
 `docs/plans/modeling-second-cycle.md`.
 **Reformatted:** 2026-08-24, when the workflow moved to one file per feature.
+**Status corrected:** 2026-09-04 — this file read `not merged` for ten days after PR #3 landed.
 
 <!--
 Reconstructed from docs/IMPLEMENTATION.md + docs/findings.md at the cutover. Both are preserved
