@@ -139,8 +139,12 @@ def test_an_unpinned_season_cannot_shape_a_url_or_a_path(season: int) -> None:
 
 
 def test_every_pinned_season_is_accepted() -> None:
-    """Non-vacuity control: a guard that rejected everything would satisfy the test above."""
-    for season in loader.SEASONS:
+    """Non-vacuity control: a guard that rejected everything would satisfy the test above.
+
+    Covers `SCHEDULE_SEASONS`, not just `SEASONS` — T-022 widened what a schedule download may ask
+    for, and a check still gated on the narrower tuple would refuse every warm-up season.
+    """
+    for season in loader.SCHEDULE_SEASONS:
         loader._validate_season(season)
 
 
@@ -525,3 +529,282 @@ def test_load_season_returns_a_verified_frame(tmp_path: Path, pinned: bytes) -> 
     frame = loader.load_season(SEASON, tmp_path)
     assert len(frame) == 3
     assert set(frame["game_id"]) == {"401-a", "401-b", "401-c"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# T-022 -- warm-up seasons and the box-score parquet assets
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+BOX_SEASON = 2024
+
+
+def _box_frame(kind: str, *, games: int, rows_per_game: int | None = None) -> pd.DataFrame:
+    """A minimally valid box frame carrying exactly the required columns."""
+    columns = (
+        loader.PLAYER_BOX_REQUIRED_COLUMNS
+        if kind == "player_box"
+        else loader.TEAM_BOX_REQUIRED_COLUMNS
+    )
+    per_game = rows_per_game if rows_per_game is not None else (2 if kind == "team_box" else 15)
+    game_ids = [f"g{i}" for i in range(games) for _ in range(per_game)]
+    return pd.DataFrame({c: game_ids if c == "game_id" else [0] * len(game_ids) for c in columns})
+
+
+def _parquet_bytes(frame: pd.DataFrame) -> bytes:
+    import io
+
+    buffer = io.BytesIO()
+    frame.to_parquet(buffer, index=False)
+    return buffer.getvalue()
+
+
+# ── the warm-up split (D-037) ─────────────────────────────────────────────────
+
+
+def test_warmup_seasons_are_pinned_but_are_not_modeling_seasons() -> None:
+    """D-037's whole point. Being *pinned* is not the same as being *trainable*: warm-up seasons
+    carry counts and hashes so they can be verified, and sit outside `SEASONS` so the training
+    path's default cannot reach them."""
+    assert set(loader.WARMUP_SEASONS).isdisjoint(loader.SEASONS)
+    assert set(loader.WARMUP_SEASONS) <= set(loader.EXPECTED_COMPLETED_COUNTS)
+    assert set(loader.WARMUP_SEASONS) <= set(loader.EXPECTED_SHA256)
+    assert set(loader.SCHEDULE_SEASONS) == set(loader.WARMUP_SEASONS) | set(loader.SEASONS)
+
+
+def test_the_training_default_cannot_return_a_warmup_row() -> None:
+    """The pre-2020 home-advantage regime must never enter the fit. T-029 enforces this at the split
+    boundary; this pins the ergonomic half -- `load_completed_games`'s default season set."""
+    import inspect
+
+    default = inspect.signature(loader.load_completed_games).parameters["seasons"].default
+    assert default == loader.SEASONS
+    assert set(default).isdisjoint(loader.WARMUP_SEASONS)
+
+
+def test_a_warmup_season_is_a_valid_schedule_season_but_not_a_valid_box_season() -> None:
+    """Box scores exist for the modeling window only -- Elo needs scores, availability does not
+    reach back before the training window. Asking for a 2016 box must be refused here rather than
+    discovered as a 404."""
+    for season in loader.WARMUP_SEASONS:
+        loader._validate_season(season)  # schedules: fine
+        with pytest.raises(LoaderVerificationError, match="not one of the pinned seasons"):
+            loader._validate_season(season, loader.BOX_SEASONS)
+
+
+# ── parquet framing (T-022's new format) ──────────────────────────────────────
+
+
+def test_an_empty_parquet_body_is_refused() -> None:
+    with pytest.raises(LoaderVerificationError, match="is empty"):
+        loader._validate_parquet_magic(b"", BOX_SEASON, source="test")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [b"PAR1", b"PAR1xx", b"not a parquet file at all", b"PAR1data", b"dataPAR1"],
+    ids=["magic-only", "too-short", "no-magic", "head-only", "tail-only"],
+)
+def test_a_body_not_framed_as_parquet_is_refused(body: bytes) -> None:
+    """A CSV header names its columns, so the text check can assert the schema. Parquet keeps its
+    schema in a binary footer, so bytes-level verification stops at the framing -- which still
+    catches an HTML error page, a truncated download, or a file of another format entirely."""
+    with pytest.raises(LoaderVerificationError, match="not framed as a parquet file"):
+        loader._validate_parquet_magic(body, BOX_SEASON, source="test")
+
+
+def test_an_html_error_page_is_refused_by_the_parquet_framing_check() -> None:
+    with pytest.raises(LoaderVerificationError, match="not framed as a parquet file"):
+        loader._validate_parquet_magic(b"<html>404</html>", BOX_SEASON, source="test")
+
+
+def test_a_real_parquet_file_passes_the_framing_check() -> None:
+    """Non-vacuity: a framing check that refused everything would satisfy every test above."""
+    raw = _parquet_bytes(_box_frame("team_box", games=3))
+    loader._validate_parquet_magic(raw, BOX_SEASON, source="test")
+
+
+def test_an_oversized_parquet_body_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loader, "_MAX_DOWNLOAD_BYTES", 16)
+    with pytest.raises(LoaderVerificationError, match="over the 16"):
+        loader._validate_parquet_magic(b"PAR1" + b"x" * 64 + b"PAR1", BOX_SEASON, source="test")
+
+
+# ── box-score frame verification ──────────────────────────────────────────────
+
+
+def test_an_unknown_box_family_is_refused() -> None:
+    with pytest.raises(LoaderVerificationError, match="unknown box-score family"):
+        loader._box_family("shot_chart")
+
+
+@pytest.mark.parametrize("kind", ["player_box", "team_box"])
+def test_a_correct_box_frame_passes(monkeypatch: pytest.MonkeyPatch, kind: str) -> None:
+    """Non-vacuity control for every refusal below."""
+    games = 10
+    frame = _box_frame(kind, games=games)
+    monkeypatch.setitem(loader.EXPECTED_COMPLETED_COUNTS, BOX_SEASON, games)
+    monkeypatch.setitem(loader._BOX_FAMILIES[kind]["rows"], BOX_SEASON, len(frame))
+    loader._verify_box(frame, kind, BOX_SEASON)
+
+
+@pytest.mark.parametrize("kind", ["player_box", "team_box"])
+def test_a_box_frame_missing_a_required_column_is_refused(kind: str) -> None:
+    frame = _box_frame(kind, games=2).drop(columns=["game_id" if kind == "team_box" else "minutes"])
+    with pytest.raises(LoaderIntegrityError, match="missing required column"):
+        loader._verify_box(frame, kind, BOX_SEASON)
+
+
+def test_minutes_and_did_not_play_are_both_required_and_not_redundant() -> None:
+    """User story 12, pinned at the loader boundary.
+
+    Verified on the real 2024 file: 6,638 rows carry `did_not_play=True` with null minutes (absence)
+    while 268 carry `minutes == 0` with `did_not_play=False` (dressed, active, played nothing).
+    Collapsing the two is precisely the garbage-time-reads-as-injury failure T-027 must avoid, so
+    losing either column upstream has to be a hard failure rather than a silent degradation.
+    """
+    assert "minutes" in loader.PLAYER_BOX_REQUIRED_COLUMNS
+    assert "did_not_play" in loader.PLAYER_BOX_REQUIRED_COLUMNS
+    for dropped in ("minutes", "did_not_play"):
+        frame = _box_frame("player_box", games=2).drop(columns=[dropped])
+        with pytest.raises(LoaderIntegrityError, match="missing required column"):
+            loader._verify_box(frame, "player_box", BOX_SEASON)
+
+
+def test_a_box_row_count_mismatch_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    frame = _box_frame("team_box", games=10)
+    monkeypatch.setitem(loader._BOX_FAMILIES["team_box"]["rows"], BOX_SEASON, 999)
+    with pytest.raises(LoaderIntegrityError, match="got 20 rows, expected 999"):
+        loader._verify_box(frame, "team_box", BOX_SEASON)
+
+
+def test_a_box_file_covering_the_wrong_games_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The cross-asset check, and the one that earns its keep.
+
+    A file covering the wrong *set* of games at the right size passes every per-file check ever
+    written -- it hashes to whatever it now contains, and its row count is whatever was pinned from
+    it. Only comparing its game coverage against the schedule's pinned completed count can see it.
+    """
+    frame = _box_frame("team_box", games=10)
+    monkeypatch.setitem(loader._BOX_FAMILIES["team_box"]["rows"], BOX_SEASON, len(frame))
+    monkeypatch.setitem(loader.EXPECTED_COMPLETED_COUNTS, BOX_SEASON, 11)
+    with pytest.raises(LoaderIntegrityError, match="covers 10 distinct games"):
+        loader._verify_box(frame, "team_box", BOX_SEASON)
+
+
+def test_a_team_box_game_missing_a_side_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two teams per game, always. A row count and a game count can both be right while one game
+    carries three rows and another carries one."""
+    frame = _box_frame("team_box", games=10)
+    frame.loc[len(frame)] = frame.iloc[0]  # an eleventh row for an existing game
+    monkeypatch.setitem(loader._BOX_FAMILIES["team_box"]["rows"], BOX_SEASON, len(frame))
+    monkeypatch.setitem(loader.EXPECTED_COMPLETED_COUNTS, BOX_SEASON, 10)
+    with pytest.raises(LoaderIntegrityError, match="is not 2 per game"):
+        loader._verify_box(frame, "team_box", BOX_SEASON)
+
+
+def test_player_box_is_not_subject_to_a_rows_per_game_rule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Roster sizes vary, so a fixed multiple would be wrong. The family descriptor says so
+    explicitly rather than the check silently not applying."""
+    assert loader._BOX_FAMILIES["player_box"]["rows_per_game"] is None
+    frame = _box_frame("player_box", games=4, rows_per_game=13)
+    monkeypatch.setitem(loader._BOX_FAMILIES["player_box"]["rows"], BOX_SEASON, len(frame))
+    monkeypatch.setitem(loader.EXPECTED_COMPLETED_COUNTS, BOX_SEASON, 4)
+    loader._verify_box(frame, "player_box", BOX_SEASON)
+
+
+def test_an_unpinned_box_season_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(loader, "TEAM_BOX_EXPECTED_ROWS", {})
+    monkeypatch.setitem(loader._BOX_FAMILIES["team_box"], "rows", {})
+    with pytest.raises(LoaderIntegrityError, match="no pinned row count"):
+        loader._verify_box(_box_frame("team_box", games=2), "team_box", BOX_SEASON)
+
+
+def test_a_box_season_with_no_schedule_pin_has_nothing_to_cross_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame = _box_frame("team_box", games=2)
+    monkeypatch.setitem(loader._BOX_FAMILIES["team_box"]["rows"], BOX_SEASON, len(frame))
+    monkeypatch.setattr(loader, "EXPECTED_COMPLETED_COUNTS", {})
+    with pytest.raises(LoaderIntegrityError, match="nothing to cross-check"):
+        loader._verify_box(frame, "team_box", BOX_SEASON)
+
+
+# ── box downloads reuse the schedule's security posture ───────────────────────
+
+
+@pytest.fixture
+def box_pinned(monkeypatch: pytest.MonkeyPatch) -> bytes:
+    raw = _parquet_bytes(_box_frame("team_box", games=3))
+    monkeypatch.setitem(
+        loader._BOX_FAMILIES["team_box"]["hashes"], BOX_SEASON, hashlib.sha256(raw).hexdigest()
+    )
+    return raw
+
+
+def test_a_box_download_refuses_a_redirect_that_drops_tls(
+    tmp_path: Path, box_pinned: bytes
+) -> None:
+    fake = _urlopen_returning(box_pinned, url="http://release-assets.githubusercontent.com/x.parquet")
+    with patch.object(loader.urllib.request, "urlopen", fake):
+        with pytest.raises(LoaderVerificationError, match="refusing a redirect that dropped TLS"):
+            loader.download_box_parquet("team_box", BOX_SEASON, tmp_path)
+
+
+def test_a_box_download_refuses_an_unlisted_host(tmp_path: Path, box_pinned: bytes) -> None:
+    """The box families share `_download_verified` with the schedules rather than reimplementing it,
+    so this asserts the shared posture actually applies to the new path -- a second implementation
+    is exactly how the two would drift."""
+    fake = _urlopen_returning(box_pinned, url="https://evil.example.com/x.parquet")
+    with patch.object(loader.urllib.request, "urlopen", fake):
+        with pytest.raises(LoaderVerificationError, match="not in the allowlist"):
+            loader.download_box_parquet("team_box", BOX_SEASON, tmp_path)
+
+
+def test_a_box_download_refuses_a_content_hash_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw = _parquet_bytes(_box_frame("team_box", games=3))
+    monkeypatch.setitem(loader._BOX_FAMILIES["team_box"]["hashes"], BOX_SEASON, "0" * 64)
+    fake = _urlopen_returning(raw, url="https://release-assets.githubusercontent.com/x.parquet")
+    with patch.object(loader.urllib.request, "urlopen", fake):
+        with pytest.raises(LoaderVerificationError, match="TEAM_BOX_EXPECTED_SHA256 pins"):
+            loader.download_box_parquet("team_box", BOX_SEASON, tmp_path)
+
+
+def test_a_box_download_into_an_empty_directory_works(tmp_path: Path, box_pinned: bytes) -> None:
+    """F-037 again, for the new path. A populated cache has hidden a broken download in this repo
+    before, so the branch is exercised against a directory that does not exist yet."""
+    empty = tmp_path / "not-created-yet"
+    assert not empty.exists()
+    fake = _urlopen_returning(box_pinned, url="https://release-assets.githubusercontent.com/x.parquet")
+    with patch.object(loader.urllib.request, "urlopen", fake):
+        dest = loader.download_box_parquet("team_box", BOX_SEASON, empty)
+    assert dest.read_bytes() == box_pinned
+    assert list(empty.glob("*.part")) == []
+
+
+def test_a_valid_cached_box_file_is_not_re_downloaded(tmp_path: Path, box_pinned: bytes) -> None:
+    """Acceptance: re-running skips valid cached files."""
+    dest = tmp_path / f"team_box_{BOX_SEASON}.parquet"
+    dest.write_bytes(box_pinned)
+
+    def _explode(*_args, **_kwargs):
+        raise AssertionError("a valid cached box file must not trigger a download")
+
+    with patch.object(loader.urllib.request, "urlopen", _explode):
+        assert loader.download_box_parquet("team_box", BOX_SEASON, tmp_path) == dest
+
+
+def test_a_tampered_cached_box_file_is_refused(tmp_path: Path, box_pinned: bytes) -> None:
+    dest = tmp_path / f"team_box_{BOX_SEASON}.parquet"
+    dest.write_bytes(box_pinned[:-8] + b"\x00\x00\x00\x00" + b"PAR1")
+    with pytest.raises(LoaderVerificationError, match="upstream data has changed"):
+        loader.download_box_parquet("team_box", BOX_SEASON, tmp_path)
+
+
+def test_a_box_download_for_an_unpinned_season_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(LoaderVerificationError, match="not one of the pinned seasons"):
+        loader.download_box_parquet("team_box", 2016, tmp_path)

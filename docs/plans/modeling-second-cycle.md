@@ -344,7 +344,8 @@ skip must be justified in the task's outcome rather than discovered later.
     instructions; no Postgres under `CI=true` is a **failure**. Verified in all three modes —
     with Postgres (26 pass), without (26 skip), and `CI=true` without (26 error).
 
-- [ ] **T-022** Extend the loader: warm-up seasons and box-score assets — owner: `backend-engineer`
+- [x] **T-022** Extend the loader: warm-up seasons and box-score assets — owner: `backend-engineer`
+      — **DONE 2026-09-04**
   - acceptance: seasons 2016–2019 schedules and 2022–2026 player/team box parquet download with
     per-season pinned counts and content hashes; every new season retains exactly 30 franchises;
     re-running skips valid cached files
@@ -353,6 +354,48 @@ skip must be justified in the task's outcome rather than discovered later.
     new format in this path: confirm the reader cannot execute embedded code.
   - **verify against an empty data directory** (F-037). A populated cache has hidden a broken
     download path in this repo before.
+  - **built:** `backend/model/loader.py` extended; `backend/tests/test_loader.py` (**88 tests**, up
+    from zero — F-111 discharged first, before the parquet path, as that finding required).
+    305 backend tests pass, ruff clean.
+  - **pins recorded 2026-09-04 from live downloads.** Warm-up schedules 2016–2019 (1317/1310/1314/
+    1314 completed) and player/team box parquet for 2022–2026, each with a content hash. All ten box
+    files verify; warm-up totals 5,255 games; `load_completed_games()` still returns exactly the
+    same 6,615 modeling games as Phase 1.
+  - **two cross-asset invariants held exactly and are now asserted, not just noted:**
+    1. Box `game_id` coverage **equals** `EXPECTED_COMPLETED_COUNTS` for the same season, for both
+       families, all five seasons. This is the check that earns its keep: a file covering the wrong
+       *set* of games at the right size passes every per-file check ever written, because it hashes
+       to whatever it now contains and its row count is whatever was pinned from it.
+    2. `team_box` rows == 2 × games. A row count and a game count can both be right while one game
+       carries three rows and another carries one.
+  - **30 franchises confirmed for every warm-up season** — via the same games-played rule
+    `corpus.py` already applies, so no new curation logic was needed. 2016/2017 carry 2 All-Star
+    phantom ids, 2018/2019 carry 4; identical in shape to what Phase 1 already handles.
+  - **parquet security note — confirmed, not assumed.** Parquet is a columnar data format read
+    through pyarrow: no code, no callables, no import directives, and no `pickle.loads` analogue.
+    The one real subtlety is that pandas honours an *extension dtype* declared in the file's
+    key-value footer — a registry lookup, not an arbitrary import, and every file reaching the
+    reader has already matched a pinned SHA-256 over its exact bytes. Still a parser, never a
+    deserializer that can execute code. Framing is checked (`PAR1` at both ends) before the reader
+    is pointed at the file; the *schema* check necessarily happens after parsing, since parquet
+    keeps its schema in a binary footer rather than a text header.
+  - **F-037 discharged by live test, not by habit:** all three families downloaded into a directory
+    that did not exist, then re-run to confirm the cache path is a no-op.
+  - **changed vs. plan:**
+    - The download core (`_download_verified`) was **extracted and shared** rather than copied for
+      the box families. A second implementation of the allowlist, TLS assertion, size cap, cache
+      verification and atomic write is exactly how the two would drift apart; tests assert the
+      shared posture applies on the new path.
+    - `WARMUP_SEASONS` is a **separate tuple** from `SEASONS`, and `load_warmup_games()` a separate
+      function from `load_completed_games()`. Being pinned is not the same as being trainable — the
+      training path's default must be structurally incapable of returning a warm-up row. T-029 still
+      enforces this at the split boundary; this is the ergonomic half.
+    - `pyarrow==25.0.1` added to `requirements-train.txt` (not `requirements.txt` — the served image
+      is untouched, D-016 intact).
+  - **also landed here (see `phase-1-analytical-core.md`):** F-111 closed, F-039 closed (was already
+    fixed, carried forward unclosed), F-114's loader half closed. `ci.yml` now installs
+    `requirements-train.txt`, so every `backend/model/` test actually runs in CI instead of
+    `importorskip`-ing away — these were green there without ever executing.
 
 - [ ] **T-023** `ingest` — verified loader-to-Postgres — owner: `backend-engineer`
   - acceptance: idempotent on game id; running twice yields one row per game; content hashes and
