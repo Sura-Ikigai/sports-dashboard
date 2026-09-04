@@ -68,6 +68,14 @@ MIN_SEASON_GAMES_FOR_A_REAL_TEAM: int = 20
 # the loader's EXPECTED_COMPLETED_COUNTS (F-028). Adding a season (D-017's 2026-27 retrain) means
 # measuring its count by hand and pinning it here, deliberately, in a reviewed commit.
 EXPECTED_EXHIBITION_COUNTS: dict[int, int] = {
+    # T-024 added the D-037 warm-up seasons, measured 2026-09-04 against the ingested corpus. Each
+    # is left with exactly 30 franchises after exclusion, the same shape the modeling seasons have.
+    # Pinned here rather than assumed: `exclude_exhibitions` refuses an unpinned season outright
+    # (F-028's lesson), and the warm-up seasons now reach it through `store`.
+    2016: 1,
+    2017: 1,
+    2018: 2,
+    2019: 2,
     2022: 1,
     2023: 1,
     2024: 1,
@@ -75,7 +83,7 @@ EXPECTED_EXHIBITION_COUNTS: dict[int, int] = {
     2026: 4,
 }
 
-TOTAL_EXPECTED_EXHIBITIONS: int = sum(EXPECTED_EXHIBITION_COUNTS.values())  # 10
+TOTAL_EXPECTED_EXHIBITIONS: int = sum(EXPECTED_EXHIBITION_COUNTS.values())  # 16
 
 # F-070: `expected=EXPECTED_EXHIBITION_COUNTS` as a default binds the dict OBJECT at definition time,
 # so rebinding the module attribute (what a monkeypatching test does) was silently ignored while

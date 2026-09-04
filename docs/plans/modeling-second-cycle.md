@@ -462,12 +462,60 @@ skip must be justified in the task's outcome rather than discovered later.
        pinned counts count them (6,615, not the curated 6,605), so writing the curated set would
        make the database's own row count disagree with the number that verifies it.
 
-- [ ] **T-024** `store` — Postgres read layer — owner: `backend-engineer`
+- [x] **T-024** `store` — Postgres read layer — owner: `backend-engineer` — **DONE 2026-09-04**
   - acceptance: returns the record types the pipeline already uses; narrows by season and team;
     **contains no as-of predicate anywhere**; re-asserts the curation invariant on read
   - security note: D-039 is the whole point. Add a check that fails if an as-of-shaped date predicate
     appears in this module — the same class of mechanical enforcement T-006 used for the as-of filter
     and T-009's `ast` check used for argument forwarding.
+  - **built:** `backend/model/store.py` and `backend/tests/test_store.py` (32 tests).
+    **364 backend tests pass**, ruff clean.
+  - **the round trip is exact.** Read back from Postgres and curated, the modeling seasons give
+    **6,605** games — the same number Phase 1 reported from CSVs. 11,854 curated of 11,870 raw
+    (16 exhibitions), warm-up 5,249 of 5,255. The corpus survived the move to a database unchanged.
+  - **D-039 is enforced mechanically, and the enforcement was proven to fail.**
+    `test_no_as_of_predicate_appears_anywhere_in_store` parses `store.py`'s AST and refuses any
+    date-shaped inequality, `as_of` mention, or `BETWEEN` in any non-docstring string literal.
+    Verified by smuggling `clauses.append("game_date < :as_of")` into the module: the test fails.
+    Three deliberate details:
+    - It scans **every non-docstring literal**, not just `sa.text(...)` arguments — this module
+      builds WHERE clauses by appending fragments to a list, so a predicate can reach the SQL
+      without ever appearing inside a `text()` call.
+    - Docstrings are **excluded**, so prose can name the hazard. The module docstring quotes
+      `WHERE game_date < :as_of` as the thing to avoid; a checker that forbade that would get the
+      explanation deleted to appease it.
+    - Both halves of non-vacuity are tested: five predicate shapes that **must** be caught, and five
+      legitimate narrowings (`season = ANY(...)`, `ORDER BY g.game_date`, an equality join) that
+      must **not** be — a check that flagged everything would force D-039's permitted narrowings to
+      be written evasively.
+  - **the curation trap, found while building it.** `corpus.partition_exhibitions` identifies a
+    phantom team by how few games it plays. In a **team-narrowed** slice every *opponent* appears
+    two or three times, so run naively over the slice it classifies nearly the whole thing as
+    exhibition. Identification therefore always runs over the **full** corpus and only the exclusion
+    is applied to the narrowed rows; the 30-franchises-per-season assertion is skipped for
+    team-narrowed reads (a slice of one team cannot have thirty) and runs in full otherwise.
+  - **`load_history` narrows by team only, and cannot express a season.** F-113's `_require_covers`
+    refuses any non-`None` `complete_from`, because `rest_diff` is not season-scoped and `elo_diff`
+    (D-032) is running state over every prior season — so a season-narrowed history is unusable for
+    features however it is chosen. `load_games` still narrows by season for the callers that
+    legitimately want one (fold construction, reporting); the function `compute_features` consumes
+    simply has no such parameter. A test pins that signature.
+  - **changed vs. plan:**
+    1. **Warm-up exhibition counts are now pinned** in `corpus.EXPECTED_EXHIBITION_COUNTS`
+       (2016: 1, 2017: 1, 2018: 2, 2019: 2; total 10 → 16), measured against the ingested corpus.
+       `exclude_exhibitions` refuses an unpinned season outright, and `store` now reads these
+       seasons. `test_corpus.py`'s constant-guard test did its job and was updated deliberately.
+    2. `store` adds `assert_corpus_present` — an empty or partially ingested corpus produces
+       shrinkage priors rather than an error, which is the same silent failure `Coverage` guards
+       one layer up.
+    3. `game_venue_ids` is a separate mapping rather than a field on `Game`: `Game` mirrors the
+       loader's frame one-for-one, and adding a field would give one record type two shapes
+       depending on which side of the store it came from.
+    4. An **empty** narrowing (`teams=[]`) is refused rather than silently widened — under a naive
+       `if teams:` it reads as "no narrowing" and returns the whole corpus.
+  - **also closed here:** **F-113**, which was flagged `revisit-when: before-T-024`. Checking first
+    rather than building on the assumption, the remediation had already landed in the round-3 fixes;
+    verified and closed, and now exercised end-to-end through `store.load_history`.
 
 - [ ] **T-025** `elo` deep module — owner: `backend-engineer`
   - acceptance: one interface returning pre-game rating differences for a game sequence; MOV
