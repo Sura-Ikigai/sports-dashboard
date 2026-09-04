@@ -517,12 +517,51 @@ skip must be justified in the task's outcome rather than discovered later.
     rather than building on the assumption, the remediation had already landed in the round-3 fixes;
     verified and closed, and now exercised end-to-end through `store.load_history`.
 
-- [ ] **T-025** `elo` deep module — owner: `backend-engineer`
+- [x] **T-025** `elo` deep module — owner: `backend-engineer` — **DONE 2026-09-04**
   - acceptance: one interface returning pre-game rating differences for a game sequence; MOV
     multiplier, K, home adjustment and carryover configurable but defaulted to the measured values;
     standard library only; golden fixtures and the five invariants pass
   - security note: none — pure computation. But it consumes warm-up seasons, so it must be impossible
     for a warm-up game to reach the estimator as a training row; that assertion lives in T-029.
+  - **built:** `backend/model/elo.py` and `backend/tests/test_elo.py` (32 tests).
+    **396 backend tests pass**, ruff clean.
+  - **D-032's measurement reproduced exactly.** Replayed over the full ingested corpus (11,854
+    curated games, warm-up included), MOV Elo scores **AUC .7149** on the 2024+2025 dev seasons —
+    the number D-032 recorded — over **2,640** games, also exactly the count D-032 names. An
+    independent reimplementation landing on the same four decimals validates the formula, the
+    Postgres round trip, the curation and the warm-up replay in one shot.
+  - **the emitted feature excludes the home adjustment, and that is a correctness requirement.**
+    The 100-point home adjustment belongs in the expected-score calculation, where it stops home
+    wins from inflating ratings. Adding it to the emitted `elo_diff` would produce a column
+    differing from the unadjusted one by a constant — **perfectly collinear with the intercept**,
+    which is exactly the non-identifiability D-024 documented and D-033 removed `home_advantage`
+    over. Home-court advantage stays in the intercept. There is a test for it.
+  - **the five invariants, each catching a class of bug a fixture cannot:**
+    1. total rating conserved (catches an asymmetric update — ratings inflate over a season,
+       invisible in any single game);
+    2. beating a stronger opponent gains more, a bigger margin gains more, and an upset gains more
+       than an expected win of the same margin (the last one is the autocorrelation correction);
+    3. carryover moves every rating toward the mean, with `carryover=1.0` a genuine no-op and
+       `0.0` a full reset;
+    4. replay is deterministic **and order-independent** — games are sorted internally by
+       `(date, game_id)`, because dates are the fact and a caller's ordering is a claim (T-007);
+    5. the first game sees both teams at 1500, and so does a team appearing mid-corpus.
+  - **golden fixtures are checked against an independent implementation**, `_naive_elo`, written
+    straight from D-032 rather than imported from the module under test — plus literal values
+    pinned to 1e-9. Asserting the module equals itself would be no test at all.
+  - **decision needing your confirmation — the 2019 → 2022 gap.** The corpus has no 2020 or 2021
+    season, so replaying warm-up plus modeling crosses a three-year hole. The default applies
+    carryover **once per observed season transition** (textbook, and how D-032's 0.75 was measured);
+    `regress_per_elapsed_year=True` instead regresses once per calendar year (0.75³ ≈ 0.42 across
+    the gap), on the view that three unobserved seasons decay a rating more than one does. **No
+    measurement supports either choice.** Left explicit rather than buried, and a test pins that the
+    two actually differ so the option is not decorative. By 2022 — the first training season — the
+    warm-up has done its job under either setting.
+  - **also guarded:** a season label that disagrees with its date is refused (T-007's lesson — the
+    carryover would otherwise fire at the wrong moments); a generator is refused (F-045's shape —
+    it would be consumed by the sort and replay nothing); the MOV denominator is floored, because
+    under the defaults it reaches zero at a −1250 winner advantage and **inverts** past it, which
+    would move the winner's rating down.
 
 - [ ] **T-026** `venues` deep module — owner: `backend-engineer`
   - acceptance: static city table covering every venue in the corpus with coordinates and elevation;
