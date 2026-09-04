@@ -72,19 +72,20 @@ the claim, the location and the fix.
 
 **Integrity**
 
-- [ ] **F-113** (data-integrity, MED) — `compute_features` guarantees *"no game dated at or after
-      `as_of` enters the vector"* but cannot detect *"every game before `as_of` that should have
-      entered, did."* The second lives only in a docstring (`features.py:504-507`) and holds today
-      because there is one caller passing the full 6,605-game corpus. **D-039 permits narrowing by
-      season or team** and nothing checks what a *sufficient* narrowing is. Failure is silent by
-      construction: an under-narrowed history yields shrinkage priors, byte-identical to what opening
-      night legitimately produces. **T-028 sharpens it** — `elo_diff` is running state across all
-      prior seasons including D-037's 2016–2019 warm-up, so a season-narrowed history fails the same
-      silent way.
-      Fix: give `GameHistory` a **declared coverage** (season and/or team set) and have
-      `compute_features` raise `FeatureInputError` when the target falls outside it. `GameHistory.of`
-      is already the single chokepoint. Cheap now (one module, 40 tests, one caller); expensive once
-      T-024 and T-028 exist. `revisit-when: before-T-024`.
+- [x] **F-113** (data-integrity, MED) — **CLOSED 2026-09-04 — was already fixed, verified during
+      T-024.** The finding said `revisit-when: before-T-024` and warned it would be "cheap now,
+      expensive once T-024 and T-028 exist". Checking before building `store`, the remediation had
+      already landed in the round-3 fixes: `features.Coverage` declares `teams` / `complete_from` /
+      `complete_to`, `GameHistory` takes one (refusing a subclass, F-115), and
+      `_require_covers` runs inside `compute_features` before any feature is computed.
+      T-024 exercises it end-to-end: `store.load_history` declares its teams, and a target the
+      declaration does not cover raises `FeatureInputError` rather than returning priors.
+      One consequence, now load-bearing for the read layer: `_require_covers` refuses **any**
+      non-`None` `complete_from`, because `rest_diff` is not season-scoped and `elo_diff` (D-032) is
+      running state over every prior season. So a season-narrowed history is unusable for features
+      however it is chosen — which is why `store.load_history` narrows by team only and has no
+      parameter that could express a season.
+
 - [ ] **F-110** (data-integrity, MED) — `backend/model/estimator.py:248-249` — `save_artifact`'s
       docstring asserts *"this refuses to write anywhere else so an artifact cannot be committed by
       accident."* The body does `mkdir(parents=True)` then `write_text` with **no path check**. The

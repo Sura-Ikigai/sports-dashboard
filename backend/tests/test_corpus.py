@@ -195,8 +195,21 @@ def test_verification_of_counts_can_be_opted_out_but_the_team_check_still_runs()
 def test_the_pinned_counts_are_the_ones_measured_from_the_real_corpus():
     """Guards the constants themselves against an edit that makes a failure "go away" — the same
     role EXPECTED_COMPLETED_COUNTS plays for the loader."""
-    assert EXPECTED_EXHIBITION_COUNTS == {2022: 1, 2023: 1, 2024: 1, 2025: 3, 2026: 4}
-    assert sum(EXPECTED_EXHIBITION_COUNTS.values()) == 10
+    assert EXPECTED_EXHIBITION_COUNTS == {
+        # D-037 warm-up seasons, measured 2026-09-04 against the ingested corpus (T-024). Each is
+        # left with exactly 30 franchises after exclusion. Pinned because `store` now reads these
+        # seasons and `exclude_exhibitions` refuses an unpinned one outright.
+        2016: 1,
+        2017: 1,
+        2018: 2,
+        2019: 2,
+        2022: 1,
+        2023: 1,
+        2024: 1,
+        2025: 3,
+        2026: 4,
+    }
+    assert sum(EXPECTED_EXHIBITION_COUNTS.values()) == 16
     assert MIN_SEASON_GAMES_FOR_A_REAL_TEAM == 20
     # The threshold must sit clear of BOTH populations observed in the corpus (<=3 and >=82).
     assert 3 < MIN_SEASON_GAMES_FOR_A_REAL_TEAM < 82
