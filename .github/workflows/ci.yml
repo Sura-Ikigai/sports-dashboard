@@ -80,7 +80,18 @@ jobs:
 
       - name: Install dependencies
         working-directory: backend
-        run: pip install -r requirements.txt
+        # Both files. requirements.txt is what the served image gets; requirements-train.txt adds
+        # pandas/numpy, which backend/model/ needs and the Dockerfile deliberately never installs.
+        #
+        # Installing them here does NOT weaken D-016 — that decision is about the served image, and
+        # backend/Dockerfile still installs requirements.txt alone. What it fixes is the other half:
+        # every backend/model/ test used `importorskip("pandas")` and therefore SKIPPED in CI, so
+        # the loader's verification machinery and the dataset adapter were green here without ever
+        # having run. D-046 has since made that machinery the integrity guarantee for the whole
+        # Postgres corpus, and a test that silently skips in CI is not a test (F-037, F-091).
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-train.txt
 
       - name: Lint with ruff
         working-directory: backend

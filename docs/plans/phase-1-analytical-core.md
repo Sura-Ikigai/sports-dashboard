@@ -50,13 +50,19 @@ the claim, the location and the fix.
       not one of the 168 tests would fail. Found independently by both reviewers.
       Fix: fold into **T-030**, before the run that cannot be repeated — assert the fold's train
       frame never intersects its test frame, and that the fitted model is the one scored.
-- [ ] **F-111** (tests, MED) — `loader.py` has **no test file**. Every verification branch T-005
-      added — content-hash mismatch, header/size/UTF-8 refusals, the redirect allowlist, path
-      traversal containment, unpinned-season refusal, per-season `game_id` uniqueness — has zero
-      coverage, and all are pure functions needing no network. Worse now: **D-046** made that
-      machinery the integrity guarantee for the whole Postgres corpus.
-      Fix: fold into **T-022**, which already opens `loader.py`. Write `test_loader.py` **before**
-      the parquet path, not after.
+- [x] **F-111** (tests, MED) — **CLOSED 2026-09-04 in T-022.** `loader.py` had no test file;
+      `backend/tests/test_loader.py` now carries **57 tests** covering every branch the finding
+      names — content-hash mismatch, header/size/UTF-8 refusals, the redirect allowlist, path
+      traversal containment, unpinned-season refusal, per-season `game_id` uniqueness — plus the
+      cache-verification and normalization paths. Written **before** the parquet path, as the
+      finding asked. Two details worth carrying forward:
+      - The path-traversal test needs **three** `..` segments, not two. The season interpolates into
+        the *filename*, so `../` yields the component `nba_schedule_..` — a literal directory name
+        that absorbs the following `..`. The obvious `../../` lands back inside the data dir and
+        would have proved nothing. A second test pins that contained case deliberately.
+      - The allowlist tests have a non-vacuity control asserting each listed host **is** accepted.
+        Without it, a check that refused everything would satisfy the refusal tests and reproduce
+        F-037's original bug exactly.
 - [ ] **F-125** (logic, MED) — `backend/model/splits.py:129` — the temporal-leak guard's
       exact-equality boundary is unpinned. Mutating `>=` to `>` leaves all 16 `test_splits.py` tests
       passing. Production code is correct; the module's own stated invariant is untested at its
@@ -91,10 +97,17 @@ the claim, the location and the fix.
 
 **Low / batched**
 
-- [ ] **F-114** (tests, LOW — 8-item batch) — notably: `loader._verify_season` and
-      `verify_completed_counts` bind `EXPECTED_COMPLETED_COUNTS` as a **signature default** (the
-      F-070 trap, lying directly across the tests F-111 asks for — fix while writing them);
-      `load_artifact` leaks `AttributeError`/`KeyError` rather than `EstimatorError`.
+- [ ] **F-114** (tests, LOW — 8-item batch) — **loader half CLOSED 2026-09-04 in T-022; the
+      estimator item remains open.**
+      - ~~`loader._verify_season` and `verify_completed_counts` bind `EXPECTED_COMPLETED_COUNTS` as a
+        **signature default** (the F-070 trap, lying directly across the tests F-111 asks for)~~ —
+        both now default to `None` and resolve the module global inside the body. The trap was
+        real and was verified as such: reverting the fix makes
+        `test_patching_the_pinned_counts_actually_reaches_the_check` and its aggregate twin fail,
+        with the function reading the original dict while `monkeypatch.setattr` rebound the module
+        attribute. Those two tests exist to keep it closed.
+      - **Still open:** `load_artifact` leaks `AttributeError`/`KeyError` rather than
+        `EstimatorError`. Belongs with `estimator.py`, untouched by T-022.
 - [ ] **F-126** (tests, LOW — 3-item batch) — `estimator.py`'s `l2 < 0` and singular-matrix error
       paths are unexercised; stale 3-arg fixture signature in `test_features.py` (harmless, never
       invoked).
@@ -103,9 +116,11 @@ the claim, the location and the fix.
 - [ ] **F-016** (ops, LOW) — `.gitignore`'s `models/` is unanchored, matching at any depth. Harmless
       today, but `backend/models.py` → `backend/models/` is a routine FastAPI refactor and the
       package would land untracked and silent. Anchor it (`/models/` or `data/models/`).
-- [ ] **F-039** (docs, LOW) — `loader.py`'s module-level security note still names
-      `objects.githubusercontent.com` as the redirect target, 60 lines above the constant that was
-      fixed. Code correct, narrative stale.
+- [x] **F-039** (docs, LOW) — **CLOSED 2026-09-04 — was already fixed, verified during T-022.**
+      The module-level note names `release-assets.githubusercontent.com` (the current host) and
+      defers to `_ALLOWED_DOWNLOAD_HOSTS` as authoritative, with an explicit instruction not to
+      restate the host set in prose — which is precisely how it came to name a stale host. The
+      remediation landed before the cutover; the finding was carried forward unclosed.
 
 ## Closed at the cutover — 2026-08-24
 

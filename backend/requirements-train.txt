@@ -9,3 +9,6 @@ numpy==2.4.6
 pandas==3.0.5
 python-dateutil==2.9.0.post0
 six==1.17.0
+# T-022: parquet reader for the box-score assets. A columnar data parser -- it carries no code and
+# has no pickle-style execution path (see loader._validate_parquet_magic's security note).
+pyarrow==25.0.1
