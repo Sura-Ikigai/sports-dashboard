@@ -1,6 +1,8 @@
 # Plan v3 — Second-factor features, a Postgres corpus, and an explainable prediction surface
 
-> **Status:** DRAFT — not started. Activates when `phase-1-analytical-core.md` merges.
+> **Status:** **ACTIVE** as of 2026-09-04 — Phase 1 merged (PR #3, `30871d8`, 2026-08-25), which was
+> this plan's activation condition. Building on `feat/modeling-second-cycle`. Progress is tracked in
+> the *Tracker tasks* checkboxes below.
 > **Date:** 2026-08-17 (grill-me, 16 decisions D-032..D-047)   ·   **Supersedes:** the archived PLAN-v1.
 >
 > Reformatted 2026-08-24 for one-file-per-feature. Scope below (T-021..T-035, 40 user stories) is
@@ -204,7 +206,6 @@ and a marginally better-performing one, and that is a legitimate outcome to repo
   no rating state to drift, and no incremental-update path to get wrong.
 - **`availability`** — deep, pure, standard library. Hides the rotation definition, minutes weighting
   and participation lookback behind one call.
-- **`venues`** — deep, pure, standard library. A static city table plus haversine; exposes travel
   distance, altitude and timezone shift.
 - **`features`** — modified. `history` is replaced by a **Context** carrying games, player
   participation and the venue table. The signature stays three arguments, the as-of filter runs once
@@ -301,7 +302,7 @@ skip must be justified in the task's outcome rather than discovered later.
 
 > Numbering starts at **T-021**: T-013…T-020 are reserved for factory work per the tracker.
 
-- **T-021** Corpus schema migrations + role grants — owner: `backend-engineer`
+- [x] **T-021** Corpus schema migrations + role grants — owner: `backend-engineer` — **DONE 2026-09-04**
   - acceptance: migrations create empty tables for historical games, player participation, team box
     and venues, plus the append-only predictions table; the API role holds `SELECT` only on corpus
     tables and the ingest role holds write; `alembic upgrade head` and `downgrade` both succeed on an
@@ -309,8 +310,41 @@ skip must be justified in the task's outcome rather than discovered later.
   - security note: the grant split is the only thing standing between an unauthenticated write
     endpoint and the training corpus. Assert it in a test that connects **as the API role** and
     proves a write is refused — a grant that is never exercised is a grant that is assumed.
+  - **built:** `backend/alembic/versions/a1c4f7e29b30_corpus_schema_and_role_grants.py` and
+    `backend/tests/test_corpus_schema.py` (26 tests). Verified against Postgres 16: 217 backend
+    tests pass, ruff clean. Every refusal below was asserted by **connecting as the role** and
+    reading the SQLSTATE (`42501`) back, not by inspecting `information_schema`.
+  - **changed vs. plan — three decisions worth recording:**
+    1. **Three roles, not two.** D-047 names an API role and an ingest role. T-031 then requires
+       "the job writes; the API reads," and running the prediction job as `sports_ingest` would
+       hand it write authority over the training corpus it has no business touching. So:
+       `sports_api` (SELECT on corpus + predictions, DML on the app tables), `sports_ingest`
+       (DML on corpus, **no reach into predictions**), `sports_job` (SELECT on corpus, SELECT +
+       INSERT on predictions).
+    2. **Append-only is a grant, not a trigger.** `sports_job` holds INSERT without UPDATE or
+       DELETE, so the process that writes the track record cannot revise it. Consistent with
+       D-047's "grants, not row-level security"; no trigger to bypass and nothing to keep in sync.
+    3. **Schema and grants ship in one migration.** Splitting them would leave a revision at which
+       the corpus tables exist with no authorization boundary — the exact window the boundary
+       exists to prevent.
+  - **also worth knowing:**
+    - No SQLAlchemy ORM models were added. The corpus stays out of `Base.metadata` so
+      `conftest.py`'s `create_all` can never conjure a corpus table in SQLite and let a test pass
+      against a shape no migration produced. `store` (T-024) reads it with SQL.
+    - `predictions` has **no** foreign key to `games`. It is an audit trail; a routine ESPN
+      resync must not be able to erase the model's track record.
+    - `corpus_games` carries CHECK constraints for the tie and same-team cases, mirroring
+      `Game.__post_init__` (F-049) at the storage layer.
+    - Warm-up seasons (D-037) are distinguished by `season` alone — no `is_warmup` column, which
+      would be a second source of truth able to disagree with the first.
+    - **CI already provisions the Postgres service container** D-044 called for, and the three
+      `DB_*` secrets exist. These are the first tests in the repo that actually use it — before
+      today the container ran every build and nothing connected to it.
+  - **the skip guard is asymmetric on purpose** (F-037, F-091): no Postgres locally is a skip with
+    instructions; no Postgres under `CI=true` is a **failure**. Verified in all three modes —
+    with Postgres (26 pass), without (26 skip), and `CI=true` without (26 error).
 
-- **T-022** Extend the loader: warm-up seasons and box-score assets — owner: `backend-engineer`
+- [ ] **T-022** Extend the loader: warm-up seasons and box-score assets — owner: `backend-engineer`
   - acceptance: seasons 2016–2019 schedules and 2022–2026 player/team box parquet download with
     per-season pinned counts and content hashes; every new season retains exactly 30 franchises;
     re-running skips valid cached files
@@ -320,34 +354,34 @@ skip must be justified in the task's outcome rather than discovered later.
   - **verify against an empty data directory** (F-037). A populated cache has hidden a broken
     download path in this repo before.
 
-- **T-023** `ingest` — verified loader-to-Postgres — owner: `backend-engineer`
+- [ ] **T-023** `ingest` — verified loader-to-Postgres — owner: `backend-engineer`
   - acceptance: idempotent on game id; running twice yields one row per game; content hashes and
     pinned counts verified before any row is written; an unpinned season is refused; a hash mismatch
     aborts without partial writes
   - security note: this is the boundary where verification moves from files to a database (D-046).
     Everything downstream trusts it, so it must refuse rather than repair.
 
-- **T-024** `store` — Postgres read layer — owner: `backend-engineer`
+- [ ] **T-024** `store` — Postgres read layer — owner: `backend-engineer`
   - acceptance: returns the record types the pipeline already uses; narrows by season and team;
     **contains no as-of predicate anywhere**; re-asserts the curation invariant on read
   - security note: D-039 is the whole point. Add a check that fails if an as-of-shaped date predicate
     appears in this module — the same class of mechanical enforcement T-006 used for the as-of filter
     and T-009's `ast` check used for argument forwarding.
 
-- **T-025** `elo` deep module — owner: `backend-engineer`
+- [ ] **T-025** `elo` deep module — owner: `backend-engineer`
   - acceptance: one interface returning pre-game rating differences for a game sequence; MOV
     multiplier, K, home adjustment and carryover configurable but defaulted to the measured values;
     standard library only; golden fixtures and the five invariants pass
   - security note: none — pure computation. But it consumes warm-up seasons, so it must be impossible
     for a warm-up game to reach the estimator as a training row; that assertion lives in T-029.
 
-- **T-026** `venues` deep module — owner: `backend-engineer`
+- [ ] **T-026** `venues` deep module — owner: `backend-engineer`
   - acceptance: static city table covering every venue in the corpus with coordinates and elevation;
     travel distance, altitude and timezone shift; standard library only; a venue absent from the
     table raises rather than defaulting
   - security note: none. A missing venue must raise — a silent zero would read as "no travel."
 
-- **T-027** `availability` deep module — owner: `backend-engineer`
+- [ ] **T-027** `availability` deep module — owner: `backend-engineer`
   - acceptance: lagged rotation availability from player participation; behavioural tests pass
     (high-minutes absence moves it, low-minutes absence does not, garbage-time zeroes are not
     absence, no history returns the prior); standard library only
@@ -355,7 +389,7 @@ skip must be justified in the task's outcome rather than discovered later.
     game being predicted rather than prior games. It must take its data through the Context and the
     as-of filter, never query directly.
 
-- **T-028** `features` v2 — Context and the new feature set — owner: `backend-engineer`
+- [ ] **T-028** `features` v2 — Context and the new feature set — owner: `backend-engineer`
   - acceptance: Context carries games, player participation and venues; signature stays three
     arguments; emits `elo_diff`, `home_b2b`, `away_b2b`, `rest_edge`, `avail_diff`, `travel_diff`,
     `altitude`; `point_diff_diff`, `form_diff`, `home_advantage` removed; standard library only; the
@@ -365,13 +399,13 @@ skip must be justified in the task's outcome rather than discovered later.
     not just games. One filter, inside the module, applied uniformly — and the property test must
     inject future player rows or it is no longer proving what it claims.
 
-- **T-029** `splits` — warm-up isolation — owner: `backend-engineer`
+- [ ] **T-029** `splits` — warm-up isolation — owner: `backend-engineer`
   - acceptance: warm-up seasons never appear as training or test rows; the existing temporal
     assertion still holds; a warm-up season injected as a training row fails a test
   - security note: integrity only — a fold must never train on its own future, and must never train
     on a different home-advantage regime.
 
-- **T-030** Refit, the single 2026 evaluation, and freeze — owner: `backend-engineer`
+- [ ] **T-030** Refit, the single 2026 evaluation, and freeze — owner: `backend-engineer`
   - acceptance: feature selection performed on 2024/2025 only; the feature set frozen and committed
     before 2026 is touched; **exactly one** evaluation run against 2026; per-fold accuracy, log loss
     and AUC reported with the ablation; versioned JSON artifact emitted
@@ -379,7 +413,7 @@ skip must be justified in the task's outcome rather than discovered later.
   - **the discipline is the deliverable.** If the frozen set underperforms, that is the result. A
     second look at 2026 to "check something" spends the fold and must be recorded if it happens.
 
-- **T-031** `prediction` service, persistence, and the scheduled job — owner: `backend-engineer`
+- [ ] **T-031** `prediction` service, persistence, and the scheduled job — owner: `backend-engineer`
   - acceptance: one interface returning probability, feature vector, per-feature logit contributions
     and model version; used by both the job and the API; predictions appended (never updated) keyed
     by game, model version and as-of; daily append over a seven-day horizon
@@ -387,20 +421,20 @@ skip must be justified in the task's outcome rather than discovered later.
     the existing hazard in *Future hardening* — an in-process scheduler double-syncs under a second
     replica.
 
-- **T-032** Predictions API — owner: `backend-engineer`
+- [ ] **T-032** Predictions API — owner: `backend-engineer`
   - acceptance: a prediction with its decomposition for a given game; upcoming predictions; the
     accuracy record by confidence band; the last prediction before tip-off is the one scored
   - security note: read-only endpoints against a database with no authorization boundary (D-047).
     Return model outputs; do not expose corpus rows wholesale.
 
-- **T-033** TypeScript scorer + contract check — owner: `frontend-engineer`
+- [ ] **T-033** TypeScript scorer + contract check — owner: `frontend-engineer`
   - acceptance: pure scorer returning probability and contributions; a gate check runs both
     implementations over a grid and asserts agreement on **both** outputs; the check fails CI when
     either implementation drifts
   - security note: this is a second implementation of the scoring path, which D-011 forbids. The
     contract check is the entire justification — it must run in the gate, not locally.
 
-- **T-034** Game detail surface — owner: `frontend-engineer`
+- [ ] **T-034** Game detail surface — owner: `frontend-engineer`
   - acceptance: a route per game showing probability, confidence band with its historical hit rate,
     the contribution waterfall with each factor's underlying value, model version and as-of moment;
     a fenced what-if panel that is visually distinct, never persisted and never counted; responsive;
@@ -411,7 +445,7 @@ skip must be justified in the task's outcome rather than discovered later.
     hypothetical must survive a screenshot with no surrounding text; the chart must carry a zero
     baseline; color must not be the only channel carrying sign.
 
-- **T-035** Amend §6 and write the v2 analysis — owner: `human`
+- [ ] **T-035** Amend §6 and write the v2 analysis — owner: `human`
   - acceptance: `PHASE-1-RESULT.md` §6's reproducibility claim amended to state the Postgres
     dependency (D-043); a new analysis records which features carried signal, where the model failed,
     whether probabilities remain calibrated, and the honest delta against Phase 1 — including a null
