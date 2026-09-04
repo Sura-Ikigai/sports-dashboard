@@ -41,13 +41,19 @@ training-only dependencies (backend/requirements-train.txt), never installed int
 backend/model/__init__.py stays empty specifically so importing the package -- as the FastAPI app
 will, later, for inference -- never transitively imports this module or its heavy dependencies.
 
-Testing note: this loader is deliberately not unit-tested in Phase 1 (docs/plans/PLAN-current.md,
-Testing Decisions) -- upstream format drift is the real risk here, and no committed fixture can
-detect that by construction. The runtime assertions in `_verify_season` and `verify_completed_counts`
-are the accepted tripwire in its place, and (post-F-026) they run on every call to `load_season`, not
-only when data is funneled through `load_completed_games` -- there is no way to obtain data from this
-module without them firing, and every mismatch (count, duplicate `game_id`, unpinned season, or
-content-hash drift) raises hard rather than warning or logging.
+Testing note (revised by T-022 -- F-111): Phase 1 left this module deliberately un-unit-tested, on
+the argument that upstream format drift is the real risk and no committed fixture can detect that by
+construction. That argument is still correct and `backend/tests/test_loader.py` does not pretend
+otherwise. What it covers is the half the argument never addressed: that when a tripwire *should*
+fire it does, with the right error type -- which a fixture proves perfectly well, and which D-046
+now leans on entirely, having made this machinery the integrity guarantee for the whole Postgres
+corpus rather than for one CSV read.
+
+The runtime assertions in `_verify_season` and `verify_completed_counts` remain the tripwire against
+drift, and (post-F-026) they run on every call to `load_season`, not only when data is funneled
+through `load_completed_games` -- there is no way to obtain data from this module without them
+firing, and every mismatch (count, duplicate `game_id`, unpinned season, or content-hash drift)
+raises hard rather than warning or logging.
 """
 
 import hashlib
@@ -349,7 +355,7 @@ def _read_completed_games(path: Path, season: int) -> pd.DataFrame:
 
 
 def _verify_season(
-    df: pd.DataFrame, season: int, *, expected: dict[int, int] = EXPECTED_COMPLETED_COUNTS
+    df: pd.DataFrame, season: int, *, expected: dict[int, int] | None = None
 ) -> None:
     """Verify one season's normalized completed-game frame. Called from `load_season` itself (F-026)
     so there is no path -- `load_completed_games`, T-006/T-009 calling `load_season` directly, or an
@@ -361,7 +367,19 @@ def _verify_season(
       - `game_id` is unique across the frame (F-027): a count match alone passes a corrupted file
         that drops one real game and duplicates another in its place -- the count stays identical,
         one real game silently goes missing. Checked before the count comparison, not instead of it.
+
+    F-114 (the F-070 trap): `expected` defaults to `None` and resolves to the module global *inside
+    the body*, rather than binding `EXPECTED_COMPLETED_COUNTS` as a signature default. A signature
+    default is evaluated once at def time, so it captures the dict *object* that existed then --
+    `monkeypatch.setattr(loader, "EXPECTED_COMPLETED_COUNTS", ...)` would rebind the module attribute
+    and this function would go on consulting the original. A test written that way would patch in a
+    deliberately wrong count, watch the check pass, and conclude the tripwire works. The trap lies
+    directly across the tests F-111 asks for, which is why it is closed here rather than worked
+    around in `test_loader.py`.
     """
+    if expected is None:
+        expected = EXPECTED_COMPLETED_COUNTS
+
     if season not in expected:
         raise LoaderIntegrityError(
             f"season {season} has no pinned expected count in EXPECTED_COMPLETED_COUNTS -- refusing "
@@ -402,7 +420,7 @@ def load_season(season: int, data_dir: Path = DEFAULT_DATA_DIR, *, force: bool =
 
 
 def verify_completed_counts(
-    actual: dict[int, int], expected: dict[int, int] = EXPECTED_COMPLETED_COUNTS
+    actual: dict[int, int], expected: dict[int, int] | None = None
 ) -> None:
     """Aggregate second pass (docs/plans/PLAN-current.md Testing Decisions): by the time
     `load_completed_games` calls this, every season it loaded already passed `_verify_season`
@@ -410,7 +428,13 @@ def verify_completed_counts(
     strict independently of that ordering (F-028) in case this is ever called directly with a
     hand-built `actual`: a season present in `actual` but absent from `expected` fails here too,
     rather than silently contributing nothing to the loop below.
+
+    `expected` resolves inside the body for the same reason `_verify_season`'s does -- see F-114
+    there.
     """
+    if expected is None:
+        expected = EXPECTED_COMPLETED_COUNTS
+
     unpinned = sorted(set(actual) - set(expected))
     if unpinned:
         raise LoaderIntegrityError(

@@ -1,13 +1,17 @@
 """Tests for the loader-frame -> `Game` adapter (T-006, `backend/model/dataset.py`).
 
-**These skip in CI, by construction.** `dataset.py` needs pandas, and `gate.yml` installs
-`requirements.txt` only (D-021) — so `importorskip` below skips the whole module there and runs it
-locally, where `requirements-train.txt` is installed. That is a real coverage gap and is recorded as
-one rather than papered over: it is the same category as PLAN-v1's deliberate decision not to unit
-test `loader.py`, and the adapter is thin enough that its actual risk is the loader's frame changing
-shape, which no committed fixture can detect anyway. What these tests do buy is that the field
-mapping is pinned — a swapped `home_id`/`away_id` or `home_score`/`away_score` would be invisible
-downstream (both produce plausible numbers) and is caught here.
+**These used to skip in CI and no longer do (T-022).** `dataset.py` needs pandas, and CI installed
+`requirements.txt` only — so the `importorskip` below skipped this whole module there while it ran
+locally, and the gap was recorded rather than papered over. `ci.yml` now installs
+`requirements-train.txt` as well, so these actually run. D-016 is untouched: it is a decision about
+the *served image*, and `backend/Dockerfile` still installs `requirements.txt` alone.
+
+(The note this replaced pointed at `gate.yml`, which was deleted on 2026-08-24. `ci.yml` owns both
+required status checks and always did.)
+
+The `importorskip` stays as a local-convenience guard for a venv without the training deps. What
+these tests buy is that the field mapping is pinned — a swapped `home_id`/`away_id` or
+`home_score`/`away_score` would be invisible downstream, since both produce plausible numbers.
 """
 
 from datetime import UTC, datetime
