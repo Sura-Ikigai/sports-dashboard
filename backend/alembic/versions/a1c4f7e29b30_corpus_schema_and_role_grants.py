@@ -289,9 +289,32 @@ def downgrade() -> None:
     op.execute("REVOKE ALL ON SEQUENCE games_id_seq FROM sports_api")
     op.execute("REVOKE ALL ON SEQUENCE favorites_id_seq FROM sports_api")
 
-    # A role can hold privileges granted outside this migration (another database in the cluster,
-    # a manual grant during deployment). `DROP ROLE` fails loudly on those rather than dropping a
-    # role somebody else is relying on, which is the behaviour we want -- so drop only what is
-    # cleanly droppable and let the error surface otherwise.
+    # Roles are CLUSTER-scoped, not database-scoped, so one of these can still hold privileges
+    # granted outside this migration -- most commonly another database in the same cluster that is
+    # also at `head`. Postgres refuses `DROP ROLE` in that case, and it is right to: the role is in
+    # use, and destroying it would break the other database's API user.
+    #
+    # A bare `DROP ROLE IF EXISTS` therefore makes `downgrade` fail outright in any cluster hosting
+    # two migrated databases -- which is not hypothetical, it is what the test suite does, and it is
+    # how this was found. Neither available extreme is acceptable: aborting means the migration is
+    # not reversible, and forcing the drop means one database's downgrade silently breaks another.
+    #
+    # So: drop the role when nothing depends on it, and RAISE NOTICE when something does. Not
+    # silent, not destructive, and `downgrade` completes either way. What this migration is actually
+    # responsible for -- this database's tables and this database's grants -- is gone regardless,
+    # which is what the round-trip test asserts.
     for role in ROLES:
-        op.execute(f"DROP ROLE IF EXISTS {role}")
+        op.execute(
+            f"""
+            DO $$
+            BEGIN
+                DROP ROLE IF EXISTS {role};
+            EXCEPTION
+                WHEN dependent_objects_still_exist OR insufficient_privilege THEN
+                    RAISE NOTICE 'role {role} retained: it still holds privileges elsewhere in '
+                                 'this cluster, or this session may not drop it. This database''s '
+                                 'grants have been revoked.';
+            END
+            $$;
+            """
+        )

@@ -36,10 +36,9 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from alembic.config import Config
-from sqlalchemy.engine import make_url
 
 from alembic import command
+from conftest import alembic_config, derive_url, make_scratch_database
 
 # Tables the corpus lands in. Mirrors the migration's own list; duplicated deliberately, because a
 # test that imported the constant from the code under test could not catch the list being wrong.
@@ -66,104 +65,39 @@ SCRATCH_DB = "t021_corpus_schema_test"
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
-def _derive_url(base: str, **overrides: str) -> str:
-    """A connection URL with fields swapped out, password intact.
-
-    `str(URL)` renders the password as `***` -- a sensible default for logs and a silent
-    authentication failure when the result is fed back to `create_engine`, which is exactly what
-    happened the first time these fixtures ran. `render_as_string(hide_password=False)` is the
-    only form safe to reconnect with.
-    """
-    return make_url(base).set(**overrides).render_as_string(hide_password=False)
-
-
 def _sqlstate(exc: Exception) -> str | None:
     """Pull the SQLSTATE off a SQLAlchemy-wrapped psycopg2 error, if there is one."""
     orig = getattr(exc, "orig", None)
     return getattr(orig, "pgcode", None)
 
 
-def _admin_url() -> str:
-    """The Postgres this suite may create a scratch database on -- or a skip, or a failure.
-
-    See the module docstring: a missing Postgres is a skip locally and a failure under CI. `CI` is
-    set to "true" by GitHub Actions on every runner, which is what makes the asymmetry work without
-    a project-specific flag anyone has to remember to set.
-    """
-    url = os.getenv("DATABASE_URL", "")
-    in_ci = os.getenv("CI", "").lower() == "true"
-
-    if not url or not url.startswith("postgresql"):
-        message = (
-            "T-021's grant tests require Postgres: DATABASE_URL is unset or is not a postgresql:// "
-            "URL. Locally: `docker compose up -d db` and export DATABASE_URL."
-        )
-        if in_ci:
-            pytest.fail(
-                f"{message} Under CI this is a failure, not a skip -- D-044 provisions a service "
-                "container precisely so these run, and a silently skipped grant test would report "
-                "the corpus as protected without ever having checked (F-037, F-091)."
-            )
-        pytest.skip(message)
-
-    try:
-        sa.create_engine(url).connect().close()
-    except Exception as exc:  # noqa: BLE001 -- any connection failure means the same thing here
-        message = f"Postgres at DATABASE_URL is unreachable: {exc}"
-        if in_ci:
-            pytest.fail(f"{message} Under CI this is a failure, not a skip (F-037, F-091).")
-        pytest.skip(message)
-
-    return url
-
-
 @pytest.fixture(scope="session")
-def admin_url() -> str:
-    return _admin_url()
+def scratch_url(pg_admin_url: str) -> Iterator[str]:
+    """A throwaway database for this suite, dropped when the session ends.
 
-
-@pytest.fixture(scope="session")
-def scratch_url(admin_url: str) -> Iterator[str]:
-    """A throwaway database, dropped when the session ends.
-
-    CREATE/DROP DATABASE cannot run inside a transaction block, hence AUTOCOMMIT.
+    The skip-or-fail guard, the password-preserving URL helper and the create/drop machinery all
+    live in `conftest.py` and are shared with `test_ingest.py`. Two copies of a safety guard is two
+    guards that can drift, and the whole point of this one is that it must not quietly stop firing.
     """
-    maintenance = sa.create_engine(admin_url, isolation_level="AUTOCOMMIT")
-    with maintenance.connect() as conn:
-        conn.execute(sa.text(f'DROP DATABASE IF EXISTS "{SCRATCH_DB}" WITH (FORCE)'))
-        conn.execute(sa.text(f'CREATE DATABASE "{SCRATCH_DB}"'))
-
-    yield _derive_url(admin_url, database=SCRATCH_DB)
-
-    with maintenance.connect() as conn:
-        conn.execute(sa.text(f'DROP DATABASE IF EXISTS "{SCRATCH_DB}" WITH (FORCE)'))
-    maintenance.dispose()
-
-
-def _alembic_config(url: str) -> Config:
-    """Alembic pointed at the scratch database.
-
-    `alembic/env.py` reads DATABASE_URL from the environment and overrides whatever the Config
-    carries, so setting the env var is not belt-and-braces -- it is the only setting that takes
-    effect. Both are set so a future env.py that stops doing that still works.
-    """
-    config = Config(str(BACKEND_DIR / "alembic.ini"))
-    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
-    config.set_main_option("sqlalchemy.url", url)
-    os.environ["DATABASE_URL"] = url
-    return config
+    yield from make_scratch_database(pg_admin_url, SCRATCH_DB)
 
 
 @pytest.fixture(scope="session")
 def migrated(scratch_url: str) -> Iterator[str]:
     """The scratch database at `head`. Torn down by a full downgrade, which also drops the roles."""
     previous = os.getenv("DATABASE_URL")
-    config = _alembic_config(scratch_url)
-    command.upgrade(config, "head")
+    command.upgrade(alembic_config(scratch_url), "head")
 
     yield scratch_url
 
-    command.downgrade(config, "base")
+    # `alembic_config` is re-called here rather than reusing the Config built at setup, and that is
+    # load-bearing: `alembic/env.py` overrides the Config's URL with `os.environ["DATABASE_URL"]`
+    # *at run time*, so a Config object does not actually pin its target. Between setup and teardown
+    # another session-scoped fixture (`test_ingest.py`'s) legitimately points that variable at its
+    # own scratch database -- and by teardown time has already dropped it, so this downgrade went
+    # looking for a database that no longer existed. Re-establishing the variable immediately before
+    # the call is what makes the target unambiguous.
+    command.downgrade(alembic_config(scratch_url), "base")
     if previous is not None:
         os.environ["DATABASE_URL"] = previous
 
@@ -187,7 +121,7 @@ def role_logins(migrated: str) -> Iterator[dict[str, str]]:
             conn.execute(sa.text(f'DROP ROLE IF EXISTS "{login}"'))
             conn.execute(sa.text(f"CREATE ROLE \"{login}\" LOGIN PASSWORD '{password}'"))
             conn.execute(sa.text(f'GRANT "{role}" TO "{login}"'))
-            urls[role] = _derive_url(migrated, username=login, password=password)
+            urls[role] = derive_url(migrated, username=login, password=password)
 
     yield urls
 
@@ -426,19 +360,30 @@ def test_downgrade_then_upgrade_round_trips_on_an_empty_database(migrated: str) 
     exercises the idempotent role creation -- roles are cluster-scoped and can outlive the database
     that created them.
     """
-    config = _alembic_config(migrated)
+    config = alembic_config(migrated)
     engine = sa.create_engine(migrated)
 
     command.downgrade(config, "base")
     tables = set(sa.inspect(engine).get_table_names())
     assert not (set(ALL_NEW_TABLES) & tables), f"downgrade left: {set(ALL_NEW_TABLES) & tables}"
 
+    # Asserts that the downgrade revoked THIS DATABASE's grants -- not that the roles are gone from
+    # the cluster.
+    #
+    # The distinction is not pedantry, it is the actual scope of what the migration owns. Roles are
+    # cluster-scoped: another database at `head` in the same cluster legitimately holds grants for
+    # the same three roles, and Postgres correctly refuses to drop a role still in use. Asserting
+    # global absence made this test fail the moment a second suite (`test_ingest.py`) migrated its
+    # own scratch database -- and the failure was in the assertion, not in the migration.
     with engine.connect() as conn:
-        remaining = conn.execute(
-            sa.text("SELECT rolname FROM pg_roles WHERE rolname = ANY(:names)"),
+        lingering = conn.execute(
+            sa.text(
+                "SELECT DISTINCT grantee FROM information_schema.role_table_grants "
+                "WHERE grantee = ANY(:names)"
+            ),
             {"names": list(ROLES)},
         ).scalars().all()
-    assert remaining == [], f"downgrade left roles behind: {remaining}"
+    assert lingering == [], f"downgrade left grants behind in this database: {lingering}"
 
     command.upgrade(config, "head")
     restored = set(sa.inspect(engine).get_table_names())

@@ -397,12 +397,70 @@ skip must be justified in the task's outcome rather than discovered later.
     `requirements-train.txt`, so every `backend/model/` test actually runs in CI instead of
     `importorskip`-ing away — these were green there without ever executing.
 
-- [ ] **T-023** `ingest` — verified loader-to-Postgres — owner: `backend-engineer`
+- [x] **T-023** `ingest` — verified loader-to-Postgres — owner: `backend-engineer` — **DONE 2026-09-04**
   - acceptance: idempotent on game id; running twice yields one row per game; content hashes and
     pinned counts verified before any row is written; an unpinned season is refused; a hash mismatch
     aborts without partial writes
   - security note: this is the boundary where verification moves from files to a database (D-046).
     Everything downstream trusts it, so it must refuse rather than repair.
+  - **built:** `backend/model/ingest.py` and `backend/tests/test_ingest.py` (22 tests).
+    **332 backend tests pass**, ruff clean.
+  - **the live corpus is in Postgres.** All nine seasons ingested and verified in SQL:
+
+    | table | rows |
+    |---|---|
+    | `corpus_games` | **11,870** (5,255 warm-up + 6,615 modeling) |
+    | `corpus_player_box` | **173,065** |
+    | `corpus_team_box` | **13,230** |
+    | `corpus_venues` | **45** |
+
+    Every season's game count matches `EXPECTED_COMPLETED_COUNTS` exactly. No orphan box rows,
+    every game carries exactly two `team_box` rows, no null venues. 16 exhibitions identified
+    (10 modeling + 6 warm-up), written and excluded on read.
+  - **"a hash mismatch aborts without partial writes" is stronger than it sounds, and the ordering
+    is why.** The content hashes are over *source bytes*; by the time rows exist those bytes are
+    gone, so ingest cannot re-check them and does not try. Instead `loader` raises while the file is
+    still a file — before the first INSERT, not partway through. The transaction covers only the
+    remaining failure mode: a database error on the fourth table leaving the first three populated,
+    which every count check would happily pass because each table is internally consistent. There is
+    a test for exactly that.
+  - **found by running it: 33 player rows have a null `athlete_id`.** All in 2026, all one team, no
+    display name, no minutes, captioned "COACH'S DECISION" — a roster slot with no player attached.
+    A full audit of every key column across all ten box files found nothing else.
+    - Dropping a row **is** a repair, and this module's contract is to refuse rather than repair.
+      The reconciliation is that the repair is **pinned**: `UNIDENTIFIED_PLAYER_ROWS` declares the
+      exact count per season, and drift **in either direction** is refused. The known 33 pass; a
+      34th, or a new one in 2024, stops the ingest. A season absent from the dict is refused rather
+      than assumed clean.
+    - It deliberately does **not** change `PLAYER_BOX_EXPECTED_ROWS`. That pin verifies the *file*
+      as published; this one governs what the *corpus* can hold. Two questions, two numbers.
+  - **US-12 survives the boundary**, confirmed in SQL on the real data: 31,769 rows with null
+    minutes, 700 active rows at exactly zero minutes, and **zero** rows that are `did_not_play` with
+    minutes present. Garbage time and absence stay distinguishable, which is what T-027 needs.
+  - **changed vs. plan / found during the build:**
+    1. **T-021's `downgrade` had a real bug, fixed here.** Roles are cluster-scoped, so a second
+       migrated database in the same cluster makes `DROP ROLE` fail — and `alembic downgrade` then
+       fails outright. Not hypothetical: it is what the test suite does, and it is how this was
+       found. Neither extreme is acceptable (aborting means the migration is not reversible; forcing
+       the drop means one database's downgrade silently breaks another), so the downgrade now drops
+       the role when nothing depends on it and `RAISE NOTICE`s when something does. The round-trip
+       test was over-specified too — it now asserts *this database's grants* are revoked, which is
+       the actual scope of what the migration owns.
+    2. **The loader now carries five `venue_*` columns**, required rather than optional:
+       `corpus_venues` is the join from a game to a city and T-026's travel/altitude features have
+       no fallback — a silent zero would read as "no travel". Verified present in all nine pinned
+       seasons; `venue_id` and city never blank, `state` blank only for international games, which
+       is why that column is nullable and city is not.
+    3. **The Postgres skip-guard moved to `backend/tests/conftest.py`** and is now shared with
+       `test_corpus_schema.py`. Two copies of a safety guard is two guards that can drift, and the
+       whole point of this one is that it must not quietly stop firing.
+    4. **No ORM models**, consistent with T-021: the corpus tables are **reflected** from the live
+       database. Re-declaring their columns would reintroduce the second source of truth T-021 kept
+       out of `Base.metadata`. An unmigrated database gets a refusal naming `alembic upgrade head`,
+       not a stack trace from a missing relation.
+    5. Exhibitions are **identified at ingest and excluded on read**, not filtered on write — the
+       pinned counts count them (6,615, not the curated 6,605), so writing the curated set would
+       make the database's own row count disagree with the number that verifies it.
 
 - [ ] **T-024** `store` — Postgres read layer — owner: `backend-engineer`
   - acceptance: returns the record types the pipeline already uses; narrows by season and team;

@@ -67,6 +67,11 @@ def _row(game_id: str, *, home: str = "1", away: str = "2", completed: str = "tr
         "away_score": "104",
         "status_type_completed": completed,
         "neutral_site": "false",
+        "venue_id": "3421",
+        "venue_full_name": "Test Arena",
+        "venue_address_city": "Denver",
+        "venue_address_state": "CO",
+        "venue_indoor": "true",
     }
 
 
