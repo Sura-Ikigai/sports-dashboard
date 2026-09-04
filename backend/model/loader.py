@@ -245,6 +245,12 @@ TEAM_BOX_REQUIRED_COLUMNS: tuple[str, ...] = (
 # counts above are measured across all three, per T-005's acceptance criteria.
 #
 # `id` and `game_id` are identical in this source (verified); `game_id` is the name carried forward.
+# T-023 added the five `venue_*` columns. They are *required*, not optional: `corpus_venues` is the
+# join from a game to a city, and T-026's travel and altitude features have no fallback if it is
+# absent -- a silent zero would read as "no travel". Verified present in all nine pinned schedule
+# seasons on 2026-09-04, with `venue_id` and `venue_address_city` never blank. `venue_address_state`
+# *is* sometimes blank (international games -- Mexico City, Paris, Abu Dhabi), which is why the
+# corpus column is nullable and the city column is not.
 REQUIRED_COLUMNS: tuple[str, ...] = (
     "id",
     "game_id",
@@ -257,6 +263,11 @@ REQUIRED_COLUMNS: tuple[str, ...] = (
     "away_score",
     "status_type_completed",
     "neutral_site",
+    "venue_id",
+    "venue_full_name",
+    "venue_address_city",
+    "venue_address_state",
+    "venue_indoor",
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -710,6 +721,15 @@ def _read_completed_games(path: Path, season: int) -> pd.DataFrame:
         "home_score": completed["home_score"].astype(int),
         "away_score": completed["away_score"].astype(int),
         "neutral_site": completed["neutral_site"] == "true",
+        # T-023: carried through for `corpus_venues`. Blanks become None rather than the empty
+        # string, so "the source did not say" is one value in the frame and in the database instead
+        # of two that compare unequal. `venue_id` and `venue_address_city` are never blank in the
+        # pinned files; `venue_address_state` is, for international games.
+        "venue_id": completed["venue_id"].astype(str).str.strip().replace("", None),
+        "venue_name": completed["venue_full_name"].astype(str).str.strip().replace("", None),
+        "venue_city": completed["venue_address_city"].astype(str).str.strip().replace("", None),
+        "venue_state": completed["venue_address_state"].astype(str).str.strip().replace("", None),
+        "venue_indoor": completed["venue_indoor"] == "true",
     })
     normalized["home_win"] = normalized["home_score"] > normalized["away_score"]
     return normalized.sort_values("date").reset_index(drop=True)
