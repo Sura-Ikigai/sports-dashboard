@@ -936,6 +936,17 @@ skip must be justified in the task's outcome rather than discovered later.
   - security note: the artifact stays JSON (D-030) — no deserializer that can execute code.
   - **the discipline is the deliverable.** If the frozen set underperforms, that is the result. A
     second look at 2026 to "check something" spends the fold and must be recorded if it happens.
+  - **owner's calls, taken 2026-09-05 on T-029's measurements, before 2026 is touched:**
+    1. **Keep the warm-up.** It is already built and tested, it costs nothing, and T-029 measured its
+       benefit on fold 1 at +.0007 AUC / -.0015 accuracy — a wash. Dropping it now would be a change
+       for its own sake, and the isolation machinery is required either way.
+    2. **Drop `travel_diff` and `altitude` if the ablation confirms them weak.** Standalone they
+       carry nothing (AUC .4970 and .5014), which is the basis for the call. **But standalone AUC and
+       multivariate contribution are different questions, and here they disagree:** in T-028's dev
+       fit both coefficients were mid-pack — `travel_diff` -.104 and `altitude` +.084, *larger in
+       magnitude than `rest_edge`'s* +.027, which is not a candidate for removal. So the ablation on
+       2024/2025 decides, with removal as the standing prior: drop unless leaving them out measurably
+       hurts, and report the number either way before the set is frozen.
 
 - [ ] **T-031** `prediction` service, persistence, and the scheduled job — owner: `backend-engineer`
   - acceptance: one interface returning probability, feature vector, per-feature logit contributions
