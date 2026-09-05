@@ -51,8 +51,62 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from .features import Game
+
+# --- the warm-up boundary (D-037, enforced in T-029) ---------------------------------------------
+
+# Seasons ingested as Elo warm-up **state only**, never as training or test rows. They exist so fold
+# 1 trains on converged ratings instead of burn-in noise, and they stop there: the pre-2020
+# home-advantage regime must never enter the fit.
+#
+# Defined **here** rather than in `loader`, which is where the download pins live, for one reason.
+# `splits` is the module that decides which rows the estimator sees, it is standard-library-only
+# (D-021), and `loader` is unavoidably pandas -- so `splits` cannot import it. The alternative was a
+# second copy of this tuple, and two definitions of "which seasons may be trained on" is exactly the
+# kind of drift this project keeps closing elsewhere. `loader` imports it from here; the pinned
+# counts and hashes for these seasons stay with the download, where they belong.
+WARMUP_SEASONS: tuple[int, ...] = (2016, 2017, 2018, 2019)
+
+# The last tip-off of the warm-up era. No training or test row may be dated at or before it.
+#
+# A date, not a season label, for the reason T-007 gave for its own temporal assertion: labels are a
+# claim, dates are the fact. A warm-up game mislabelled into a modeling season passes every
+# season-number check ever written, and fails this one.
+#
+# **Anchored to the population being excluded, not to the first modeling game.** Both instants were
+# measured from the ingested corpus on 2026-09-05 and the gap between them is enormous -- the last
+# warm-up game tips off 2019-06-14T01:00Z, the first modeling game 2021-10-19T23:30Z, **858 days**
+# later, because no 2020 or 2021 season is pinned. Pinning the boundary at the *start* of the
+# modeling era would work today and be brittle: a source revising the 2022 opener's timestamp by a
+# few hours would start failing legitimate rows. Pinning it at the *end* of the warm-up era cannot
+# do that -- a modeling game would have to move by more than two years to trip it -- while still
+# catching every warm-up row, which is the only thing this check exists to catch.
+#
+# If 2020 or 2021 are ever pinned as warm-up, this constant moves with them, deliberately.
+WARMUP_ERA_END: datetime = datetime(2019, 6, 14, 1, 0, tzinfo=UTC)
+
+
+def is_warmup_season(season: int) -> bool:
+    """Whether `season` may only be Elo state, never a training or test row (D-037)."""
+    return season in WARMUP_SEASONS
+
+
+def partition_warmup(games: Sequence[Game]) -> tuple[list[Game], list[Game]]:
+    """Split `games` into `(warmup, modeling)` by season label.
+
+    The ergonomic half of D-037 -- a caller assembling a `features.Context` wants every game, and the
+    same caller feeding `splits` wants only the modeling ones. The *mechanical* half is
+    `splits.split_games`, which refuses a warm-up row rather than trusting anyone to have called
+    this. Both exist on purpose: this one makes the right thing easy, that one makes the wrong thing
+    impossible.
+    """
+    warmup, modeling = [], []
+    for game in games:
+        (warmup if is_warmup_season(game.season) else modeling).append(game)
+    return warmup, modeling
+
 
 # A real NBA season fields exactly 30 franchises.
 NBA_TEAMS_PER_SEASON: int = 30

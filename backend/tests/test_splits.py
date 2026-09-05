@@ -13,7 +13,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from model.corpus import NBA_TEAMS_PER_SEASON, CorpusIntegrityError
+from model.corpus import (
+    NBA_TEAMS_PER_SEASON,
+    WARMUP_ERA_END,
+    WARMUP_SEASONS,
+    CorpusIntegrityError,
+    is_warmup_season,
+    partition_warmup,
+)
 from model.features import Game
 from model.splits import (
     SEALED_FOLD,
@@ -222,3 +229,132 @@ def test_split_does_not_mutate_its_input():
     before = list(games)
     split_games(games, WALK_FORWARD_FOLDS[0])
     assert games == before
+
+
+# --- warm-up isolation (T-029, D-037) -------------------------------------------------------------
+#
+# Two routes in, closed in two different places, because they fail differently. A fold that *names* a
+# warm-up season is refused at construction; a warm-up *game* wearing a modeling season's label gets
+# past every season-number check ever written and is caught by its date.
+
+WARMUP_EPOCH = datetime(2018, 10, 17, tzinfo=UTC)
+
+
+def _warmup_game(gid: str, day: float, season: int = 2018) -> Game:
+    """A game from the warm-up era, at a real warm-up-era instant."""
+    return Game(
+        game_id=gid,
+        date=WARMUP_EPOCH + timedelta(days=day),
+        season=season,
+        home_id="t00",
+        away_id="t01",
+        home_score=110,
+        away_score=100,
+    )
+
+
+@pytest.mark.parametrize("season", WARMUP_SEASONS)
+def test_a_fold_cannot_name_a_warm_up_season_as_a_training_season(season):
+    """The acceptance criterion, nominal route: a warm-up season injected as a training row fails.
+
+    Refused at construction rather than at use — a fold that trains on the pre-2020 home-advantage
+    regime is not a thing that should be constructible and then caught later.
+    """
+    with pytest.raises(FoldError, match="warm-up season"):
+        Fold((season, 2023), 2024)
+
+
+@pytest.mark.parametrize("season", WARMUP_SEASONS)
+def test_a_fold_cannot_test_on_a_warm_up_season(season):
+    """The other side of the same rule. Warm-up seasons are Elo state; an accuracy number measured on
+    one would be measured on a different game."""
+    with pytest.raises(FoldError, match="warm-up season"):
+        Fold((2016,) if season != 2016 else (2017,), season)
+
+
+def test_the_shipped_fold_set_names_no_warm_up_season():
+    """Stated positively, over the protocol that actually runs."""
+    for fold in walk_forward_folds():
+        assert set(fold.seasons).isdisjoint(WARMUP_SEASONS), fold
+
+
+def test_a_warm_up_game_wearing_a_modeling_label_is_refused():
+    """The acceptance criterion, temporal route — **and the only one that can fire in practice.**
+
+    `Fold` already shut the nominal route, so this is what is left: a game from 2018 carrying
+    `season=2022`. Every season-number check in this module passes it, because the label is what
+    they read. Its date does not.
+    """
+    games = _corpus()
+    mislabelled = _warmup_game("smuggled", 5.0, season=2022)
+    with pytest.raises(FoldError, match="warm-up era"):
+        split_games([*games, mislabelled], WALK_FORWARD_FOLDS[0])
+
+
+def test_a_warm_up_game_wearing_a_test_season_label_is_refused_too():
+    """The test side is not a lesser case: a fold evaluated on warm-up rows reports an accuracy for a
+    regime it does not predict."""
+    games = _corpus()
+    mislabelled = _warmup_game("smuggled", 5.0, season=2024)
+    with pytest.raises(FoldError, match="warm-up era"):
+        split_games([*games, mislabelled], WALK_FORWARD_FOLDS[0])
+
+
+def test_the_warm_up_check_does_not_fire_on_a_legitimate_corpus():
+    """The non-vacuity control for the two tests above. A check that refused everything would satisfy
+    them perfectly and be worthless — this is what proves it discriminates rather than just raises.
+    """
+    games = _corpus()
+    for fold in walk_forward_folds():
+        train, test = split_games(games, fold)
+        assert train and test
+
+
+def test_the_earliest_modeling_game_clears_the_warm_up_boundary_by_years():
+    """The margin the temporal check relies on, asserted rather than described.
+
+    Both instants are pinned from the ingested corpus. If a future source ever narrows this gap — a
+    2020 or 2021 season pinned, say — the boundary is part of that decision, and this is what makes
+    it impossible to narrow it by accident.
+    """
+    first_modeling_game = datetime(2021, 10, 19, 23, 30, tzinfo=UTC)
+    assert WARMUP_ERA_END < first_modeling_game
+    assert (first_modeling_game - WARMUP_ERA_END).days == 858
+
+
+def test_warm_up_games_in_the_input_are_dropped_rather_than_refused():
+    """T-030's call shape: one collection feeds both `elo.Timeline` (which needs the warm-up) and the
+    folds (which must never see it). Refusing the input outright would force two collections and a
+    caller to keep them in step, which is a job nobody should have."""
+    games = _corpus()
+    # A real-shaped warm-up season: 30 franchises, so `assert_curated` has nothing to object to and
+    # the only thing under test is the isolation. `-1200` days from the fixture epoch lands in
+    # mid-2018, comfortably inside the warm-up era.
+    warmup = _season(2018, day_offset=-1200)
+    train, test = split_games([*games, *warmup], WALK_FORWARD_FOLDS[0])
+    assert not any(g.season in WARMUP_SEASONS for g in (*train, *test))
+    assert (len(train), len(test)) == tuple(
+        len(rows) for rows in split_games(games, WALK_FORWARD_FOLDS[0])
+    )
+
+
+def test_partition_warmup_separates_the_two_populations():
+    """The ergonomic half. It makes the right thing easy; `split_games` makes the wrong thing
+    impossible, and the pair is deliberate."""
+    games = _corpus()
+    warmup_rows = [_warmup_game(f"w{i}", i, season=2018) for i in range(5)]
+    warmup, modeling = partition_warmup([*games, *warmup_rows])
+    assert len(warmup) == 5
+    assert modeling == games
+    assert all(is_warmup_season(g.season) for g in warmup)
+    assert not any(is_warmup_season(g.season) for g in modeling)
+
+
+def test_the_warm_up_season_tuple_has_exactly_one_definition():
+    """`loader` re-exports it rather than declaring its own. Two definitions of 'which seasons may be
+    trained on' is the drift this project keeps closing elsewhere; asserted as identity, not
+    equality, so a copied literal would fail."""
+    pytest.importorskip("pandas", reason="loader is training-only (D-021)")
+    from model import loader
+
+    assert loader.WARMUP_SEASONS is WARMUP_SEASONS
