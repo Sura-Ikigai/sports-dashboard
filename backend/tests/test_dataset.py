@@ -25,8 +25,19 @@ pd = pytest.importorskip("pandas", reason="training-only dependency; not install
 # Below the importorskip on purpose: importing model.dataset pulls in pandas, so these have to run
 # after the skip, not before it. E402 is the rule that would otherwise object.
 from model.corpus import CorpusIntegrityError  # noqa: E402
-from model.dataset import games_from_frame, load_games  # noqa: E402
-from model.features import FeatureInputError  # noqa: E402
+from model.dataset import (  # noqa: E402
+    appearances_from_box_frame,
+    context_from_frames,
+    game_cities_from_frame,
+    games_from_frame,
+    load_games,
+)
+from model.features import (  # noqa: E402
+    FEATURE_NAMES,
+    FeatureInputError,
+    compute_training_features,
+)
+from model.venues import VenueError  # noqa: E402
 
 
 def _frame(**overrides) -> pd.DataFrame:
@@ -195,3 +206,114 @@ def test_load_games_passes_its_arguments_through_to_the_loader():
     # tuple, which made a truncating mutation (`seasons[:1]`) undetectable by construction. A
     # multi-season tuple is the point: T-007 builds folds by season.
     loader.assert_called_once_with((2023, 2024), data_dir)
+
+
+# --- the Context adapters (T-028) ------------------------------------------------------------------
+#
+# The pandas side of building a `features.Context`, mirroring `store.load_appearances` /
+# `store.load_game_cities` on the Postgres side. Both exist because the v2 features read
+# participation and venues as well as games, and both fail loudly on a venue they cannot place --
+# a silent zero there reads as a home stand, which is a value travel legitimately takes.
+
+
+def _box_frame(**overrides) -> pd.DataFrame:
+    rows = [
+        {
+            "game_id": "401360941",
+            "team_id": "19",
+            "athlete_id": f"p{i}",
+            "minutes": 30.0,
+            "did_not_play": False,
+        }
+        for i in range(3)
+    ]
+    rows.append(
+        {
+            "game_id": "401360941",
+            "team_id": "29",
+            "athlete_id": "p9",
+            "minutes": None,
+            "did_not_play": True,
+        }
+    )
+    frame = pd.DataFrame(rows)
+    for column, value in overrides.items():
+        frame[column] = value
+    return frame
+
+
+def _venue_frame(**overrides) -> pd.DataFrame:
+    return _frame(**{"venue_city": "Boston", "venue_state": "MA", **overrides})
+
+
+def test_appearances_are_keyed_by_team_and_dated_from_the_schedule():
+    """The date comes from the *schedule*, never from the box frame's own column. `Game.date` is what
+    every as-of comparison in the pipeline is made against, and a second source for one instant is a
+    second thing that can drift."""
+    date = datetime(2025, 1, 15, 19, 0, tzinfo=UTC)
+    by_team = appearances_from_box_frame(_box_frame(), {"401360941": date})
+    assert set(by_team) == {"19", "29"}
+    assert [a.player_id for a in by_team["19"]] == ["p0", "p1", "p2"]
+    assert all(a.date == date for rows in by_team.values() for a in rows)
+    assert by_team["29"][0].did_not_play is True
+    assert by_team["29"][0].minutes is None
+
+
+def test_box_rows_for_games_outside_the_schedule_are_dropped():
+    """The box files cover whole seasons while a caller may hold a curated subset (F-042's
+    exhibitions). An appearance whose game is not in the history cannot be placed on the timeline."""
+    assert appearances_from_box_frame(_box_frame(), {}) == {}
+
+
+def test_box_rows_without_an_athlete_id_are_dropped():
+    """33 real rows in the 2026 parquet have a null `athlete_id`. `ingest` pins that count per season
+    at the boundary D-046 puts the guarantee on; this path deliberately does not re-pin it, because
+    two copies of one pinned number is how they diverge."""
+    frame = _box_frame()
+    frame.loc[0, "athlete_id"] = None
+    date = datetime(2025, 1, 15, 19, 0, tzinfo=UTC)
+    assert len(appearances_from_box_frame(frame, {"401360941": date})["19"]) == 2
+
+
+def test_a_box_frame_missing_a_column_is_refused():
+    with pytest.raises(ValueError, match="missing column"):
+        appearances_from_box_frame(_box_frame().drop(columns=["did_not_play"]), {})
+
+
+def test_game_cities_resolve_through_the_static_venue_table():
+    cities = game_cities_from_frame(_venue_frame())
+    assert cities["401360941"].name == "Boston"
+    assert cities["401360941"].is_high_altitude is False
+
+
+def test_an_unknown_venue_city_is_refused_rather_than_defaulted():
+    """`venues.city_for` has no fallback, and this is where that matters: an unrecognized venue fails
+    at load, naming itself, instead of surfacing later as a game with mysteriously zero travel."""
+    with pytest.raises(VenueError):
+        game_cities_from_frame(_venue_frame(venue_city="Atlantis"))
+
+
+def test_a_blank_venue_city_is_refused():
+    with pytest.raises(ValueError, match="no venue city"):
+        game_cities_from_frame(_venue_frame(venue_city=""))
+
+
+def test_a_frame_without_the_venue_columns_is_refused():
+    with pytest.raises(ValueError, match="missing column"):
+        game_cities_from_frame(_frame())
+
+
+def test_context_from_frames_assembles_all_three_sources():
+    games = games_from_frame(_venue_frame())
+    context = context_from_frames(games, _venue_frame(), _box_frame())
+    assert context.history.teams == {"19", "29"}
+    # The Context refuses a partial build, so getting one back is itself the assertion that all
+    # three sources arrived.
+    assert set(compute_training_features(context, games[0])) == set(FEATURE_NAMES)
+
+
+def test_context_from_frames_refuses_a_game_the_schedule_does_not_cover():
+    games = games_from_frame(_venue_frame())
+    other = _venue_frame(game_id="999999999")
+    with pytest.raises(ValueError, match="not in the schedule frame"):
+        context_from_frames(games, other, _box_frame())

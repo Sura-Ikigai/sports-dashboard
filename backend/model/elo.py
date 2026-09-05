@@ -47,10 +47,12 @@ either setting, and fold 1 trains on 2022 onward.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 
-from .features import Game
+from .records import Game
 
 # The measured defaults (D-032). Changing any of these changes what the model was calibrated on.
 DEFAULT_K = 20.0
@@ -281,3 +283,250 @@ def ratings_after(
 ) -> Mapping[str, float]:
     """Final ratings after replaying `games`. Diagnostics and tests; features use the differences."""
     return replay(games, config=config).final_ratings
+
+
+# --- as-of addressable rating state (T-028) -------------------------------------------------------
+
+
+def _regress_value(rating: float, *, carryover: float, mean: float, times: int) -> float:
+    """`_regress_to_mean` for a single rating. Regression is per-team and independent, so applying it
+    to the two teams a query asks about gives the same numbers as applying it to the whole dict."""
+    for _ in range(times):
+        rating = mean + carryover * (rating - mean)
+    return rating
+
+
+def _regression_counts(ordered: Sequence[Game], config: EloConfig) -> tuple[int, ...]:
+    """`counts[i]` = carryover regressions `replay` has performed by the time it processes
+    `ordered[i]`, that game's own season transition included."""
+    counts: list[int] = []
+    performed = 0
+    previous_season: int | None = None
+    for game in ordered:
+        if previous_season is not None and game.season != previous_season:
+            performed += (game.season - previous_season) if config.regress_per_elapsed_year else 1
+        counts.append(performed)
+        previous_season = game.season
+    return tuple(counts)
+
+
+class Timeline:
+    """Pre-game rating state at **any** moment, not only at the moments games were played.
+
+    `pregame_rating_differences` answers "what was the rating gap before game X" for games that are
+    *in* the corpus. `features` (T-028) needs a different question: "what was the rating gap as of
+    this prediction moment", where the moment is an `as_of` that may sit days before tip-off and the
+    target may not be in the corpus at all. Reading the pre-game difference off the replay would
+    answer the first question while being asked the second -- so a prediction made five days out
+    would silently carry the ratings the teams *will* have at tip-off, which is leakage.
+
+    ## Why this is a precomputed index and not a replay per query
+
+    Replaying the corpus once per target is O(n) per call and O(n^2) over a training set: 6,600
+    targets against ~12,000 games is ~80M rating updates, minutes of pure Python. So the replay runs
+    **once**, at construction, and this class answers by binary search.
+
+    That is a performance decision that must not become an integrity decision, and it is not one.
+    `replay` processes games sorted by `(date, game_id)`, so "the games dated strictly before
+    `as_of`" is exactly a **prefix** of that order, and the state after a prefix is what this index
+    stores. Answering from the index is therefore *equal* to replaying the filtered prefix, not
+    merely close to it -- `test_elo.py` asserts that equality over every game of a corpus-shaped
+    replay, under both carryover settings, which is what makes the shortcut safe rather than
+    plausible.
+
+    ## What it deliberately cannot do
+
+    There is no method that answers without an `as_of`. The as-of moment is not an option a caller
+    can drop; every question this class answers is bounded by one.
+    """
+
+    __slots__ = (
+        "_config",
+        "_dates",
+        "_index_by_id",
+        "_ordered",
+        "_regressions",
+        "_seasons",
+        "_team_after",
+        "_team_dates",
+        "_team_indices",
+    )
+
+    def __init__(self, games: Sequence[Game], *, config: EloConfig = DEFAULT_CONFIG) -> None:
+        result = replay(games, config=config)  # validates the sequence and the season ordering
+        ordered = tuple(sorted(games, key=lambda g: (g.date, g.game_id)))
+
+        self._config = config
+        self._ordered = ordered
+        self._dates = tuple(game.date for game in ordered)
+        self._seasons = tuple(game.season for game in ordered)
+        self._index_by_id = {game.game_id: i for i, game in enumerate(ordered)}
+
+        # How many carryover regressions had been performed by the time each game was processed.
+        # Carryover is applied to the WHOLE ratings dict at a season transition, not to a team when
+        # it next plays, so a team's stored rating is only as regressed as the moment it was stored;
+        # catching it up to the query moment is a difference of these counts. Getting this wrong is
+        # invisible on a season's opening night and wrong for every game after it, for every team
+        # that has not played yet.
+        self._regressions = _regression_counts(ordered, config)
+
+        # Per team, the rating it held *after* each of its own games. A team's rating changes only in
+        # its own games, so this is the whole of its trajectory.
+        team_dates: dict[str, list[datetime]] = {}
+        team_after: dict[str, list[float]] = {}
+        team_indices: dict[str, list[int]] = {}
+        for index, game in enumerate(ordered):
+            # The equivalence this index rests on -- "the games dated strictly before `as_of`" is a
+            # prefix of `(date, game_id)` order -- holds for the two teams of a query only if
+            # neither of them plays twice at the same instant. Simultaneous tip-offs are ordinary
+            # (the corpus is full of them) and harmless, because ratings are per team; the same
+            # *team* twice at one instant is not, and it would make this index disagree with
+            # `replay` by however much the earlier of the two moved the rating. Impossible in a real
+            # schedule, so it is corrupt input, and refused rather than silently approximated.
+            for team in (game.home_id, game.away_id):
+                if team_dates.get(team) and team_dates[team][-1] == game.date:
+                    raise EloError(
+                        f"team {team!r} appears in two games at exactly {game.date.isoformat()} "
+                        f"(the second is {game.game_id!r}) -- a team cannot play two games at one "
+                        "instant, and an as-of query at that moment has no well-defined answer."
+                    )
+            home_before, away_before = result.pregame_ratings[game.game_id]
+            delta = self._delta(game, home_before, away_before)
+            for team, after in (
+                (game.home_id, home_before + delta),
+                (game.away_id, away_before - delta),
+            ):
+                team_dates.setdefault(team, []).append(game.date)
+                team_after.setdefault(team, []).append(after)
+                team_indices.setdefault(team, []).append(index)
+        self._team_dates = {t: tuple(v) for t, v in team_dates.items()}
+        self._team_after = {t: tuple(v) for t, v in team_after.items()}
+        self._team_indices = {t: tuple(v) for t, v in team_indices.items()}
+
+    def _delta(self, game: Game, home: float, away: float) -> float:
+        """The rating change `replay` applied to this game. Recomputed rather than stored so there is
+        exactly one definition of the update; `EloReplay` carries the pre-game state, which is what
+        it exists to expose."""
+        config = self._config
+        expected_home = _expected_home_score(home, away, config.home_advantage)
+        home_won = game.home_score > game.away_score
+        if home_won:
+            winner_advantage = (home + config.home_advantage) - away
+        else:
+            winner_advantage = away - (home + config.home_advantage)
+        multiplier = _mov_multiplier(game.home_score - game.away_score, winner_advantage, config)
+        return config.k * multiplier * ((1.0 if home_won else 0.0) - expected_home)
+
+    def _rating_after_prefix(self, team_id: str, as_of: datetime) -> tuple[float, int]:
+        """That team's rating after its last game before `as_of`, and how many regressions had been
+        applied to the ratings by then.
+
+        A team with no prior game sits at `initial_rating`, which is the carryover's fixed point
+        (`mean == initial_rating`), so the count it reports is irrelevant -- catching it up any
+        number of times leaves it exactly there. That is also what `replay` does: it `setdefault`s a
+        new team *after* regressing, so a debutant never arrives pre-decayed.
+        """
+        dates = self._team_dates.get(team_id)
+        if not dates:
+            return self._config.initial_rating, 0
+        cut = bisect_left(dates, as_of)
+        if cut == 0:
+            return self._config.initial_rating, 0
+        return (
+            self._team_after[team_id][cut - 1],
+            self._regressions[self._team_indices[team_id][cut - 1]],
+        )
+
+    def difference_before(
+        self,
+        home_id: str,
+        away_id: str,
+        as_of: datetime,
+        season: int,
+        *,
+        exclude_game_id: str | None = None,
+    ) -> float:
+        """`home - away` pre-game rating difference as of `as_of`, **without** the home adjustment.
+
+        Args:
+            home_id, away_id: the matchup.
+            as_of: the prediction moment. Games dated at or after it are excluded -- strictly, so a
+                game at exactly this instant (the training case, where `as_of` is the target's own
+                tip-off) cannot enter its own rating.
+            season: the season the *predicted* game belongs to. Carryover is applied when it differs
+                from the season of the last game before `as_of`, which is exactly what `replay` does
+                when it reaches a game in a new season.
+            exclude_game_id: a game id that must not contribute even if the corpus dates it before
+                `as_of`. Normally a no-op -- the strict date filter and `compute_features`' refusal
+                of an `as_of` past tip-off already put the target out of reach -- but F-044's
+                truncated-timestamp case puts a target's own copy microseconds *before* its matchup
+                date, and the date filter alone would then feed a game its own result. When it does
+                fire, this takes an exact replay of the filtered prefix rather than an approximation.
+        """
+        if not isinstance(as_of, datetime) or as_of.tzinfo is None:
+            raise EloError("as_of must be a timezone-aware datetime")
+        if not isinstance(season, int) or isinstance(season, bool):
+            raise EloError(f"season must be an int, got {season!r} ({type(season).__name__})")
+
+        cut = bisect_left(self._dates, as_of)
+        excluded = self._index_by_id.get(exclude_game_id) if exclude_game_id is not None else None
+        dropped = excluded is not None and excluded < cut
+
+        last_index = cut - 1
+        if dropped and excluded == last_index:
+            last_index -= 1
+        last_season = self._seasons[last_index] if last_index >= 0 else None
+
+        # The regression `replay` would perform on reaching a game of `season`. Its `previous_season`
+        # is None for the very first game it ever processes, and it regresses nothing then.
+        target_regressions = 0
+        if last_season is not None and season != last_season:
+            if season < last_season:
+                raise EloError(
+                    f"season {season} is before the season of the last game preceding "
+                    f"{as_of.isoformat()} ({last_season}) -- season labels must agree with dates, "
+                    "or the carryover is applied at the wrong moments"
+                )
+            target_regressions = (
+                (season - last_season) if self._config.regress_per_elapsed_year else 1
+            )
+
+        if dropped:
+            # The exact path. `replay` regresses the whole dict, so both ratings come back with every
+            # in-prefix regression already applied; only the target's own transition is left.
+            home, away = self._replayed_prefix(home_id, away_id, cut, excluded)
+            home_owed = away_owed = target_regressions
+        else:
+            base = self._regressions[last_index] if last_index >= 0 else 0
+            home, home_at = self._rating_after_prefix(home_id, as_of)
+            away, away_at = self._rating_after_prefix(away_id, as_of)
+            home_owed = base + target_regressions - home_at
+            away_owed = base + target_regressions - away_at
+
+        config = self._config
+        return _regress_value(
+            home, carryover=config.carryover, mean=config.initial_rating, times=home_owed
+        ) - _regress_value(
+            away, carryover=config.carryover, mean=config.initial_rating, times=away_owed
+        )
+
+    def _replayed_prefix(
+        self, home_id: str, away_id: str, cut: int, excluded: int
+    ) -> tuple[float, float]:
+        """The slow, exact path for the excluded-game case: replay the prefix without that game.
+
+        Deliberately not an incremental un-update. Elo's update is not exactly invertible once later
+        games have moved both ratings, and an approximate reversal on the corrupt-input path is how
+        a leak becomes a rounding error nobody looks at.
+        """
+        prefix = [g for i, g in enumerate(self._ordered[:cut]) if i != excluded]
+        ratings = replay(prefix, config=self._config).final_ratings
+        return (
+            ratings.get(home_id, self._config.initial_rating),
+            ratings.get(away_id, self._config.initial_rating),
+        )
+
+
+def timeline(games: Sequence[Game], *, config: EloConfig = DEFAULT_CONFIG) -> Timeline:
+    """Build a `Timeline` over `games`. Pass the whole corpus, warm-up seasons included (D-037)."""
+    return Timeline(games, config=config)

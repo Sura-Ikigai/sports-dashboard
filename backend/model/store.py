@@ -52,7 +52,9 @@ from dataclasses import dataclass
 import sqlalchemy as sa
 
 from . import corpus
-from .features import Coverage, Game, GameHistory
+from .availability import Appearance
+from .features import Context, Coverage, Game, GameHistory
+from .venues import City, city_for
 
 
 class StoreError(RuntimeError):
@@ -387,3 +389,127 @@ def assert_corpus_present(conn: sa.Connection, *, expect_seasons: Sequence[int] 
                 f"corpus_games is missing season(s) {missing} -- ingest them before reading. A "
                 "partially ingested corpus produces shrinkage priors, not an error."
             )
+
+
+def load_appearances(
+    conn: sa.Connection,
+    *,
+    seasons: Iterable[int] | None = None,
+    teams: Iterable[str] | None = None,
+) -> dict[str, list[Appearance]]:
+    """`team_id` -> that team's `availability.Appearance` records, dated from `corpus_games`.
+
+    The date is the join's whole reason for existing. `PlayerGame` carries no date -- participation
+    is a fact about a game, and the game owns when it happened -- but `availability` filters by
+    instant, so the box rows have to arrive already carrying the game's tip-off. Reading a date off
+    the box parquet's own column instead would put two sources behind one fact, which is one too
+    many (the same rule `load_player_box` applies to `season`).
+
+    Narrowing follows D-039: by season or by team, never by an as-of predicate. **Narrowing by team
+    is what a Context wants; narrowing by season is not** -- availability looks back across a season
+    boundary the same way rest does, so a season-narrowed map makes every opening night read as a
+    cold start. Season narrowing exists here for the same reason it exists on `load_player_box`:
+    exploratory reads, not feature computation.
+    """
+    seasons = _as_tuple(seasons)
+    teams = _as_tuple(teams)
+
+    clauses: list[str] = []
+    params: dict[str, object] = {}
+    if seasons is not None:
+        clauses.append("g.season = ANY(:seasons)")
+        params["seasons"] = list(seasons)
+    if teams is not None:
+        clauses.append("pb.team_id = ANY(:teams)")
+        params["teams"] = list(teams)
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    rows = conn.execute(
+        sa.text(
+            "SELECT pb.game_id, pb.team_id, pb.player_id, pb.minutes, pb.did_not_play,"
+            "       g.game_date"
+            "  FROM corpus_player_box pb"
+            "  JOIN corpus_games g ON g.game_id = pb.game_id"
+            f"{where}"
+            "  ORDER BY g.game_date, pb.game_id, pb.player_id"
+        ),
+        params,
+    ).all()
+
+    by_team: dict[str, list[Appearance]] = {}
+    for row in rows:
+        by_team.setdefault(row.team_id, []).append(
+            Appearance(
+                game_id=row.game_id,
+                date=row.game_date,
+                player_id=row.player_id,
+                minutes=row.minutes,
+                did_not_play=row.did_not_play,
+            )
+        )
+    return by_team
+
+
+def load_game_cities(
+    conn: sa.Connection, *, seasons: Iterable[int] | None = None
+) -> dict[str, City]:
+    """`game_id` -> the `venues.City` it was played in, resolved through `corpus_venues`.
+
+    The join D-036 is built on, done once. `venues.city_for` has no fallback and raises on a city it
+    does not know, which is the behaviour that matters here: an unrecognized venue fails at load,
+    naming the city, rather than surfacing later as a game with mysteriously zero travel. A game
+    whose `venue_id` is null fails the same way -- the corpus has none, and the moment it does, the
+    right answer is to fix the ingest rather than to quietly average over it.
+    """
+    seasons = _as_tuple(seasons)
+    where = " WHERE g.season = ANY(:seasons)" if seasons is not None else ""
+    params = {"seasons": list(seasons)} if seasons is not None else {}
+    rows = conn.execute(
+        sa.text(
+            "SELECT g.game_id, g.venue_id, v.city, v.state"
+            "  FROM corpus_games g"
+            "  LEFT JOIN corpus_venues v ON v.venue_id = g.venue_id"
+            f"{where}"
+            "  ORDER BY g.game_id"
+        ),
+        params,
+    ).all()
+
+    cities: dict[str, City] = {}
+    unlocated = []
+    for row in rows:
+        if row.venue_id is None or row.city is None:
+            unlocated.append(row.game_id)
+            continue
+        cities[row.game_id] = city_for(row.city, row.state)
+    if unlocated:
+        raise StoreError(
+            f"{len(unlocated)} game(s) have no venue in the corpus (first few: {unlocated[:5]}) -- "
+            "travel and altitude are read off the venue and neither has a defensible default. "
+            "Re-run the ingest rather than computing features over a gap."
+        )
+    return cities
+
+
+def load_context(conn: sa.Connection, *, teams: Iterable[str] | None = None) -> Context:
+    """The `Context` `compute_features` consumes, assembled from the corpus in one place.
+
+    **Narrows by team only**, for the reason `load_history` spells out and which now applies to all
+    three sources: every look-back here is unbounded in time. Elo is running state over every prior
+    season including D-037's warm-up, rest reads back across a season boundary, and availability
+    reads back fifteen games. A season-narrowed Context is not a smaller correct answer, it is a
+    different and wrong one -- so this function has no parameter that could express it.
+
+    Loading the participation map and the venue join here rather than at each call site is what
+    makes the Context's "no partial Context" rule enforceable: there is one supported way to build
+    one from Postgres, and it cannot produce a Context missing a source.
+    """
+    teams = _as_tuple(teams)
+    history = load_history(conn, teams=teams)
+    # Deliberately NOT narrowed by team. Availability is a property of a team's own games, so a
+    # team-narrowed participation map is complete for the teams it covers -- but `Context` checks
+    # its map against the history's teams, and a team-narrowed history still contains the *opponents*
+    # of every game those teams played. Loading all participation is the honest way to satisfy that;
+    # it is one query either way.
+    appearances = load_appearances(conn)
+    return Context(history, appearances, load_game_cities(conn))
