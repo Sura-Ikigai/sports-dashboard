@@ -603,13 +603,78 @@ skip must be justified in the task's outcome rather than discovered later.
     given D-034's work, not because it is expected to matter on its own. That is the standard to
     judge it against when T-030 reports.
 
-- [ ] **T-027** `availability` deep module — owner: `backend-engineer`
+- [x] **T-027** `availability` deep module — owner: `backend-engineer` — **DONE 2026-09-04**
   - acceptance: lagged rotation availability from player participation; behavioural tests pass
     (high-minutes absence moves it, low-minutes absence does not, garbage-time zeroes are not
     absence, no history returns the prior); standard library only
   - security note: this feature is one line of code away from leakage — reading participation for the
     game being predicted rather than prior games. It must take its data through the Context and the
     as-of filter, never query directly.
+  - **built:** `backend/model/availability.py` and `backend/tests/test_availability.py` (31 tests).
+    **465 backend tests pass**, ruff clean.
+
+  ### The result this cycle was built to get
+
+  Measured on the **dev seasons 2024+2025 only** (2,640 games; **2026 untouched**, per T-030):
+
+  | | |
+  |---|---|
+  | **corr(`avail_diff`, `elo_diff`)** | **+.2552** |
+  | `elo_diff` alone, AUC | .7149 |
+  | `avail_diff` alone, AUC | .6009 |
+  | `elo_diff` + .25·`avail_diff`, AUC | **.7208**  (**+.0059**) |
+  | where \|`avail_diff`\| > .20 (83 games) | favoured side correct **.7349** |
+
+  **That correlation is the number that matters.** The problem statement opens on
+  `point_diff_diff`, Elo and `form_diff` correlating at **.87–.92** — three measurements of one
+  latent variable, which is why the Phase 1 ablation found nothing and why 17.9% of games read as
+  coin flips. At **+.255**, availability is a genuine *second factor*, not a better ruler for the
+  first. D-035 called its value "unknown" and "the only real headroom"; the headroom is real.
+
+  **Stated honestly, and not more than it is:** +.0059 AUC from a *crude, unfitted* blend at a
+  hand-picked weight. It is not a fitted model, it is on the seasons where feature selection is
+  permitted, and the plan's own noise caveat applies. **T-030 does the real measurement.** What this
+  establishes is that the factor is orthogonal and carries signal — not the size of the final gain.
+
+  ### Construction and defaults, measured rather than chosen
+
+  - **Rotation** — top **9** players by minutes over the last **15** games, each weighted by mean
+    minutes per game. Nine because the corpus averages 13.08 players listed, 10.69 playing and
+    **9.04** playing ten-plus minutes per team-game; nine is the shape of the thing, not a round
+    number.
+  - **Participation** — over the last **5** games, the share of that rotation weight that was
+    *present*, then shrunk toward the prior by `n/(n+k)` (D-015's shape).
+  - **Prior = .8764**, the corpus mean over 13,120 team-games. Not 1.0 — a team with no record is
+    *average*, and 1.0 would make every season opener the healthiest game of the year.
+  - **A consequence worth knowing when reading values:** shrinkage caps a perfectly healthy team at
+    **.9794**, not 1.0. Five games of evidence is not certainty.
+
+  ### "Present", never "played minutes" — and why that is a leakage question
+
+  A rotation player logging zero minutes in a blowout is **available**. The corpus holds **31,769**
+  `did_not_play` rows with null minutes against **700** active rows at exactly zero minutes, and
+  counting the second as absence would make the feature partly a *blowout detector*. Blowouts are
+  outcomes — so that is leakage arriving by the back door, not merely a modelling infelicity. This
+  is user story 12, and it is why T-021's schema carries `minutes` and `did_not_play` separately.
+
+  ### The security note, closed structurally rather than watched
+
+  1. **The module never queries anything.** It receives `Appearance` records and reads nothing else;
+     there is no database handle to point at the wrong game. A test parses its imports.
+  2. **`as_of` is a tripwire, not a filter.** Given one, the module **refuses** any appearance dated
+     at or after it — at `>=`, because a row dated exactly at the prediction moment *is* the game
+     being predicted. It refuses rather than drops on purpose: dropping would let a mis-filtered
+     caller work by accident, which is exactly how the as-of control migrates out of `features.py`
+     where T-006's property test actually proves it. The error says so, and a test asserts it still
+     does.
+  - The tripwire ran clean across all 13,120 team-games during the dev measurement, which exercises
+    the guard end-to-end rather than only on fixtures.
+
+  ### Reported, not hidden (D-035)
+
+  It catches **multi-game absences** — most star injuries. It **cannot** catch a game-day scratch:
+  the only evidence of such an absence is the box score of the game being predicted. That is the
+  honest cost of a construction whose leakage-freedom is structural rather than procedural.
 
 - [ ] **T-028** `features` v2 — Context and the new feature set — owner: `backend-engineer`
   - acceptance: Context carries games, player participation and venues; signature stays three
