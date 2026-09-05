@@ -563,11 +563,45 @@ skip must be justified in the task's outcome rather than discovered later.
     under the defaults it reaches zero at a −1250 winner advantage and **inverts** past it, which
     would move the winner's rating down.
 
-- [ ] **T-026** `venues` deep module — owner: `backend-engineer`
+- [x] **T-026** `venues` deep module — owner: `backend-engineer` — **DONE 2026-09-04**
   - acceptance: static city table covering every venue in the corpus with coordinates and elevation;
     travel distance, altitude and timezone shift; standard library only; a venue absent from the
     table raises rather than defaulting
   - security note: none. A missing venue must raise — a silent zero would read as "no travel."
+  - **built:** `backend/model/venues.py` and `backend/tests/test_venues.py` (38 tests).
+    **434 backend tests pass**, ruff clean.
+  - **coverage verified end-to-end against the live corpus:** all **45 venues** across **37 distinct
+    `(city, state)` pairs** resolve to a known city. The pairs are pinned in the test so coverage is
+    asserted in CI, which has no corpus to read — the same discipline as the loader's counts.
+  - **keyed by city, not by venue.** Arenas are renamed constantly (the corpus holds
+    `crypto.com Arena`, `Rocket Arena`, `Mortgage Matchup Center` — all recent renames), and a team
+    can move buildings within a city without moving at all. The venue → city mapping already lives
+    in `corpus_venues`; this module maps city → geography. **Both halves of the key matter:**
+    "Portland" is Oregon here and Maine elsewhere, and a name-only table would put the two ~2,500
+    miles apart silently.
+  - **a missing city raises, and that is the whole security note.** A silent zero reads as *"no
+    travel"* — the strongest possible signal for a home stand — and it would be produced for exactly
+    the games this feature exists to describe: London, Paris, Berlin and Mexico City, the longest
+    trips in the corpus. The error message names the fix (coordinates, elevation, IANA timezone) and
+    says explicitly not to let it default; a test asserts the message still says both.
+  - **the altitude threshold sits in an empty gap, not at a round number.** High-elevation cities
+    are Mexico City (7,350 ft), Denver (5,280) and Salt Lake City (4,226); the next one down is Las
+    Vegas at 2,001. Nothing sits between, so any threshold in that band separates the populations
+    identically and none is near an edge — the same reasoning
+    `corpus.MIN_SEASON_GAMES_FOR_A_REAL_TEAM` uses, carrying the same warning against adjusting it
+    to make something pass. In 2026 this flags **86 games**: 44 Denver, 41 Salt Lake City, 1 Mexico
+    City.
+  - **timezone shift is a computation, not a lookup, because of Arizona.** Phoenix does not observe
+    DST, so Phoenix → Denver is **0 hours in January and 1 hour in June** — and an NBA season spans
+    both. A fixed per-city offset would be wrong for half of it. `timezone_shift_hours` therefore
+    requires the moment, and requires it timezone-aware.
+  - **sanity checks that landed:** LA→NY 2,447 mi, Boston→NY 188, Portland→Miami 2,704,
+    Brooklyn→Manhattan 4.8; longest pair in the corpus is Mexico City → Berlin at 6,046 mi.
+    Distance is symmetric and satisfies the triangle inequality (a property, not a case — it fails
+    for a whole class of coordinate errors individual distances survive).
+  - **expectations, per D-036:** worth roughly **+.002 AUC**. Included because it is nearly free
+    given D-034's work, not because it is expected to matter on its own. That is the standard to
+    judge it against when T-030 reports.
 
 - [ ] **T-027** `availability` deep module — owner: `backend-engineer`
   - acceptance: lagged rotation availability from player participation; behavioural tests pass
