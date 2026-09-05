@@ -22,6 +22,7 @@ import pytest
 from model.availability import (
     DEFAULT_PRIOR,
     Appearance,
+    AppearanceIndex,
     AvailabilityConfig,
     AvailabilityError,
     availability_difference,
@@ -337,3 +338,131 @@ def test_a_smaller_rotation_concentrates_the_weight() -> None:
     five = AvailabilityConfig(rotation_size=5)
     history = _history_with_recent(9, 3, absent={"star"})
     assert team_availability(history, config=five) < team_availability(history, config=nine)
+
+
+# --- AppearanceIndex: as-of addressable participation (T-028) --------------------------------------
+#
+# `features.Context` reads this instead of calling `team_availability` with a team's whole history,
+# for the same reason `elo.Timeline` exists: the naive form is O(n) per feature vector. And for the
+# same reason, the first test is the one that makes the shortcut safe -- the index must produce the
+# *same float* as the unsliced call, at every moment, not merely a close one.
+
+
+def _long_history(n: int, seed: int = 17) -> list[Appearance]:
+    """A season-length history with absences scattered through it, so a truncated window and a full
+    one have every opportunity to disagree."""
+    import random
+
+    rng = random.Random(seed)
+    rows: list[Appearance] = []
+    for i in range(n):
+        absent = {p for p in ROTATION if rng.random() < 0.2}
+        rows.extend(_game_rows(i, absent=absent))
+    rng.shuffle(rows)  # the index must not depend on the order it is handed
+    return rows
+
+
+@pytest.mark.parametrize("seed", [17, 205, 3001])
+def test_the_index_answers_exactly_what_the_unsliced_call_would(seed):
+    """**The test that makes the slice safe rather than plausible.**
+
+    The index hands `team_availability` `lookback_games + 1` games; the reference hands it the whole
+    as-of filtered history. Exact equality at every moment in a 60-game season, so the slice is
+    proven to be a performance decision and not a change of definition.
+    """
+    rows = _long_history(60, seed=seed)
+    index = AppearanceIndex({"A": rows})
+    for i in range(1, 61):
+        as_of = START + timedelta(days=i)
+        reference = team_availability(
+            sorted([r for r in rows if r.date < as_of], key=lambda r: (r.date, r.game_id)),
+            as_of=as_of,
+        )
+        assert index.availability_before("A", as_of) == reference, i
+
+
+def test_lookback_games_is_the_wider_of_the_two_windows():
+    """The accessor exists so a caller slicing a history does not have to know *which* window is
+    wider -- a caller that hard-coded 15 would silently truncate the rotation the day
+    `rotation_games` moved."""
+    assert AvailabilityConfig().lookback_games == max(
+        AvailabilityConfig().rotation_games, AvailabilityConfig().window_games
+    )
+    assert AvailabilityConfig(rotation_games=30, window_games=5).lookback_games == 30
+    assert AvailabilityConfig(rotation_games=3, window_games=9).lookback_games == 9
+
+
+def test_the_index_returns_the_prior_for_a_team_it_has_never_seen():
+    """Which is exactly why `features.Context` refuses to be built with participation it cannot
+    vouch for: this value is indistinguishable from a legitimate cold start."""
+    assert AppearanceIndex({"A": _history(5)}).availability_before(
+        "NOBODY", START + timedelta(days=10)
+    ) == DEFAULT_PRIOR
+
+
+def test_the_index_excludes_a_named_game_even_when_it_is_inside_the_window():
+    """F-044's shape on the participation source: a target's own box rows dated microseconds before
+    its matchup date. The DNP rows of a blowout are precisely what would move this number, and they
+    are post-game information about the game being predicted."""
+    rows = _long_history(20, seed=42)
+    index = AppearanceIndex({"A": rows})
+    as_of = START + timedelta(days=20)
+    with_it = index.availability_before("A", as_of)
+    without = index.availability_before("A", as_of, exclude_game_id="g19")
+    reference = team_availability(
+        sorted(
+            [r for r in rows if r.date < as_of and r.game_id != "g19"],
+            key=lambda r: (r.date, r.game_id),
+        ),
+        as_of=as_of,
+    )
+    assert without == reference
+    assert without != with_it  # the control: the excluded game was actually contributing
+
+
+def test_the_index_difference_is_the_two_teams_availabilities_subtracted():
+    a, b = _long_history(30, seed=1), _long_history(30, seed=2)
+    index = AppearanceIndex({"A": a, "B": b})
+    as_of = START + timedelta(days=30)
+    assert index.difference_before("A", "B", as_of) == (
+        index.availability_before("A", as_of) - index.availability_before("B", as_of)
+    )
+
+
+def test_the_index_reports_the_teams_it_covers():
+    assert AppearanceIndex({"A": _history(3), "B": _history(3)}).teams() == frozenset({"A", "B"})
+
+
+def test_the_index_refuses_a_naive_as_of():
+    index = AppearanceIndex({"A": _history(5)})
+    with pytest.raises(AvailabilityError, match="timezone-aware"):
+        index.availability_before("A", datetime(2024, 1, 10))  # noqa: DTZ001 -- the point of the test
+
+
+def test_the_index_refuses_a_one_shot_iterator_and_a_non_mapping():
+    """F-045 again: a generator consumed at construction leaves the team looking like it never
+    played, which is a value the feature legitimately takes."""
+    with pytest.raises(AvailabilityError, match="one-shot iterator"):
+        AppearanceIndex({"A": (row for row in _history(5))})
+    with pytest.raises(AvailabilityError, match="must be a Mapping"):
+        AppearanceIndex([("A", _history(5))])
+
+
+def test_the_index_refuses_rows_that_are_not_appearances():
+    with pytest.raises(AvailabilityError, match="must contain Appearance records"):
+        AppearanceIndex({"A": [object()]})
+
+
+def test_the_index_honours_a_non_default_config():
+    """The knobs belong to this module, and the index must not quietly substitute its own -- which a
+    hard-coded slice width would do the moment `rotation_games` changed."""
+    rows = _long_history(40, seed=88)
+    as_of = START + timedelta(days=40)
+    narrow = AvailabilityConfig(window_games=1)
+    assert AppearanceIndex({"A": rows}, config=narrow).availability_before("A", as_of) == (
+        team_availability(
+            sorted([r for r in rows if r.date < as_of], key=lambda r: (r.date, r.game_id)),
+            as_of=as_of,
+            config=narrow,
+        )
+    )

@@ -1,87 +1,111 @@
-"""Pre-game feature computation (T-006) -- the deep module of the Phase 1 analytical core.
+"""Pre-game feature computation -- the deep module of the analytical core (T-006, rebuilt in T-028).
 
-One public interface: `compute_features(history, target, as_of)`. Everything leakage-relevant lives
-behind that signature (docs/plans/PLAN-current.md, "Modules"). The module is **pure**: no I/O, no
-database, no network, and -- deliberately -- no clock. `as_of` is always a parameter, never
-`datetime.now()`, because a function that can read the clock is a function whose output cannot be
-reproduced, and every number this project reports has to be reproducible from committed code.
+One public interface: `compute_features(context, target, as_of)`. Everything leakage-relevant lives
+behind that signature. The module is **pure**: no I/O, no database, no network, and -- deliberately
+-- no clock. `as_of` is always a parameter, never `datetime.now()`, because a function that can read
+the clock is a function whose output cannot be reproduced, and every number this project reports has
+to be reproducible from committed code.
 
-Features (all four from T-006's acceptance criteria), expressed as home-minus-away differences
-except the home indicator, which is not a difference:
+## The v2 feature set (D-032 ... D-036), and what it replaced
 
-  home_advantage   1.0 normally, 0.0 at a neutral site.
-  form_diff        home minus away shrunk win rate over each team's last FORM_WINDOW games
-                   *this season*, before `as_of`.
-  rest_diff        home minus away days since each team's previous game, capped at MAX_REST_DAYS.
-  point_diff_diff  home minus away shrunk season-to-date average point differential, before `as_of`.
+  elo_diff      Home minus away pre-game MOV Elo rating, WITHOUT the home adjustment (D-032).
+                Replaces `point_diff_diff`: MOV Elo *is* an opponent-adjusted point differential,
+                the two correlate at .92, and keeping both is collinearity for ~+.002 AUC.
+  home_b2b      1.0 when the home team played the previous day (zero days of rest), else 0.0.
+  away_b2b      The same for the away team. Separate indicators on purpose (user story 7): whether
+                a back-to-back costs the two sides equally is a thing to measure, not assume.
+  rest_edge     Home minus away days of rest, each bucketed at `REST_EDGE_CAP`. Integer in
+                [-3, 3]. Together with the two indicators this is D-034's re-encoding of the old
+                capped-linear `rest_diff`, whose single slope had to serve both the 0-day cliff and
+                the flat region past it.
+  avail_diff    Home minus away lagged rotation availability (D-035). The only genuinely new
+                factor -- it correlates with `elo_diff` at just +.255, against the .87-.92 band that
+                made the Phase 1 features three measurements of one thing.
+  travel_diff   Home minus away miles travelled since each team's previous game of this season
+                (D-036). Signed home-minus-away like every other difference here, so its
+                coefficient is expected to be *negative*: travel is a cost, and the sign convention
+                is about orientation, not about which way is good.
+  altitude      1.0 when this game is played at a high-elevation venue and is not at a neutral site.
 
-## The as-of filter is an integrity control (T-006's security note), enforced three ways
+`form_diff` and `home_advantage` are gone (D-033). Form was a worse ruler for what Elo now measures.
+Home advantage was never identifiable (D-024) -- a column of 1.0 differing from the intercept by a
+constant -- and it lives in the intercept, where it always did.
 
-1. **It lives inside this module.** `compute_features` filters the history itself, at query time,
-   through `GameHistory._records_before`. A caller cannot pass pre-filtered history and skip it, and
-   cannot opt out of it: there is no flag, no alternate entry point, and no code path in this module
-   that reads a game dated at or after `as_of`. The filter is strict (`<`, never `<=`), so a game at
-   exactly the as-of instant is excluded -- which is also what excludes the target game from its own
-   feature computation in the training case, where `as_of` IS the target's tip-off.
+## The Context, and why the as-of filter had to move up a level
 
-2. **The target's outcome is closed off on both routes into this module.** The target is a `Matchup`
-   -- game id, date, season, the two team ids, neutral-site flag -- carrying no scores at all, and a
-   completed `Game` cannot be passed as the target; `Game.matchup` is the deliberate one-way door.
-   That shuts the *direct* route. It does **not** by itself shut the other one: the scores also live
-   in `history`, and the target's own `Game` is kept out of its own features only because the strict
-   as-of filter excludes a game dated at `as_of`. That held only while `as_of == target.date` -- a
-   property of the caller's data, not of this module (F-044: with `as_of` one hour after tip-off and
-   the target in history, its own 200-80 result moved `point_diff_diff` from 6.0 to 32.0). So the
-   window is now *also* filtered by `game_id != target.game_id`, which is the check that makes this
-   claim true independently of what the caller passes.
+T-006's `history` was a sequence of games, and the as-of filter had one thing to filter. The v2 set
+reads three time-varying sources -- games, player participation, and (through each team's previous
+game) venues -- and the security note for this task is blunt about the consequence: the as-of filter
+is now the integrity control for **every** one of them, not just games. One filter, inside this
+module, applied uniformly.
 
-3. **Predicting into the past is refused.** `as_of > target.date` raises `FeatureLeakageError`.
-   At training time `as_of` is the target's own tip-off (use `compute_training_features`, which
-   removes the choice); at inference it is the current moment, always before tip-off (D-010/D-012).
-   An `as_of` after tip-off would let games played *after* the prediction moment into the window --
-   a "pre-game" feature vector that could only be built after the fact. D-010 records why a model
-   that re-predicts a finished game is worthless; this is that decision made mechanical.
+`Context` is what makes "uniformly" mechanical rather than aspirational:
 
-Train/serve skew is designed out the same way (D-011, PLAN-v1 "The anti-skew mechanism"): training
-and inference call this same function with the same semantics, differing only in the `as_of` they
-pass, so there is no second implementation to drift from.
+1. **It holds sources, never answers.** Every index it carries -- the game history, `elo.Timeline`,
+   `availability.AppearanceIndex` -- is built over the *whole* corpus and has no method that
+   answers without an `as_of`. There is no cached "current" anything to read by mistake.
+2. **`compute_features` derives one `as_of` and passes that same instant to every source.** A
+   source cannot be consulted at a different moment than its neighbours, because there is only one
+   moment in scope.
+3. **It is built once and reused.** Which is what makes (1) affordable: the Elo replay and the
+   participation index cost one pass over the corpus each, not one pass per feature vector. The
+   equality that shortcut rests on -- index answer == replay of the filtered prefix -- is asserted
+   in `test_elo.py` and `test_availability.py` over whole corpora, not argued for here.
 
-## Why the shrinkage priors are constants, not estimates
+The property test is what proves the result: injecting future games **and** future player-box rows
+must not move a single number, paired with the control showing that a row dated *before* `as_of`
+does move them -- without which a module that ignored its inputs entirely would pass perfectly.
 
-Cold start is handled by shrinking toward the league mean with weight `n/(n+k)`, k=5 (D-015).
-Critically, both priors are **mathematical identities over any complete set of games**, not values
-estimated from the corpus: every game produces exactly one winner and one loser, so the league-wide
-win rate is exactly 0.5; and one team's margin is the other's negated, so the league-wide average
-point differential is exactly 0.0. That matters for integrity, not just tidiness -- a prior fitted on
-the dataset would be information from outside the as-of window entering every feature vector,
-including opening night's. These constants carry no information about any particular season, so they
-cannot leak.
+## The as-of filter as an integrity control, enforced four ways
+
+1. **It lives inside this module.** `compute_features` filters at query time. A caller cannot pass
+   pre-filtered data and skip it, and cannot opt out: no flag, no alternate entry point, and no code
+   path here that reads anything dated at or after `as_of`. The filter is strict (`<`, never `<=`),
+   so a game at exactly the as-of instant is excluded -- which is also what excludes the target from
+   its own feature vector in the training case, where `as_of` IS the target's tip-off.
+
+2. **The target's outcome is closed off on both routes in.** The target is a `Matchup` -- game id,
+   date, season, the two team ids, neutral-site flag -- carrying no scores at all, and a completed
+   `Game` cannot be passed as the target; `Game.matchup` is the deliberate one-way door. That shuts
+   the *direct* route. The other route is the corpus, where the target's own row lives: the strict
+   date filter closes it, and `exclude_game_id` closes it again for the F-044 case where the
+   corpus's copy of the target is dated microseconds earlier than the matchup it was built from.
+   Both `elo.Timeline` and `availability.AppearanceIndex` take that exclusion, so the belt-and-braces
+   is uniform across sources rather than applied to games alone.
+
+3. **Predicting into the past is refused.** `as_of > target.date` raises `FeatureLeakageError`. At
+   training time `as_of` is the target's own tip-off (use `compute_training_features`, which removes
+   the choice); at inference it is the current moment, always before tip-off (D-010/D-012).
+
+4. **A narrowed Context must say what it narrowed by** (F-113). D-039 lets a query reduce rows by
+   season or by team, and an under-narrowed history yields shrinkage priors -- byte-identical to
+   what opening night legitimately produces. `Coverage` is the declaration and `_require_covers` is
+   the check.
+
+Train/serve skew is designed out the same way (D-011): training and inference call this same
+function with the same semantics, differing only in the `as_of` they pass, so there is no second
+implementation to drift from.
 
 ## Dependencies: standard library only, on purpose
 
-No pandas, no numpy (contrast `loader.py`, which needs both). Two reasons, both binding:
-  - **CI.** `.github/workflows/gate.yml` installs `backend/requirements.txt` only, never
-    `requirements-train.txt`. A feature module importing pandas would make `be-unit` fail in CI while
-    passing locally -- the class of split-environment failure F-037 already cost this project a
-    review round.
-  - **D-016.** Phase 2 loads this module inside the FastAPI service for inference. Whatever it
-    imports, the served image must carry. Keeping it stdlib means the anti-skew guarantee (one
-    feature function, both sides) costs the deployed image nothing, so there is never a reason to
-    write a lighter second copy -- which is exactly the skew D-011 removed.
-The loader's frame converts to `Game` records with `games_from_frame` in `backend/model/dataset.py`,
-which is where pandas is allowed to touch this pipeline.
+No pandas, no numpy. Two reasons, both binding:
+  - **CI** installs `backend/requirements.txt` for the served image; a feature module importing
+    pandas fails there while passing locally -- the split-environment failure F-037 cost a review
+    round over.
+  - **D-016.** The FastAPI service imports this module for inference. Whatever it imports, the
+    served image must carry. That constraint propagates: `elo`, `availability`, `venues` and
+    `records` are all standard-library-only for the same reason.
+`dataset.py` and `store.py` are the two seams where pandas and SQLAlchemy respectively are allowed
+to meet this pipeline, and both of them build a `Context` rather than reaching past one.
 
 ## Precondition this module cannot check for itself (F-047)
 
-`history` must contain only **final** games. `Game.date` is **tip-off**, not completion, and a `Game`
+The corpus must contain only **final** games. `Game.date` is tip-off, not completion, and a `Game`
 carries no status field -- so "games completed strictly before `as_of`" is enforced here as "games
-that tipped off strictly before `as_of`". In Phase 1 the two coincide: the loader admits only
-`status_type_completed` rows, and the closest pair of consecutive games for any real team in the
-corpus is 23 hours apart (the sub-12h gaps all belong to F-042's All-Star phantom ids). It stops
-coinciding in Phase 2, where D-011 puts one `games` table behind both training and inference and the
-app's status enum is `scheduled | live | final`: a caller that forgets `status == 'final'` would feed
-a live partial score into a "pre-game" vector, and this module would accept it. Filter before you get
-here.
+that tipped off strictly before `as_of`". In the pinned corpus the two coincide. They stop
+coinciding wherever one `games` table serves both training and inference and the status enum is
+`scheduled | live | final`: a caller that forgets `status == \'final\'` would feed a live partial
+score into a "pre-game" vector, and this module would accept it. Filter before you get here.
 """
 
 from __future__ import annotations
@@ -92,199 +116,59 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-# --- tuning constants (D-015; window/cap grounded in the real 2022-2026 data, see docstrings) ----
+from . import availability as availability_module
+from . import elo as elo_module
+from .records import (
+    FeatureError,
+    FeatureInputError,
+    FeatureLeakageError,
+    Game,
+    Matchup,
+    _require_aware,
+)
+from .venues import City, distance_miles
 
-# Shrinkage strength: weight on a team's own record is n/(n+k). k=5 per D-015.
-SHRINKAGE_K: float = 5.0
+__all__ = [
+    "FEATURE_NAMES",
+    "REST_EDGE_CAP",
+    "Context",
+    "Coverage",
+    "FeatureError",
+    "FeatureInputError",
+    "FeatureLeakageError",
+    "Game",
+    "GameHistory",
+    "Matchup",
+    "compute_features",
+    "compute_training_features",
+    "to_vector",
+]
 
-# Rolling-form window, in games, scoped to the target's own season (D-020).
-FORM_WINDOW: int = 10
+# --- tuning constants (D-034; grounded in the measured 2022-2026 schedule) ------------------------
 
-# Rest is capped here. Measured over 2022-2026: median gap between a team's consecutive games is
-# 2.0 days, p95 is 3.9, max is 10.0 (the All-Star break), and only 2.3% of gaps reach 5 days. Past
-# roughly this point extra days stop being "rest" and start being schedule structure, so the cap
-# keeps a 10-day break from reading as twice the advantage of a 5-day one. It also means a team's
-# first game of a season -- whose previous game is months earlier, or does not exist -- needs no
-# special case: fully rested is the honest reading, and the cap produces it.
-MAX_REST_DAYS: float = 5.0
+# Days of rest are bucketed at three. Measured over 2022-2026: the median gap between a team's
+# consecutive games is 2.0 days, p95 is 3.9, and only 2.3% of gaps reach 5. Past three days the
+# marginal day stops being rest and starts being schedule structure, and the sample supporting a
+# distinction is thin. The cap also removes any need for a special case at a season's first game --
+# "fully rested" is the honest reading of a months-long gap, and the cap produces it.
+REST_EDGE_CAP: int = 3
 
-# Shrinkage targets. Identities over any complete set of games, not estimates -- see module
-# docstring, "Why the shrinkage priors are constants".
-PRIOR_WIN_RATE: float = 0.5
-PRIOR_POINT_DIFF: float = 0.0
+# A back-to-back is zero days of rest: two games on consecutive days.
+_B2B_REST_DAYS: int = 0
 
 _SECONDS_PER_DAY: float = 86400.0
 
-# The feature contract with the estimator (T-009). Order is significant: `to_vector` emits in this
-# order, so a fitted artifact's coefficients line up with these names positionally.
+# The feature contract with the estimator. Order is significant: `to_vector` emits in this order, so
+# a fitted artifact\'s coefficients line up with these names positionally.
 FEATURE_NAMES: tuple[str, ...] = (
-    "home_advantage",
-    "form_diff",
-    "rest_diff",
-    "point_diff_diff",
+    "elo_diff",
+    "home_b2b",
+    "away_b2b",
+    "rest_edge",
+    "avail_diff",
+    "travel_diff",
+    "altitude",
 )
-
-
-class FeatureError(ValueError):
-    """Base class for every refusal this module makes. Subclass of ValueError so a caller that
-    catches broadly still catches these, but distinct enough to be caught on purpose."""
-
-
-class FeatureInputError(FeatureError):
-    """Raised when an input is malformed or ambiguous -- a naive datetime, a team playing itself, a
-    tied final score, a non-`Game` in the history."""
-
-
-class FeatureLeakageError(FeatureError):
-    """Raised when the requested computation would use information that did not exist at the
-    prediction moment. Today that is exactly one case: `as_of` after the target's tip-off."""
-
-
-def _require_aware(value: datetime, label: str) -> None:
-    """Reject naive datetimes.
-
-    The as-of filter compares instants, and a naive datetime is not an instant -- it is a wall-clock
-    reading whose meaning depends on a timezone nobody recorded. Python would happily compare two
-    naive datetimes and produce a confident, wrong answer about which came first; it raises only when
-    naive and aware are mixed. Since the whole integrity guarantee rests on that comparison, ambiguous
-    input is refused at the boundary rather than trusted. `loader.py` parses with `utc=True`, so real
-    data arrives aware.
-    """
-    if not isinstance(value, datetime):
-        raise FeatureInputError(f"{label} must be a datetime, got {type(value).__name__}")
-    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-        raise FeatureInputError(
-            f"{label} is a naive datetime ({value!r}) -- the as-of filter compares instants, and a "
-            "naive datetime has no unambiguous instant to compare. Pass a timezone-aware datetime."
-        )
-
-
-def _require_key_types(game_id: str, season: object, home_id: object, away_id: object, label: str) -> None:
-    """Reject key fields whose *type* would silently miss the index rather than raise (F-045).
-
-    A season of `"2024"` against a history of `2024`, or team ids typed `int` on one side and `str`
-    on the other, look like perfectly ordinary inputs and produce a perfectly ordinary answer: every
-    lookup misses, every feature falls back to its prior, and the result is byte-identical to what
-    opening night legitimately produces. D-015 removed the only symptom that would otherwise have
-    exposed it (dropped early-season games), so nothing downstream can tell "this team has no prior
-    games" from "the key never matched". T-009 would read the resulting all-priors matrix as *"four
-    pre-game features carry no signal -- no-ship"* rather than *"the pipeline is broken"* -- the
-    exact silent failure PLAN-v1 exists to design out. Cheapest place to close it is at construction,
-    where the type is still visible.
-    """
-    # bool is a subclass of int; a `True` season is a bug, not a season.
-    if not isinstance(season, int) or isinstance(season, bool):
-        raise FeatureInputError(
-            f"{label} season must be an int, got {season!r} ({type(season).__name__}). A season that "
-            "does not match the history's type misses every lookup and silently returns priors."
-        )
-    for role, team_id in (("home_id", home_id), ("away_id", away_id)):
-        if not isinstance(team_id, str):
-            raise FeatureInputError(
-                f"{label} {role} must be a str, got {team_id!r} ({type(team_id).__name__}). Team ids "
-                "are ESPN string ids throughout; a mistyped one misses every lookup silently."
-            )
-    if not isinstance(game_id, str):
-        raise FeatureInputError(
-            f"{label} game_id must be a str, got {game_id!r} ({type(game_id).__name__})"
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class Matchup:
-    """The pre-game facts about a game: who is playing, when, and where.
-
-    This is the *only* type `compute_features` accepts as its target, and it deliberately carries no
-    scores -- see the module docstring, point 2. It is equally constructible for a game played in
-    2022 and one tipping off next Tuesday, which is what lets training and inference call one
-    function (D-011).
-    """
-
-    game_id: str
-    date: datetime
-    season: int
-    home_id: str
-    away_id: str
-    neutral_site: bool = False
-
-    def __post_init__(self) -> None:
-        _require_aware(self.date, f"matchup {self.game_id!r} date")
-        _require_key_types(self.game_id, self.season, self.home_id, self.away_id, "matchup")
-        if self.home_id == self.away_id:
-            raise FeatureInputError(
-                f"matchup {self.game_id!r} has the same team ({self.home_id!r}) on both sides"
-            )
-
-
-@dataclass(frozen=True, slots=True)
-class Game:
-    """A completed game: a `Matchup` plus its final score. The unit of the history collection.
-
-    Mirrors the loader's normalized frame one-for-one (`backend/model/loader.py`,
-    `_read_completed_games`), so `dataset.games_from_frame` is a field-by-field conversion with no
-    reinterpretation.
-    """
-
-    game_id: str
-    date: datetime
-    season: int
-    home_id: str
-    away_id: str
-    home_score: int
-    away_score: int
-    neutral_site: bool = False
-
-    def __post_init__(self) -> None:
-        _require_aware(self.date, f"game {self.game_id!r} date")
-        _require_key_types(self.game_id, self.season, self.home_id, self.away_id, "game")
-        if self.home_id == self.away_id:
-            raise FeatureInputError(
-                f"game {self.game_id!r} has the same team ({self.home_id!r}) on both sides"
-            )
-        for role, score in (("home_score", self.home_score), ("away_score", self.away_score)):
-            # F-049: the tie check below compares scores, and `nan != nan`, so a NaN score sails
-            # through it and then propagates a NaN straight into the feature vector. Checked before
-            # the tie test for exactly that reason. bool excluded: `True` is not a score.
-            if not isinstance(score, int) or isinstance(score, bool):
-                raise FeatureInputError(
-                    f"game {self.game_id!r} {role} must be an int, got {score!r} "
-                    f"({type(score).__name__}) -- a non-integral score is corrupt input, and a NaN "
-                    "one would pass the tie check below and poison the feature vector"
-                )
-        if self.home_score == self.away_score:
-            # NBA games cannot end tied -- they go to overtime -- and none of the 6,615 completed
-            # games in the pinned 2022-2026 corpus do (verified). So a tie here is not an edge case
-            # to model, it is corrupt input, and counting it as a loss for the home team (which is
-            # what a bare `home_score > away_score` does) would quietly bias every form feature the
-            # team appears in. Fail hard rather than self-heal quietly, consistent with D-019(3).
-            raise FeatureInputError(
-                f"game {self.game_id!r} is tied at {self.home_score} -- an NBA game cannot end "
-                "tied, so this is corrupt input, not a drawable result; refusing to score it"
-            )
-
-    @property
-    def home_margin(self) -> int:
-        return self.home_score - self.away_score
-
-    @property
-    def home_win(self) -> bool:
-        return self.home_score > self.away_score
-
-    @property
-    def matchup(self) -> Matchup:
-        """The pre-game view of this game -- everything that was knowable before tip-off.
-
-        The one-way door of the module docstring's point 2: features are computed from this, so a
-        completed game's own result is structurally out of reach of its own feature vector.
-        """
-        return Matchup(
-            game_id=self.game_id,
-            date=self.date,
-            season=self.season,
-            home_id=self.home_id,
-            away_id=self.away_id,
-            neutral_site=self.neutral_site,
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,7 +260,7 @@ class GameHistory:
     6,615-game history, which is ~44M comparisons scanned naively and a bisect per team here.
     """
 
-    __slots__ = ("_coverage", "_dates", "_records")
+    __slots__ = ("_coverage", "_dates", "_games", "_records")
 
     def __init__(self, games: Sequence[Game], *, coverage: Coverage | None = None) -> None:
         # F-045: a one-shot iterator is the declared-looking input that fails silently. Building an
@@ -436,6 +320,7 @@ class GameHistory:
                 _TeamGame(game.game_id, game.date, game.season, not won, -margin, game.home_id)
             )
 
+        self._games: tuple[Game, ...] = tuple(sorted(games, key=lambda g: (g.date, g.game_id)))
         self._records: dict[str, tuple[_TeamGame, ...]] = {}
         self._dates: dict[str, tuple[datetime, ...]] = {}
         for team, records in by_team.items():
@@ -446,6 +331,21 @@ class GameHistory:
             records.sort(key=lambda r: (r.date, r.game_id))
             self._records[team] = tuple(records)
             self._dates[team] = tuple(r.date for r in records)
+
+    @property
+    def games(self) -> tuple[Game, ...]:
+        """Every game in the index, ordered by `(date, game_id)`.
+
+        A view for `Context` to hand to `elo.Timeline`, not a second copy of the history: the tuple
+        is built once at construction and the records are frozen, so there is nothing here a caller
+        can mutate into disagreeing with the index it came from.
+        """
+        return self._games
+
+    @property
+    def teams(self) -> frozenset[str]:
+        """Every team appearing in the index. `Context` checks its participation map against this."""
+        return frozenset(self._records)
 
     @classmethod
     def of(cls, history: GameHistory | Sequence[Game]) -> GameHistory:
@@ -562,90 +462,192 @@ class GameHistory:
             )
 
 
-def _shrink(observed: float, n: int, prior: float) -> float:
-    """Blend a team's own `n`-game observation toward `prior` with weight `n/(n+k)` (D-015).
+def _rest_days(records: tuple[_TeamGame, ...], tip_off: datetime) -> int:
+    """Whole days of rest before `tip_off`, bucketed into [0, REST_EDGE_CAP].
 
-    n=0 -> the prior exactly (and `observed` is never read, so callers need no sentinel);
-    n=k -> exactly halfway; n->inf -> the observation. Monotone in n by construction.
-    """
-    if n <= 0:
-        return prior
-    weight = n / (n + SHRINKAGE_K)
-    return weight * observed + (1.0 - weight) * prior
-
-
-def _form(records: tuple[_TeamGame, ...], season: int) -> float:
-    """Shrunk win rate over the team's last `FORM_WINDOW` games of `season`.
-
-    Season-scoped (D-020): last season's results describe a different roster, and scoping here is
-    what makes the cold start D-015 is about recur every autumn rather than only in 2022.
-    `records` is already as-of filtered and date-ordered, so the tail is the most recent window.
-    """
-    window = [r for r in records if r.season == season][-FORM_WINDOW:]
-    n = len(window)
-    if n == 0:
-        return PRIOR_WIN_RATE
-    return _shrink(sum(1 for r in window if r.won) / n, n, PRIOR_WIN_RATE)
-
-
-def _season_point_diff(records: tuple[_TeamGame, ...], season: int) -> float:
-    """Shrunk season-to-date average point differential. Uses every game of `season` so far, not a
-    window -- "season-to-date" is the plan's wording, and it is the slower-moving counterpart to the
-    10-game form feature."""
-    margins = [r.margin for r in records if r.season == season]
-    n = len(margins)
-    if n == 0:
-        return PRIOR_POINT_DIFF
-    return _shrink(sum(margins) / n, n, PRIOR_POINT_DIFF)
-
-
-def _rest_days(records: tuple[_TeamGame, ...], tip_off: datetime) -> float:
-    """Days from the team's most recent completed game to `tip_off`, clamped to [0, MAX_REST_DAYS].
+    **Elapsed hours rounded to days, not a difference of calendar dates.** Every date in this
+    pipeline is UTC, and a 10:30pm Eastern tip-off is already the next day in UTC -- so differencing
+    calendar dates would call a back-to-back pair "two days apart" for exactly the late games where
+    rest matters most. Elapsed time carries no timezone at all, which is why it is the thing measured
+    here. Rounding is safe with a wide margin: the boundary between "back-to-back" and "one day off"
+    sits at 36 hours, and real consecutive-day pairs span roughly 18 to 32 hours (a 12:00pm holiday
+    start after a 10:30pm game is the extreme), so nothing in the corpus lands near it.
 
     Measured to **tip-off**, not to `as_of`: rest is a property of the game being predicted. A
     prediction made six days out therefore carries a rest value that is wrong rather than merely
     stale -- the team will play again before then -- which is precisely why D-012 re-predicts daily
     and keys predictions by `as_of` instead of updating a row in place. Computing it from `as_of`
-    would hide that, by making the number self-consistently meaningless instead of visibly wrong.
+    would hide that by making the number self-consistently meaningless instead of visibly wrong.
 
-    Not season-scoped and needs no empty-history case: the previous season's last game, or no game
-    at all, both land at the cap, which reads as "fully rested" -- the honest value for an opener.
-
-    Only an upper clamp: `records` is filtered to dates strictly before `as_of`, and `as_of` is
-    refused past `tip_off`, so the gap is always positive. A lower `max(..., 0.0)` used to sit here
-    and was unreachable (F-060) -- dead defensive code reads as a guarded path and hides that the
-    invariant, not the clamp, is what holds.
+    Not season-scoped, and needs no empty-history case: the previous season\'s last game, or no game
+    at all, both land on the cap, which reads as fully rested.
     """
     if not records:
-        return MAX_REST_DAYS
-    gap_days = (tip_off - records[-1].date).total_seconds() / _SECONDS_PER_DAY
-    return min(gap_days, MAX_REST_DAYS)
+        return REST_EDGE_CAP
+    elapsed_days = (tip_off - records[-1].date).total_seconds() / _SECONDS_PER_DAY
+    return min(max(round(elapsed_days) - 1, 0), REST_EDGE_CAP)
 
 
-def compute_features(
-    history: GameHistory | Sequence[Game], target: Matchup, as_of: datetime
-) -> dict[str, float]:
-    """The interface. Features for `target` using only games completed strictly before `as_of`.
+def _travel_miles(
+    records: tuple[_TeamGame, ...], destination: City, season: int, cities: Mapping[str, City]
+) -> float:
+    """Miles from the team\'s previous game **of this season** to `destination`.
+
+    Season-scoped, unlike rest, and for the opposite reason. A months-long gap reads honestly as
+    "fully rested", so rest needs no season boundary; it does not read honestly as "flew 2,400
+    miles", so travel does. A season\'s first game carries no accumulated travel and returns 0.0 --
+    which is a real claim about the world, not a fallback for missing data. Missing data is refused
+    at `Context` construction, where a game with no venue is an error rather than a silent zero.
+    """
+    if not records:
+        return 0.0
+    previous = records[-1]
+    if previous.season != season:
+        return 0.0
+    origin = cities.get(previous.game_id)
+    if origin is None:
+        raise FeatureInputError(
+            f"game {previous.game_id!r} is in the history but has no venue in this Context -- "
+            "travel has no fallback, and a silent 0.0 would read as a home stand. Build the "
+            "Context with a city for every game its history contains."
+        )
+    return distance_miles(origin, destination)
+
+
+class Context:
+    """Everything time-varying a feature vector reads, indexed once and filtered per query.
+
+    Replaces T-006\'s bare `history` argument. It carries the three sources the v2 feature set needs
+    -- completed games, player participation, and the venue each game was played at -- and it turns
+    each into an index that **cannot be asked a question without an as-of moment**. That property is
+    the whole point: the as-of filter is now the integrity control for three sources rather than one,
+    and the cheapest way to apply it uniformly is to make an un-filtered read impossible to express.
+
+    ## Why all three are required rather than optional
+
+    An optional participation map would default `avail_diff` to 0.0 and an optional venue map would
+    default `travel_diff` to 0.0, and both zeros are values the feature legitimately takes -- a
+    perfectly healthy pair of teams, a home stand. So a caller who forgot to load the box scores
+    would get a feature vector that is wrong in a way nothing downstream can detect, which is the
+    silent-failure shape F-045 and F-113 both closed other routes to. There is no partial Context.
 
     Args:
-        history: every completed game available, as a **sequence** of `Game` records (list or
-            tuple -- not a generator, see F-045) or a prebuilt `GameHistory`. Pass the full
-            collection -- do NOT pre-filter it. Filtering is this module's job, and a caller
-            that filters is a caller that can filter wrongly. Must contain only final games
-            (see the module docstring's precondition) and no duplicate `game_id`.
-            **If you must narrow it, say so** (F-113): build a `GameHistory` with an explicit
-            `Coverage` and this function will refuse a target the declaration does not cover.
-            A raw sequence declares nothing, so it is taken at its word -- which is why the
-            instruction above is still an instruction and the declaration is the check.
+        history: every completed game available, as a **sequence** of `Game` records (list or tuple
+            -- not a generator, F-045) or a prebuilt `GameHistory`. Pass the full collection
+            including D-037\'s warm-up seasons: Elo is running state over every prior season, so a
+            rating difference computed from a subset is a different number. Do NOT pre-filter by
+            date -- filtering is this module\'s job, and a caller that filters is a caller that can
+            filter wrongly. **If you narrow it, say so** by giving the `GameHistory` a `Coverage`.
+        appearances: `team_id` -> that team\'s `availability.Appearance` records, over the same
+            games. Must cover every team the history does; a team missing here would silently read
+            as league-average availability forever.
+        game_cities: `game_id` -> the `venues.City` the game was played in, for every game in the
+            history. Resolving cities here rather than per feature means an unknown venue fails once,
+            loudly, at construction -- rather than 6,000 times, quietly, as zero travel.
+    """
+
+    __slots__ = ("_availability", "_cities", "_elo", "_history")
+
+    def __init__(
+        self,
+        history: GameHistory | Sequence[Game],
+        appearances: Mapping[str, Sequence[availability_module.Appearance]],
+        game_cities: Mapping[str, City],
+        *,
+        elo_config: elo_module.EloConfig | None = None,
+        availability_config: availability_module.AvailabilityConfig | None = None,
+    ) -> None:
+        index = GameHistory.of(history)
+        games = index.games
+
+        if not isinstance(game_cities, Mapping):
+            raise FeatureInputError(
+                f"game_cities must be a Mapping of game id -> City, got "
+                f"{type(game_cities).__name__}"
+            )
+        for game_id, city in game_cities.items():
+            if not isinstance(city, City):
+                raise FeatureInputError(
+                    f"game_cities[{game_id!r}] must be a venues.City, got {type(city).__name__}"
+                )
+        missing = [game.game_id for game in games if game.game_id not in game_cities]
+        if missing:
+            # Loud, once, at construction -- see the class docstring. `travel_diff` has no fallback.
+            raise FeatureInputError(
+                f"{len(missing)} game(s) in the history have no venue city (first few: "
+                f"{sorted(missing)[:5]}). Travel is measured from the previous game\'s venue and a "
+                "missing one would read as a home stand, so it is refused rather than defaulted."
+            )
+
+        history_teams = index.teams
+        absent = sorted(history_teams - set(appearances))
+        if absent:
+            raise FeatureInputError(
+                f"{len(absent)} team(s) in the history have no participation records (first few: "
+                f"{absent[:5]}). A team missing here reads as league-average availability in every "
+                "game it plays, which is a value the feature legitimately takes -- so it cannot be "
+                "distinguished after the fact and is refused here instead."
+            )
+
+        self._history = index
+        self._cities = dict(game_cities)
+        self._elo = elo_module.Timeline(
+            games, config=elo_config if elo_config is not None else elo_module.DEFAULT_CONFIG
+        )
+        self._availability = availability_module.AppearanceIndex(
+            appearances,
+            config=(
+                availability_config
+                if availability_config is not None
+                else availability_module.DEFAULT_CONFIG
+            ),
+        )
+
+    @property
+    def history(self) -> GameHistory:
+        return self._history
+
+    @classmethod
+    def of(cls, context: Context) -> Context:
+        """Normalize the accepted context form. Idempotent, and refuses everything else.
+
+        `GameHistory.of` accepted a raw sequence because a sequence *is* a complete history. A
+        Context is not reconstructible from any one of its parts, so there is nothing to normalize
+        from -- and accepting a bare history here would mean silently building a Context with no
+        participation and no venues, which is the partial Context the class docstring refuses.
+        """
+        if type(context) is cls:
+            return context
+        if isinstance(context, Context):
+            raise FeatureInputError(
+                f"{type(context).__name__} subclasses Context, which is refused: overriding how a "
+                "source is read is exactly what the as-of filter\'s single application point exists "
+                "to prevent (F-050\'s rule, applied to the Context). Compose with a Context instead "
+                "of inheriting from it."
+            )
+        raise FeatureInputError(
+            f"compute_features takes a Context, got {type(context).__name__}. T-028 replaced the "
+            "bare history argument: the v2 features read player participation and venues as well "
+            "as games, and all three are filtered by one as-of moment. Build a Context (or use "
+            "`store.load_context` / `dataset.context_from_frames`)."
+        )
+
+
+def compute_features(context: Context, target: Matchup, as_of: datetime) -> dict[str, float]:
+    """The interface. Features for `target` using only information available strictly before `as_of`.
+
+    Args:
+        context: the sources, as a `Context`. Pass the whole corpus -- do NOT pre-filter it.
         target: the pre-game `Matchup`. Use `Game.matchup` for a completed game.
-        as_of: the prediction moment, timezone-aware. Training: the target's own tip-off (prefer
+        as_of: the prediction moment, timezone-aware. Training: the target\'s own tip-off (prefer
             `compute_training_features`). Inference: the current moment, before tip-off.
 
     Returns:
         A dict keyed by exactly `FEATURE_NAMES`.
 
     Raises:
-        FeatureInputError: naive `as_of`, wrong target type, or malformed history.
+        FeatureInputError: naive `as_of`, wrong target type, a malformed or under-covering Context,
+            or a venue this Context cannot resolve.
         FeatureLeakageError: `as_of` is after `target.date`.
     """
     if not isinstance(target, Matchup):
@@ -663,33 +665,63 @@ def compute_features(
             "prediction moment for inference."
         )
 
-    index = GameHistory.of(history)
+    context = Context.of(context)
+    index = context._history
     # F-113: the completeness half of the guarantee, checked BEFORE anything is computed. An
     # incomplete history yields priors, and priors are what a legitimate opening night looks like.
     index._require_covers(target, as_of)
+
+    destination = context._cities.get(target.game_id)
+    if destination is None:
+        raise FeatureInputError(
+            f"game {target.game_id!r} has no venue city in this Context -- `travel_diff` and "
+            "`altitude` are both read off the venue, and neither has a defensible default. Include "
+            "the target\'s venue when building the Context."
+        )
+
     home = index._records_before(target.home_id, as_of, target.game_id, target.away_id)
     away = index._records_before(target.away_id, as_of, target.game_id, target.home_id)
 
+    home_rest = _rest_days(home, target.date)
+    away_rest = _rest_days(away, target.date)
+
     return {
-        "home_advantage": 0.0 if target.neutral_site else 1.0,
-        "form_diff": _form(home, target.season) - _form(away, target.season),
-        "rest_diff": _rest_days(home, target.date) - _rest_days(away, target.date),
-        "point_diff_diff": (
-            _season_point_diff(home, target.season) - _season_point_diff(away, target.season)
+        "elo_diff": context._elo.difference_before(
+            target.home_id,
+            target.away_id,
+            as_of,
+            target.season,
+            exclude_game_id=target.game_id,
+        ),
+        "home_b2b": 1.0 if home_rest == _B2B_REST_DAYS else 0.0,
+        "away_b2b": 1.0 if away_rest == _B2B_REST_DAYS else 0.0,
+        "rest_edge": float(home_rest - away_rest),
+        "avail_diff": context._availability.difference_before(
+            target.home_id, target.away_id, as_of, exclude_game_id=target.game_id
+        ),
+        "travel_diff": (
+            _travel_miles(home, destination, target.season, context._cities)
+            - _travel_miles(away, destination, target.season, context._cities)
+        ),
+        # An indicator on the venue, not a difference -- there is no "away altitude" to subtract.
+        # Neutral sites are excluded because the feature\'s content is the *asymmetry*: at Denver the
+        # visitor is the unacclimated side, which is a home-team advantage the model can price. At
+        # Mexico City (7,350 ft, and in this corpus) both teams flew in, so the elevation affects
+        # them equally and carries no information about who wins.
+        "altitude": (
+            1.0 if destination.is_high_altitude and not target.neutral_site else 0.0
         ),
     }
 
 
-def compute_training_features(
-    history: GameHistory | Sequence[Game], game: Game
-) -> dict[str, float]:
+def compute_training_features(context: Context, game: Game) -> dict[str, float]:
     """Features for a completed game as of its own tip-off -- the training as-of rule, in code.
 
-    Exists so T-009 never picks an `as_of` for training. The rule ("at training time the as-of moment
-    is the target game's own tip-off", PLAN-v1) is the other half of the anti-skew mechanism, and a
-    rule stated in a plan is one a training loop can get wrong; a rule with no parameter is not.
+    Exists so no training loop ever picks an `as_of`. The rule ("at training time the as-of moment
+    is the target game\'s own tip-off") is the other half of the anti-skew mechanism, and a rule
+    stated in a plan is one a training loop can get wrong; a rule with no parameter is not.
     """
-    return compute_features(history, game.matchup, game.date)
+    return compute_features(context, game.matchup, game.date)
 
 
 def to_vector(features: Mapping[str, float]) -> tuple[float, ...]:

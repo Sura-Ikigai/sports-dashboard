@@ -676,7 +676,7 @@ skip must be justified in the task's outcome rather than discovered later.
   the only evidence of such an absence is the box score of the game being predicted. That is the
   honest cost of a construction whose leakage-freedom is structural rather than procedural.
 
-- [ ] **T-028** `features` v2 — Context and the new feature set — owner: `backend-engineer`
+- [x] **T-028** `features` v2 — Context and the new feature set — owner: `backend-engineer` — **DONE 2026-09-05**
   - acceptance: Context carries games, player participation and venues; signature stays three
     arguments; emits `elo_diff`, `home_b2b`, `away_b2b`, `rest_edge`, `avail_diff`, `travel_diff`,
     `altitude`; `point_diff_diff`, `form_diff`, `home_advantage` removed; standard library only; the
@@ -685,6 +685,159 @@ skip must be justified in the task's outcome rather than discovered later.
   - security note: the as-of filter is the integrity control for **every** time-varying source now,
     not just games. One filter, inside the module, applied uniformly — and the property test must
     inject future player rows or it is no longer proving what it claims.
+  - **built:** `backend/model/features.py` rewritten, `backend/model/records.py` extracted, plus
+    `elo.Timeline`, `availability.AppearanceIndex`, three `store` loaders and three `dataset`
+    adapters. **523 backend tests pass with zero skips** (up from 465), ruff clean.
+
+  ### Measured on the dev seasons — user story 14, answered
+
+  2,640 games, 2024+2025 only, 2026 untouched. The problem statement was that `point_diff_diff`,
+  Elo and `form_diff` correlated at **.87–.92** — three measurements of one latent variable. The v2
+  set's largest correlation between two *different factors* is **.255** (`elo_diff` ↔ `avail_diff`):
+
+  | | elo | b2b(h) | b2b(a) | rest | avail | travel | alt |
+  |---|---|---|---|---|---|---|---|
+  | **elo_diff** | 1.000 | .002 | -.024 | -.008 | **.255** | .023 | -.005 |
+  | **home_b2b** | | 1.000 | .154 | **-.485** | -.025 | -.094 | -.007 |
+  | **away_b2b** | | | 1.000 | **.472** | .005 | .098 | -.025 |
+  | **rest_edge** | | | | 1.000 | .004 | .114 | -.025 |
+  | **avail_diff** | | | | | 1.000 | .025 | -.003 |
+  | **travel_diff** | | | | | | 1.000 | -.016 |
+
+  The two large entries are the **±.47–.49 between the b2b indicators and `rest_edge`**, and they are
+  D-034 working rather than collinearity to fix: a back-to-back *is* zero days of rest, so the
+  indicator and the bucket necessarily move together. Giving the 0-day cliff its own coefficient
+  instead of a shared slope is the whole point of user story 6, and the three columns are not
+  linearly dependent — `rest_edge` varies freely within `home_b2b == 0`.
+
+  Single-feature AUC on the same games: `elo_diff` **.7149** (reproducing D-032 exactly, end to end
+  through the Context), `avail_diff` .6009, `rest_edge` .5381, `away_b2b` .5140, `altitude` .5014,
+  `travel_diff` .4970, `home_b2b` .4774 (i.e. .5226 with its sign).
+
+  Fitting on 2024 and testing on 2025 — a dev split, not the walk-forward, which is T-030's:
+
+  | | accuracy | log loss | AUC |
+  |---|---|---|---|
+  | `elo_diff` alone | .6593 | — | .7159 |
+  | full v2 set | **.6692** | .6054 (constant .6893) | **.7249** |
+
+  **+.0090 AUC over Elo alone**, against the plan's stated expectation of "+.005–.015 for rest,
+  ~+.002 for travel and altitude, availability unknown". Every coefficient carries the sign the
+  design predicted, which is the check that matters more than the number:
+
+  `elo_diff` +.863 · `home_b2b` **−.155** · `away_b2b` **+.139** · `rest_edge` +.027 ·
+  `avail_diff` +.121 · `travel_diff` **−.104** · `altitude` +.084 · intercept +.225
+
+  The b2b pair is the one worth naming: **−.155 against +.139**. User story 7 asked for separate
+  indicators so an asymmetric effect could be *measured* rather than assumed symmetric, and it is
+  asymmetric. `travel_diff`'s negative coefficient is the sign convention working — every difference
+  feature is signed home-minus-away, and travel is a cost, so more of it for the home team lowers the
+  probability.
+
+  ### The Context, and the filter that had to move up a level
+
+  T-006's `history` was one sequence and the as-of filter had one thing to filter. The v2 set reads
+  three time-varying sources, and the security note is blunt about the consequence. `Context` makes
+  "uniformly" mechanical rather than aspirational, three ways:
+
+  1. **It holds sources, never answers.** Every index it carries — `GameHistory`, `elo.Timeline`,
+     `availability.AppearanceIndex` — is built over the whole corpus and has **no method that
+     answers without an `as_of`**. There is no cached "current" anything to read by mistake.
+  2. **One `as_of` reaches every source.** `compute_features` derives it once and passes that same
+     instant down, so no source can be consulted at a different moment than its neighbours.
+  3. **There is no partial Context.** Participation and venues are required, not optional, because
+     an absent participation map defaults `avail_diff` to 0.0 and an absent venue map defaults
+     `travel_diff` to 0.0 — and *both zeros are values the features legitimately take* (a healthy
+     pair of teams; a home stand). A caller who forgot to load the box scores would get a vector
+     that is wrong in a way nothing downstream can detect. Same shape as F-045 and F-113, closed
+     the same way: refuse at construction, where the mistake is still visible.
+
+  ### Two indices, and the equality that makes them safe rather than fast
+
+  Replaying Elo per target is O(n²) over a training set — 6,600 targets against ~12,000 games is
+  ~80M rating updates, minutes of pure Python. Handing `team_availability` a team's whole history is
+  the same shape. So both were turned into precomputed indices, and **a performance shortcut on a
+  leakage-critical path is only acceptable if its answers are equal to the slow path's, not close**:
+
+  - `elo.Timeline` — `replay` processes games sorted by `(date, game_id)`, so "games dated strictly
+    before `as_of`" is exactly a *prefix* of that order. `test_elo.py` asserts bit-exact equality
+    against `pregame_rating_differences` for **every game of a corpus-shaped replay, under both
+    carryover settings** (which apply different numbers of regressions across the 2019 → 2022 gap).
+  - `availability.AppearanceIndex` — hands `team_availability` `lookback_games + 1` games instead of
+    the whole history, and `test_availability.py` asserts exact equality against the unsliced call at
+    every moment of a 60-game season, across three seeds.
+
+  The Elo index also uncovered a bug worth recording: carryover is applied to the **whole ratings
+  dict** at a season transition, not to a team when it next plays. A first draft caught teams up
+  lazily and was correct on opening night and wrong for every game after it, for every team that had
+  not yet played that season. It is now tracked as a regression *count* per stored rating. The
+  corpus-wide equality test is what found it — a point check would not have.
+
+  `Timeline` additionally **refuses a team appearing in two games at the same instant**, which is the
+  precondition the prefix equivalence rests on. Simultaneous tip-offs between different teams are
+  ordinary and stay ordinary; the same team twice at one moment has no well-defined answer, so it is
+  refused rather than silently approximated.
+
+  ### The leakage property test, extended — and both halves proven non-vacuous
+
+  200 seeded trials now inject future **games and future player-box rows**, asserting exact equality,
+  paired with **two** controls: a game before `as_of` moves the vector, and a player row before
+  `as_of` moves `avail_diff`. Both halves were verified by sabotage — the as-of filter was removed
+  from each index in turn and the property test went red each time.
+
+  The same discipline caught a real gap in the acceptance test. `test_a_store_query_returning_future_rows_produces_identical_vectors`
+  passed with the availability filter deliberately broken, because the store fixture gave every team
+  identical participation in every game — there was nothing for a filter to change. The fixture now
+  carries a nine-man rotation with absences that vary by game and by team, and the sabotage is
+  caught. **A test that passes against a broken implementation is not a test**, and the only way to
+  know is to break it.
+
+  F-044's shape is closed on both new sources: a target's own copy dated microseconds *before* its
+  matchup date reaches neither `elo_diff` nor `avail_diff`, because `exclude_game_id` is threaded
+  through both indices. The Elo path takes an exact replay of the prefix-minus-that-game rather than
+  an incremental un-update — Elo's update is not exactly invertible once later games have moved both
+  ratings, and an approximate reversal on the corrupt-input path is how a leak becomes a rounding
+  error nobody looks at.
+
+  ### A layering inversion this task forced, and fixed
+
+  `elo` imported `Game` from `features` — the deep module depending on its consumer. That was
+  harmless until `features` grew a `Context` that builds an `elo.Timeline`, at which point it was an
+  import cycle. `Matchup`, `Game` and their validation moved to `backend/model/records.py`;
+  `features` re-exports them, so `from model.features import Game` still means what it always meant
+  and no caller changed.
+
+  ### Feature definitions worth pinning down
+
+  - **Rest is elapsed hours rounded to days, never a difference of calendar dates.** Every date in
+    this pipeline is UTC, and a 10:30pm Eastern tip-off is already the next day in UTC — so
+    differencing dates would call a genuine back-to-back "two days apart", and would do it for
+    exactly the late games where rest matters most. The boundary sits at 36 hours and real
+    consecutive-day pairs span roughly 18–32, so nothing in the corpus is near it. A test pins it.
+  - **Travel is season-scoped; rest deliberately is not.** A months-long gap reads honestly as
+    "fully rested", so rest needs no season boundary. It does not read honestly as "flew 2,400
+    miles", so travel does — a season opener carries no accumulated travel.
+  - **`altitude` does not fire at a neutral site.** The feature's content is the *asymmetry*: at
+    Denver the visitor is the unacclimated side, which is a home advantage the model can price. At
+    Mexico City (7,350 ft, and in this corpus) both teams flew in, the elevation affects them
+    equally, and it says nothing about who wins.
+  - **A venue that cannot be placed is refused at construction**, once and loudly, rather than 6,000
+    times as a quiet zero. `venues.city_for` has no fallback and this is where that pays.
+
+  ### Both data paths build a Context
+
+  `store.load_context` (Postgres, narrows **by team only** for the same reason `load_history` does)
+  and `dataset.context_from_frames` (the pandas seam). `run_evaluation` was moved onto the second so
+  the loader path still runs end to end; it was **not executed**, because its sealed fold tests on
+  2026 and T-030 owns that single shot. Warm-up seasons are deliberately absent from it —
+  `load_warmup_games` stays a separate function so the training path cannot reach warm-up rows by
+  accident, and wiring them in as Elo state is T-029's mechanism.
+
+  ### Reported, not hidden
+
+  `travel_diff` at AUC .4970 and `altitude` at .5014 carry essentially nothing on their own, which is
+  what the plan predicted (~+.002 combined). They earn their place in the fit, not in isolation, and
+  T-030's ablation is where that gets decided rather than assumed.
 
 - [ ] **T-029** `splits` — warm-up isolation — owner: `backend-engineer`
   - acceptance: warm-up seasons never appear as training or test rows; the existing temporal

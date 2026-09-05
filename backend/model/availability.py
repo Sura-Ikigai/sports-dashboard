@@ -66,8 +66,9 @@ served image.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -149,6 +150,17 @@ class AvailabilityConfig:
             )
         if self.shrink_k < 0:
             raise AvailabilityError(f"shrink_k must be non-negative, got {self.shrink_k}")
+
+    @property
+    def lookback_games(self) -> int:
+        """How many of a team's most recent games `team_availability` can actually read.
+
+        Exists so a caller slicing a long history down to what this module will use does not have to
+        know *which* of the two windows is the wider one -- that is this module's business, and a
+        caller that hard-coded 15 would silently truncate the rotation the day `rotation_games`
+        moved. `features` (T-028) slices with this.
+        """
+        return max(self.rotation_games, self.window_games)
 
 
 DEFAULT_CONFIG = AvailabilityConfig()
@@ -272,3 +284,122 @@ def availability_difference(
     return team_availability(home_appearances, as_of=as_of, config=config) - team_availability(
         away_appearances, as_of=as_of, config=config
     )
+
+
+# --- as-of addressable participation (T-028) ------------------------------------------------------
+
+
+class AppearanceIndex:
+    """One team's availability at **any** moment, without rescanning its whole history per query.
+
+    `team_availability` is the definition; this is the index that makes calling it 6,600 times
+    affordable. A training pass asks for one number per team per game, and the naive form hands the
+    function every appearance the team has ever made -- ~6,000 records for a late-season game, of
+    which it reads the last fifteen games' worth. Over a training set that is ~100M records grouped
+    and sorted to produce numbers that depend on 0.4% of them.
+
+    ## The slice is bounded by the module's own answer, not by a number `features` picked
+
+    `AvailabilityConfig.lookback_games` says how far back `team_availability` can see, and this
+    index hands it one game more than that. The extra game is not slack: `team_availability` slices
+    its own tail (`games[-rotation_games:]`), so being given a slightly longer history is exactly
+    equivalent to being given the whole one, and the spare slot is what keeps that true when the
+    excluded-game path below removes a row from the middle. A test pins the equivalence against the
+    unsliced history rather than trusting the argument.
+
+    ## It cannot answer without an as-of moment
+
+    Same rule as `elo.Timeline`. There is no "current availability" method, and the `as_of` a caller
+    passes is handed straight back to `team_availability`, whose tripwire then re-checks the slice.
+    That check is redundant if this index is right -- which is the point of leaving it in: it is what
+    would catch this index being wrong.
+    """
+
+    __slots__ = ("_config", "_game_dates", "_game_starts", "_rows")
+
+    def __init__(
+        self,
+        by_team: Mapping[str, Sequence[Appearance]],
+        *,
+        config: AvailabilityConfig = DEFAULT_CONFIG,
+    ) -> None:
+        if not isinstance(by_team, Mapping):
+            raise AvailabilityError(
+                f"by_team must be a Mapping of team id -> that team's appearances, got "
+                f"{type(by_team).__name__}"
+            )
+        self._config = config
+        self._rows: dict[str, tuple[Appearance, ...]] = {}
+        self._game_dates: dict[str, tuple[datetime, ...]] = {}
+        self._game_starts: dict[str, tuple[int, ...]] = {}
+
+        for team_id, appearances in by_team.items():
+            if not isinstance(appearances, Sequence) or isinstance(appearances, (str, bytes)):
+                raise AvailabilityError(
+                    f"appearances for team {team_id!r} must be a Sequence, got "
+                    f"{type(appearances).__name__} -- a one-shot iterator would be consumed here "
+                    "and leave the team looking like it had never played (F-045)."
+                )
+            # Checked before the sort, not after: sorting on `.date` raises a bare AttributeError
+            # from inside a lambda, which is the unhelpful failure F-048 made this codebase check
+            # shapes rather than accept whatever happens to work.
+            for row in appearances:
+                if not isinstance(row, Appearance):
+                    raise AvailabilityError(
+                        f"appearances for team {team_id!r} must contain Appearance records, got "
+                        f"{type(row).__name__}"
+                    )
+            rows = sorted(appearances, key=lambda a: (a.date, a.game_id))
+            starts: list[int] = []
+            dates: list[datetime] = []
+            previous: tuple[datetime, str] | None = None
+            for position, row in enumerate(rows):
+                key = (row.date, row.game_id)
+                if key != previous:
+                    starts.append(position)
+                    dates.append(row.date)
+                    previous = key
+            self._rows[team_id] = tuple(rows)
+            self._game_dates[team_id] = tuple(dates)
+            self._game_starts[team_id] = (*starts, len(rows))
+
+    def teams(self) -> frozenset[str]:
+        return frozenset(self._rows)
+
+    def availability_before(
+        self, team_id: str, as_of: datetime, *, exclude_game_id: str | None = None
+    ) -> float:
+        """That team's availability going into a game at `as_of`.
+
+        A team this index has never seen returns `config.prior`, exactly as a team with no history
+        does -- and that is the one case a caller must not reach by accident, which is why
+        `features.Context` refuses to be built with participation it cannot vouch for rather than
+        letting an empty index answer quietly.
+        """
+        if not isinstance(as_of, datetime) or as_of.tzinfo is None:
+            raise AvailabilityError("as_of must be a timezone-aware datetime")
+        rows = self._rows.get(team_id)
+        if not rows:
+            return self._config.prior
+
+        dates = self._game_dates[team_id]
+        starts = self._game_starts[team_id]
+        cut = bisect_left(dates, as_of)
+        first = max(0, cut - (self._config.lookback_games + 1))
+        window = list(rows[starts[first] : starts[cut]])
+        if exclude_game_id is not None:
+            window = [row for row in window if row.game_id != exclude_game_id]
+        return team_availability(window, as_of=as_of, config=self._config)
+
+    def difference_before(
+        self,
+        home_id: str,
+        away_id: str,
+        as_of: datetime,
+        *,
+        exclude_game_id: str | None = None,
+    ) -> float:
+        """`avail_diff` -- home availability minus away, both as of the same moment."""
+        return self.availability_before(
+            home_id, as_of, exclude_game_id=exclude_game_id
+        ) - self.availability_before(away_id, as_of, exclude_game_id=exclude_game_id)

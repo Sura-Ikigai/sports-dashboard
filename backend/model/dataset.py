@@ -9,14 +9,19 @@ would break both -- never arises.
 Training-only, like the loader: never imported by the served image.
 """
 
+import math
+from collections.abc import Mapping, Sequence
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from .availability import Appearance
 from .corpus import apply_default_curation
-from .features import Game
+from .features import Context, Game
 from .loader import DEFAULT_DATA_DIR, SEASONS, load_completed_games
+from .venues import City, city_for
 
 # Exactly the columns `loader._read_completed_games` emits that a pre-game feature needs. `home_win`
 # is deliberately absent -- `Game` derives it from the scores, so there is one definition of who won.
@@ -137,3 +142,122 @@ def load_games(
     # behaviour rather than this signature's default — see F-092/F-093. This function holds no
     # curation policy of its own.
     return apply_default_curation(games, include_exhibitions=include_exhibitions)
+
+
+# Exactly the player-box columns `availability.Appearance` is made of, plus the join keys. Kept
+# separate from `loader.PLAYER_BOX_REQUIRED_COLUMNS` on purpose: that constant says what the *source
+# file* must contain and is a verification pin; this one says what this conversion reads. They
+# overlap today and are allowed to diverge, which is the point of not sharing one.
+REQUIRED_BOX_COLUMNS: tuple[str, ...] = (
+    "game_id",
+    "team_id",
+    "athlete_id",
+    "minutes",
+    "did_not_play",
+)
+
+REQUIRED_VENUE_COLUMNS: tuple[str, ...] = ("game_id", "venue_city", "venue_state")
+
+
+def appearances_from_box_frame(
+    frame: pd.DataFrame, dates: Mapping[str, datetime]
+) -> dict[str, list[Appearance]]:
+    """Loader box frame + game dates -> the participation map a `Context` takes.
+
+    `dates` comes from the *schedule*, never from the box frame's own `game_date` column, even
+    though that column exists and agrees today. `Game.date` is what every other as-of comparison in
+    the pipeline is made against, and a second source for the same instant is a second thing that can
+    drift -- the rule `store.load_player_box` already applies to `season`.
+
+    Box rows for games outside `dates` are dropped rather than dated from elsewhere: the box files
+    cover whole seasons while a caller may hold a curated subset (F-042's exhibitions, for one), and
+    an appearance whose game is not in the history cannot be positioned on the timeline at all.
+
+    Rows with no `athlete_id` are dropped. The corpus has 33 of them, all in 2026, and `ingest` pins
+    that count per season so a change is caught at the boundary D-046 puts the guarantee on. This
+    path deliberately does not re-pin it: two copies of one pinned number is how they diverge.
+    """
+    missing = [c for c in REQUIRED_BOX_COLUMNS if c not in frame.columns]
+    if missing:
+        raise ValueError(
+            f"box frame is missing column(s) {missing} -- expected the frame from loader.load_box"
+        )
+
+    by_team: dict[str, list[Appearance]] = {}
+    for row in frame.itertuples(index=False):
+        date = dates.get(str(row.game_id))
+        if date is None:
+            continue
+        athlete_id = row.athlete_id
+        if athlete_id is None or (isinstance(athlete_id, float) and math.isnan(athlete_id)):
+            continue
+        minutes = row.minutes
+        if minutes is not None and isinstance(minutes, float) and math.isnan(minutes):
+            minutes = None
+        by_team.setdefault(str(row.team_id), []).append(
+            Appearance(
+                game_id=str(row.game_id),
+                date=date,
+                player_id=str(athlete_id),
+                minutes=None if minutes is None else float(minutes),
+                did_not_play=bool(row.did_not_play),
+            )
+        )
+    return by_team
+
+
+def game_cities_from_frame(frame: pd.DataFrame) -> dict[str, City]:
+    """Loader schedule frame -> `game_id` -> `venues.City`, the D-036 join on the pandas side.
+
+    The mirror of `store.load_game_cities`, and it fails the same way: `city_for` has no fallback,
+    so an unrecognized venue city raises here, naming itself, rather than surfacing as a game with
+    inexplicably zero travel. A blank city is refused for the same reason.
+    """
+    missing = [c for c in REQUIRED_VENUE_COLUMNS if c not in frame.columns]
+    if missing:
+        raise ValueError(
+            f"frame is missing column(s) {missing} -- T-023 added the venue columns to "
+            "loader._read_completed_games; a frame without them predates it"
+        )
+    cities: dict[str, City] = {}
+    unlocated: list[str] = []
+    for row in frame.itertuples(index=False):
+        city = row.venue_city
+        if city is None or (isinstance(city, float) and math.isnan(city)) or not str(city).strip():
+            unlocated.append(str(row.game_id))
+            continue
+        state = row.venue_state
+        if state is not None and isinstance(state, float) and math.isnan(state):
+            state = None
+        cities[str(row.game_id)] = city_for(str(city), None if state is None else str(state))
+    if unlocated:
+        raise ValueError(
+            f"{len(unlocated)} game(s) have no venue city (first few: {unlocated[:5]}) -- travel "
+            "and altitude are read off the venue and neither has a defensible default"
+        )
+    return cities
+
+
+def context_from_frames(
+    games: Sequence[Game], schedule: pd.DataFrame, box: pd.DataFrame
+) -> Context:
+    """Assemble a `Context` from the loader's frames -- the pandas counterpart of
+    `store.load_context`.
+
+    `games` is passed separately rather than re-derived from `schedule` because curation is a
+    decision (F-042/F-092), and the two callers of this function want different answers: an
+    evaluation wants the curated corpus, an audit wants the raw one. The frames supply venues and
+    participation for whatever set of games it is given.
+    """
+    dates = {game.game_id: game.date for game in games}
+    cities = game_cities_from_frame(schedule)
+    unlocated = [game.game_id for game in games if game.game_id not in cities]
+    if unlocated:
+        raise ValueError(
+            f"{len(unlocated)} game(s) are not in the schedule frame (first few: {unlocated[:5]})"
+        )
+    return Context(
+        list(games),
+        appearances_from_box_frame(box, dates),
+        {game_id: cities[game_id] for game_id in dates},
+    )

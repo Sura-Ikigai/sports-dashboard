@@ -25,7 +25,15 @@ import sqlalchemy as sa
 
 from conftest import alembic_config, make_scratch_database
 from model import corpus, store
-from model.features import Coverage, FeatureInputError, GameHistory
+from model.features import (
+    FEATURE_NAMES,
+    Context,
+    Coverage,
+    FeatureInputError,
+    GameHistory,
+    compute_features,
+    compute_training_features,
+)
 from model.store import StoreError
 
 SCRATCH_DB = "t024_store_test"
@@ -217,6 +225,48 @@ def _season_rows(season: int) -> tuple[list[dict], list[dict]]:
     return games, venues
 
 
+# A nine-man rotation with distinct minutes, plus the two rows user story 12 turns on: a DNP (absent)
+# and an active player on zero minutes (dressed, played nothing).
+#
+# **The rotation varies from game to game on purpose.** With identical participation everywhere,
+# `test_a_store_query_returning_future_rows_produces_identical_vectors` would pass no matter what
+# the availability source did with an as-of moment -- the future rows would be interchangeable with
+# the past ones and there would be nothing for a filter to change. Verified by breaking the filter
+# and watching that test go red.
+ROTATION_SIZE = 9
+
+
+def _player_rows(game: dict) -> list[dict]:
+    rows: list[dict] = []
+    index = int(game["game_id"].rsplit("-", 1)[1]) if game["game_id"][-1].isdigit() else 0
+    for team in (game["home_id"], game["away_id"]):
+        for i in range(ROTATION_SIZE):
+            # Two rotation players sit out in a third of the games, in a pattern that differs by
+            # team (the ids are numeric, so this is deterministic across runs -- `hash()` on a str
+            # is not), so availability actually moves over the season for both sides of a matchup.
+            out = i < 2 and (index + int(team)) % 3 == 0
+            rows.append(
+                {
+                    "game_id": game["game_id"],
+                    "team_id": team,
+                    "player_id": f"{team}-p{i}",
+                    "minutes": None if out else 34.0 - 2.0 * i,
+                    "started": i < 5,
+                    "did_not_play": out,
+                    "points": None if out else 20 - i,
+                }
+            )
+        rows.append(
+            {"game_id": game["game_id"], "team_id": team, "player_id": f"{team}-dnp",
+             "minutes": None, "started": False, "did_not_play": True, "points": None}
+        )
+        rows.append(
+            {"game_id": game["game_id"], "team_id": team, "player_id": f"{team}-zero",
+             "minutes": 0.0, "started": False, "did_not_play": False, "points": 0}
+        )
+    return rows
+
+
 @pytest.fixture(scope="session")
 def store_db(pg_admin_url: str) -> Iterator[str]:
     from alembic import command
@@ -269,21 +319,7 @@ def store_db(pg_admin_url: str) -> Iterator[str]:
                         " VALUES (:game_id, :team_id, :player_id, :minutes, :started,"
                         " :did_not_play, :points)"
                     ),
-                    [
-                        row
-                        for g in games
-                        for team in (g["home_id"], g["away_id"])
-                        for row in (
-                            {"game_id": g["game_id"], "team_id": team, "player_id": f"{team}-dnp",
-                             "minutes": None, "started": False, "did_not_play": True,
-                             "points": None},
-                            {"game_id": g["game_id"], "team_id": team, "player_id": f"{team}-zero",
-                             "minutes": 0.0, "started": False, "did_not_play": False, "points": 0},
-                            {"game_id": g["game_id"], "team_id": team, "player_id": f"{team}-star",
-                             "minutes": 36.0, "started": True, "did_not_play": False,
-                             "points": 30},
-                        )
-                    ],
+                    [row for g in games for row in _player_rows(g)],
                 )
         engine.dispose()
         yield url
@@ -404,16 +440,14 @@ def test_compute_features_refuses_a_target_the_narrowed_history_does_not_cover(
     Without it, a team-narrowed history computes the uncovered team's features from an empty window
     and returns priors -- indistinguishable from a team that has not played yet.
     """
-    from model.features import compute_features
-
-    history = store.load_history(conn, teams=[TEAMS[0], TEAMS[1]])
+    context = store.load_context(conn, teams=[TEAMS[0], TEAMS[1]])
     outsider = [
         g
         for g in store.load_games(conn, seasons=[SEASON_A])
         if TEAMS[0] not in (g.home_id, g.away_id) and TEAMS[1] not in (g.home_id, g.away_id)
     ][0]
     with pytest.raises(FeatureInputError, match="does not include"):
-        compute_features(history, outsider.matchup, outsider.date)
+        compute_features(context, outsider.matchup, outsider.date)
 
 
 # ── the other record types ────────────────────────────────────────────────────
@@ -485,3 +519,129 @@ def test_an_empty_corpus_is_refused(pg_admin_url: str) -> None:
             with pytest.raises(StoreError, match="corpus_games is empty"):
                 store.assert_corpus_present(connection)
         engine.dispose()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# T-028 -- the Context, and D-039 demonstrated rather than asserted
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def test_appearances_are_keyed_by_team_and_dated_from_the_schedule(conn: sa.Connection) -> None:
+    """The date is the join's whole reason for existing: `PlayerGame` carries none, because
+    participation is a fact about a game and the game owns when it happened."""
+    by_team = store.load_appearances(conn, seasons=[SEASON_A])
+    assert set(by_team) >= set(TEAMS)
+    rows = by_team[TEAMS[0]]
+    suffixes = {a.player_id.rsplit("-", 1)[1] for a in rows}
+    assert {"dnp", "zero"} < suffixes
+    assert sum(1 for s in suffixes if s.startswith("p")) == ROTATION_SIZE
+    assert all(a.date.tzinfo is not None for a in rows)
+
+    dates = {g.game_id: g.date for g in store.load_games(conn, seasons=[SEASON_A])}
+    for appearance in rows:
+        if appearance.game_id in dates:
+            assert appearance.date == dates[appearance.game_id]
+
+
+def test_appearances_keep_a_dnp_and_a_zero_minute_row_apart(conn: sa.Connection) -> None:
+    """User story 12, carried through the read layer. Collapsing them is the
+    garbage-time-reads-as-injury failure the whole T-021 schema was built around."""
+    rows = store.load_appearances(conn, seasons=[SEASON_A])[TEAMS[0]]
+    by_kind = {a.player_id.rsplit("-", 1)[1]: a for a in rows}
+    assert (by_kind["dnp"].did_not_play, by_kind["dnp"].minutes) == (True, None)
+    assert (by_kind["zero"].did_not_play, by_kind["zero"].minutes) == (False, 0.0)
+
+
+def test_appearances_narrow_by_team(conn: sa.Connection) -> None:
+    narrowed = store.load_appearances(conn, teams=[TEAMS[0]])
+    assert set(narrowed) == {TEAMS[0]}
+
+
+def test_game_cities_resolve_through_the_static_venue_table(conn: sa.Connection) -> None:
+    cities = store.load_game_cities(conn, seasons=[SEASON_A])
+    assert len(cities) == GAMES_PER_SEASON + 1  # the exhibition has a venue too
+    assert {city.name for city in cities.values()} == {"Denver"}
+    assert all(city.is_high_altitude for city in cities.values())
+
+
+def test_a_game_with_no_venue_is_refused_rather_than_defaulted(conn: sa.Connection) -> None:
+    """Travel and altitude are read off the venue and neither has a defensible default, so a gap is
+    an error at load rather than a game with mysteriously zero travel."""
+    transaction = conn.begin()
+    try:
+        conn.execute(
+            sa.text("UPDATE corpus_games SET venue_id = NULL WHERE game_id = :g"),
+            {"g": f"{SEASON_A}-0"},
+        )
+        with pytest.raises(StoreError, match="no venue in the corpus"):
+            store.load_game_cities(conn)
+    finally:
+        transaction.rollback()
+
+
+def test_load_context_builds_all_three_sources(conn: sa.Connection) -> None:
+    """The Context refuses a partial build, so getting one back at all is the assertion that games,
+    participation and venues all arrived."""
+    context = store.load_context(conn)
+    games = store.load_games(conn)
+    assert context.history.teams == {t for g in games for t in (g.home_id, g.away_id)}
+    target = max(games, key=lambda g: g.date)
+    assert set(compute_training_features(context, target)) == set(FEATURE_NAMES)
+
+
+def test_load_context_narrows_by_team_and_never_by_season(conn: sa.Connection) -> None:
+    """D-039 plus the reason `load_history` has no season parameter, now applying to all three
+    sources: every look-back here is unbounded in time, so a season-narrowed Context is not a
+    smaller correct answer but a different and wrong one."""
+    import inspect
+
+    params = set(inspect.signature(store.load_context).parameters)
+    assert "seasons" not in params
+    assert "teams" in params
+
+
+def test_a_store_query_returning_future_rows_produces_identical_vectors(
+    conn: sa.Connection,
+) -> None:
+    """**T-028's acceptance criterion, and the practical proof of D-039.**
+
+    The store applies no as-of predicate anywhere -- `test_no_as_of_predicate_appears_anywhere_in_store`
+    enforces that by parsing the module -- so a Context loaded for a mid-season prediction contains
+    every game, box row and venue the corpus holds, including ones dated well after the prediction
+    moment. This asserts that carrying that future data changes nothing: the feature vector is
+    **bit-identical** to one computed from a Context that was hand-truncated to the past.
+
+    That is what makes it safe for the SQL to narrow by team and never by date. The other reading --
+    filtering in the query -- would move the integrity control to a call site no property test
+    covers, and its failure would be silent, because an over-filtered history returns shrinkage
+    priors and priors are what a legitimate opening night produces.
+    """
+    games = store.load_games(conn)
+    appearances = store.load_appearances(conn)
+    cities = store.load_game_cities(conn)
+
+    # Three quarters of the way through the later season: both sides have real history behind them,
+    # and a quarter of that season is still dated after the prediction moment.
+    season = sorted((g for g in games if g.season == SEASON_A), key=lambda g: g.date)
+    target = season[int(len(season) * 0.75)]
+    assert any(g.date > target.date for g in games), "the fixture must contain future rows"
+    for team in (target.home_id, target.away_id):
+        assert any(
+            g.date < target.date and team in (g.home_id, g.away_id) for g in games
+        ), f"{team} must have history, or the vectors would match for the wrong reason"
+
+    with_future = compute_training_features(
+        store.load_context(conn), target
+    )
+
+    past_games = [g for g in games if g.date < target.date]
+    past_appearances = {
+        team: [a for a in rows if a.date < target.date] for team, rows in appearances.items()
+    }
+    past_cities = {g.game_id: cities[g.game_id] for g in past_games}
+    past_cities[target.game_id] = cities[target.game_id]
+    without_future = compute_features(
+        Context(past_games, past_appearances, past_cities), target.matchup, target.date
+    )
+
+    assert with_future == without_future

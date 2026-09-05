@@ -29,9 +29,11 @@ from model.elo import (
     DEFAULT_K,
     EloConfig,
     EloError,
+    Timeline,
     pregame_rating_differences,
     ratings_after,
     replay,
+    timeline,
 )
 from model.features import Game
 
@@ -472,3 +474,194 @@ def test_the_mov_denominator_cannot_go_to_zero_or_invert() -> None:
     )
     assert all(math.isfinite(v) for v in ratings.values())
     assert ratings["U"] > ratings["F"] or math.isfinite(ratings["U"])
+
+
+# --- Timeline: as-of addressable rating state (T-028) ---------------------------------------------
+#
+# The index `features.Context` reads. It exists for speed, and the only thing that makes a speed
+# shortcut acceptable on a leakage-critical path is that its answers are *equal* to the slow path's,
+# not close. That equality is the first test below, asserted over a whole corpus rather than at a
+# point, and under both carryover settings because the two disagree about the 2019 -> 2022 gap.
+
+
+def _corpus(seed: int, *, seasons=(2016, 2017, 2019, 2022, 2023), per_season: int = 160):
+    """A corpus-shaped game sequence: several seasons with offseason gaps, four games a night at
+    staggered tip-offs, one team never playing twice at the same instant."""
+    import random
+
+    rng = random.Random(seed)
+    teams = [f"T{i}" for i in range(12)]
+    games: list[Game] = []
+    hours = 0
+    for season in seasons:
+        for n in range(per_season):
+            home, away = rng.sample(teams, 2)
+            home_score = rng.randint(85, 135)
+            away_score = rng.choice([s for s in range(85, 136) if s != home_score])
+            games.append(
+                Game(
+                    game_id=f"{season}-{n}",
+                    date=START + timedelta(hours=hours) + timedelta(minutes=(n % 4) * 7),
+                    season=season,
+                    home_id=home,
+                    away_id=away,
+                    home_score=home_score,
+                    away_score=away_score,
+                )
+            )
+            if n % 4 == 3:
+                hours += 24
+        hours += 24 * 150
+    rng.shuffle(games)
+    return games
+
+
+@pytest.mark.parametrize("per_elapsed_year", [False, True])
+@pytest.mark.parametrize("seed", [7, 99, 1234])
+def test_timeline_answers_exactly_what_replaying_the_filtered_prefix_would(seed, per_elapsed_year):
+    """**The test that makes the index safe rather than plausible.**
+
+    `Timeline` precomputes one replay and answers by binary search; `replay` walks the sequence. For
+    every game in the corpus the two must produce the *same float*, not a close one -- so the
+    tolerance here is exact equality, and it holds under both carryover settings, which apply
+    different numbers of regressions across the corpus's 2019 -> 2022 gap.
+    """
+    games = _corpus(seed)
+    config = EloConfig(regress_per_elapsed_year=per_elapsed_year)
+    replayed = replay(games, config=config).pregame_difference
+    line = Timeline(games, config=config)
+    for game in games:
+        assert (
+            line.difference_before(game.home_id, game.away_id, game.date, game.season)
+            == replayed[game.game_id]
+        ), game.game_id
+
+
+def test_timeline_catches_a_team_up_on_carryover_it_missed_while_not_playing():
+    """The subtle half of the equivalence above, isolated.
+
+    `replay` regresses the whole ratings dict at a season transition. A team that has not yet played
+    in the new season therefore holds a rating that is one regression behind the moment being asked
+    about, and an index that stored ratings without tracking how many regressions they had seen
+    would answer the *previous* season's number for every game until that team next played. Invisible
+    on opening night, wrong for weeks after it.
+    """
+    games = [
+        _game("a1", "A", "B", 130, 100, season=2024, hours=0),
+        _game("a2", "A", "B", 130, 100, season=2024, hours=24),
+        # New season. C and D open it; A and B have not played in it yet.
+        _game("b1", "C", "D", 110, 100, season=2025, hours=24 * 200),
+        _game("b2", "C", "D", 110, 100, season=2025, hours=24 * 201),
+    ]
+    line = Timeline(games)
+    before = line.difference_before("A", "B", START + timedelta(hours=24 * 199), 2024)
+    # Two games into the new season, A vs B must read as regressed once -- not as last season's gap.
+    after = line.difference_before("A", "B", START + timedelta(hours=24 * 202), 2025)
+    assert before > 0
+    assert after == pytest.approx(before * DEFAULT_CARRYOVER)
+
+
+def test_timeline_returns_the_initial_rating_before_any_game():
+    line = Timeline(_corpus(3))
+    assert line.difference_before("T0", "T1", START - timedelta(days=1), 2016) == 0.0
+
+
+def test_timeline_gives_a_debutant_the_initial_rating_undecayed():
+    """`replay` `setdefault`s a new team *after* regressing, so a team joining in season two starts
+    at 1500 rather than at a decayed 1500. The two happen to coincide because the carryover's fixed
+    point is the initial rating -- asserted so a change to either notices the other."""
+    games = [
+        _game("a1", "A", "B", 130, 100, season=2024, hours=0),
+        _game("b1", "A", "B", 130, 100, season=2025, hours=24 * 200),
+    ]
+    line = Timeline(games)
+    assert line.difference_before("NEW", "ALSO-NEW", START + timedelta(days=400), 2025) == 0.0
+    assert line.difference_before("A", "NEW", START + timedelta(days=400), 2025) == pytest.approx(
+        line.difference_before("A", "ALSO-NEW", START + timedelta(days=400), 2025)
+    )
+
+
+def test_timeline_excludes_a_named_game_even_when_the_corpus_dates_it_before_as_of():
+    """F-044's shape on the Elo source. A truncated timestamp puts a target's own copy microseconds
+    before the matchup it was built from, which the date filter alone would admit -- and a game's own
+    result moving its own pre-game rating is the leak the whole module is arranged to prevent."""
+    games = _corpus(5, seasons=(2024,), per_season=40)
+    ordered = sorted(games, key=lambda g: (g.date, g.game_id))
+    target = ordered[30]
+    truthful = replay(games).pregame_difference[target.game_id]
+
+    shifted = [
+        Game(
+            game_id=g.game_id,
+            date=g.date - timedelta(microseconds=1) if g.game_id == target.game_id else g.date,
+            season=g.season,
+            home_id=g.home_id,
+            away_id=g.away_id,
+            home_score=g.home_score,
+            away_score=g.away_score,
+        )
+        for g in games
+    ]
+    line = Timeline(shifted)
+    leaked = line.difference_before(target.home_id, target.away_id, target.date, target.season)
+    clean = line.difference_before(
+        target.home_id, target.away_id, target.date, target.season,
+        exclude_game_id=target.game_id,
+    )
+    assert leaked != pytest.approx(truthful)  # the control: without the exclusion it does leak
+    assert clean == pytest.approx(truthful)
+
+
+def test_timeline_exclusion_of_a_game_outside_the_window_is_a_no_op():
+    """The fast path has to stay the fast path. A named game that is not in the prefix must not
+    change the answer, or the exclusion would be quietly rewriting ordinary queries."""
+    games = _corpus(6, seasons=(2024,), per_season=40)
+    ordered = sorted(games, key=lambda g: (g.date, g.game_id))
+    target = ordered[20]
+    line = Timeline(games)
+    assert line.difference_before(
+        target.home_id, target.away_id, target.date, target.season,
+        exclude_game_id=ordered[35].game_id,
+    ) == line.difference_before(target.home_id, target.away_id, target.date, target.season)
+
+
+def test_timeline_refuses_a_team_playing_twice_at_the_same_instant():
+    """The precondition the prefix equivalence rests on. Simultaneous tip-offs between *different*
+    teams are ordinary and must keep working; the same team twice at one instant is corrupt input
+    with no well-defined answer, so it is refused rather than silently approximated."""
+    simultaneous = [
+        _game("x", "A", "B", 110, 100, hours=0),
+        _game("y", "C", "D", 110, 100, hours=0),
+    ]
+    Timeline(simultaneous)  # different teams: fine, and the corpus is full of these
+    with pytest.raises(EloError, match="two games at exactly"):
+        Timeline([*simultaneous, _game("z", "A", "E", 110, 100, hours=0)])
+
+
+def test_timeline_refuses_a_naive_as_of_and_a_non_integer_season():
+    line = Timeline(_corpus(8, seasons=(2024,), per_season=20))
+    with pytest.raises(EloError, match="timezone-aware"):
+        line.difference_before("T0", "T1", datetime(2024, 1, 1), 2024)  # noqa: DTZ001
+    with pytest.raises(EloError, match="season must be an int"):
+        line.difference_before("T0", "T1", START + timedelta(days=5), "2024")
+
+
+def test_timeline_refuses_a_season_that_precedes_the_moment_it_is_asked_about():
+    """Season labels must agree with dates, the rule `replay` enforces walking forward, enforced here
+    for a query that jumps to an arbitrary moment."""
+    line = Timeline(
+        [
+            _game("a1", "A", "B", 130, 100, season=2024, hours=0),
+            _game("b1", "A", "B", 130, 100, season=2025, hours=24 * 200),
+        ]
+    )
+    with pytest.raises(EloError, match="is before the season of the last game"):
+        line.difference_before("A", "B", START + timedelta(days=300), 2024)
+
+
+def test_the_timeline_helper_builds_the_same_thing_as_the_class():
+    games = _corpus(9, seasons=(2024,), per_season=20)
+    moment = START + timedelta(days=3)
+    assert timeline(games).difference_before("T0", "T1", moment, 2024) == Timeline(
+        games
+    ).difference_before("T0", "T1", moment, 2024)

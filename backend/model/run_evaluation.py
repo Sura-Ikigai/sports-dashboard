@@ -29,11 +29,14 @@ import statistics
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 from .corpus import assert_curated
-from .dataset import load_games
+from .dataset import context_from_frames, load_games
 from .estimator import DEFAULT_L2, fit, save_artifact
 from .evaluate import ACCURACY_TARGET, BASE_RATE, evaluate
-from .features import FEATURE_NAMES, GameHistory, compute_training_features, to_vector
+from .features import FEATURE_NAMES, Context, compute_training_features, to_vector
+from .loader import BOX_SEASONS, SEASONS, load_box, load_completed_games
 from .splits import SEALED_FOLD, split_games, walk_forward_folds
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -41,11 +44,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_DIR = REPO_ROOT / "models"
 
 
-def _rows(history: GameHistory, games):
+def _rows(context: Context, games):
     """Feature vectors and labels for `games`, each as of its own tip-off."""
     vectors, labels = [], []
     for game in games:
-        vectors.append(to_vector(compute_training_features(history, game)))
+        vectors.append(to_vector(compute_training_features(context, game)))
         labels.append(game.home_win)
     return vectors, labels
 
@@ -53,14 +56,27 @@ def _rows(history: GameHistory, games):
 def main() -> int:
     games = load_games()
     assert_curated(games)
-    history = GameHistory.of(games)
+    # T-028: the v2 features read participation and venues as well as games, so the Context is
+    # assembled from all three of the loader's verified families before anything is computed. The
+    # schedule frame is re-read rather than reconstructed from `games` because `venue_city` is a
+    # column of the frame and not a field of `Game` (kept off it deliberately -- see
+    # `store.game_venue_ids`).
+    # SEASONS only. D-037's 2016-2019 warm-up is deliberately NOT loaded here: `load_warmup_games`
+    # is a separate function precisely so the training path cannot reach warm-up rows by accident,
+    # and making them Elo state without making them training rows is T-029's mechanism, not this
+    # script's. T-030 rebuilds this run on top of it.
+    schedule = load_completed_games(SEASONS)
+    box = pd.concat(
+        [load_box("player_box", season) for season in BOX_SEASONS], ignore_index=True
+    )
+    context = context_from_frames(games, schedule, box)
     print(f"corpus: {len(games)} curated games, {len({g.season for g in games})} seasons\n")
 
     results = []
     for fold in walk_forward_folds():
         train_games, test_games = split_games(games, fold)
-        train_x, train_y = _rows(history, train_games)
-        test_x, test_y = _rows(history, test_games)
+        train_x, train_y = _rows(context, train_games)
+        test_x, test_y = _rows(context, test_games)
 
         model = fit(train_x, train_y, FEATURE_NAMES, l2=DEFAULT_L2)
         probs = model.predict_proba(test_x)
