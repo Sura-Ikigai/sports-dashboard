@@ -839,11 +839,95 @@ skip must be justified in the task's outcome rather than discovered later.
   what the plan predicted (~+.002 combined). They earn their place in the fit, not in isolation, and
   T-030's ablation is where that gets decided rather than assumed.
 
-- [ ] **T-029** `splits` — warm-up isolation — owner: `backend-engineer`
+- [x] **T-029** `splits` — warm-up isolation — owner: `backend-engineer` — **DONE 2026-09-05**
   - acceptance: warm-up seasons never appear as training or test rows; the existing temporal
     assertion still holds; a warm-up season injected as a training row fails a test
   - security note: integrity only — a fold must never train on its own future, and must never train
     on a different home-advantage regime.
+  - **built:** `backend/model/splits.py` and `backend/model/corpus.py` extended,
+    `backend/tests/test_splits.py` (+16 tests). **539 backend tests pass with zero skips**, ruff
+    clean. Verified on the real corpus: 11,854 games partition into **5,249 warm-up + 6,605
+    modeling** — and 6,605 is exactly the curated count F-042 established — with **zero warm-up rows
+    reaching train or test on any of the three folds**.
+
+  ### Two routes in, closed in two different places
+
+  They fail differently, so one check cannot cover both:
+
+  1. **Nominally, at construction.** `Fold` refuses to name a warm-up season at all, in either
+     `train_seasons` or `test_season`. A fold that would train on the pre-2020 home-advantage regime
+     is not a thing that should be constructible and then caught later — same reasoning T-007 used
+     for the train-precedes-test check sitting in `__post_init__`. Checked **before** the ordering
+     rule, so a fold naming only warm-up seasons is refused for the right reason rather than for
+     being out of order.
+
+  2. **Temporally, in `split_games`** — and this is the only half that can fire in practice. Once
+     `Fold` shuts the nominal route, what is left is a warm-up *game* wearing a modeling season's
+     label, which passes every season-number check ever written because the label is what they read.
+     Its date does not. Labels are a claim, dates are the fact, applied to the second boundary.
+
+  ### The boundary is anchored to the population being excluded
+
+  `corpus.WARMUP_ERA_END` is the **last warm-up tip-off**, 2019-06-14T01:00Z — not the first modeling
+  tip-off, 2021-10-19T23:30Z. The two are **858 days** apart, because no 2020 or 2021 season is
+  pinned, and a test asserts that gap so it cannot be narrowed by accident.
+
+  Pinning the boundary at the *start* of the modeling era was the first attempt and it was brittle in
+  a way worth recording: a source revising the 2022 opener's timestamp by a few hours would begin
+  refusing legitimate rows. It also broke the existing `test_splits` fixture immediately, whose epoch
+  sat 4½ hours before the real opener — and "fix the fixture" would have been fixing the test to suit
+  the check. Anchoring at the *end* of the warm-up era cannot fire on a modeling game unless one
+  moves by more than two years, still catches every warm-up row, and left every existing test passing
+  untouched. That last part is the signal that the check discriminates rather than merely raises.
+
+  ### Warm-up games are dropped, not refused
+
+  T-030's call has one shape: `elo.Timeline` needs the **whole** corpus and the estimator must see
+  **none** of the warm-up. So one collection is passed to both and `split_games` is what separates
+  them. Refusing warm-up rows in the input would force two collections and a caller to keep them in
+  step, which is a job nobody should have. `corpus.partition_warmup` is the ergonomic half — it makes
+  the right thing easy; `split_games` makes the wrong thing impossible, and neither substitutes for
+  the other.
+
+  ### `WARMUP_SEASONS` has exactly one definition, and it moved
+
+  It lived in `loader`, with the download pins. But `splits` is the module that decides which rows the
+  estimator sees, it is standard-library-only (D-021), and `loader` is unavoidably pandas — so
+  `splits` could not import it, and the alternative was a second copy of the tuple. Two definitions of
+  *"which seasons may be trained on"* is precisely the drift this project keeps closing elsewhere.
+
+  The tuple now lives in `corpus`, which already owns the other curation policy (exhibition
+  exclusion) and is already a `splits` dependency; `loader` re-exports it, and the pinned counts and
+  hashes for those seasons stay with the download where they belong. A test asserts the two are the
+  **same object**, not merely equal, so a copied literal fails.
+
+  ### All three controls verified by sabotage
+
+  Each check was removed in turn and the suite went red each time: dropping the temporal check fails
+  the two mislabelled-game tests, dropping the nominal check fails eight, and re-declaring
+  `WARMUP_SEASONS` in `loader` fails the identity test. Paired with a non-vacuity control asserting
+  the boundary does **not** fire on any legitimate fold — a check that refused everything would
+  satisfy the refusal tests perfectly and be worthless.
+
+  ### Measured: the warm-up costs nothing and, on fold 1, buys nothing either
+
+  D-037's stated rationale is *"so that fold 1 trains on converged ratings rather than burn-in
+  noise."* The first half is real: over the first 200 games of 2022, warming up shifts `elo_diff` by a
+  **mean of 89 rating points** (median 72.5, max 281.5). The features genuinely change.
+
+  The second half does not follow. Fold 1 (train 2022-2023 → test 2024, both dev seasons):
+
+  | Elo state | accuracy | log loss | AUC |
+  |---|---|---|---|
+  | warmed on 2016-2019 | .6687 | .6088 | .7272 |
+  | cold start at 2022 | .6702 | .6066 | .7265 |
+
+  **+.0007 AUC and −.0015 accuracy** — a wash. By 2024 the ratings have converged either way, and the
+  fit absorbs the early-2022 difference in the training rows. This is user story 18 in practice: a
+  null result reported as readily as a positive one, and it is input for **T-030's ablation**, which
+  is where the keep-or-drop call belongs. Nothing here changes: the warm-up is cheap, the isolation
+  is required regardless of whether the warm-up is kept, and `elo`'s open question about the
+  2019 → 2022 carryover gap is now known to be worth even less than it looked.
 
 - [ ] **T-030** Refit, the single 2026 evaluation, and freeze — owner: `backend-engineer`
   - acceptance: feature selection performed on 2024/2025 only; the feature set frozen and committed

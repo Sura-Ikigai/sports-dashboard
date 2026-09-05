@@ -67,6 +67,8 @@ from pathlib import Path
 import certifi
 import pandas as pd
 
+from .corpus import WARMUP_SEASONS as _WARMUP_SEASONS
+
 # --- pinned source (security note: a release TAG, never a branch) --------------------------------
 _OWNER = "sportsdataverse"
 _REPO = "sportsdataverse-data"
@@ -105,9 +107,14 @@ SEASONS: tuple[int, ...] = (2022, 2023, 2024, 2025, 2026)
 #
 # Kept as a separate tuple from `SEASONS` rather than folded into it, because the difference is not
 # cosmetic: `load_completed_games` defaults to `SEASONS` and that default is what keeps warm-up rows
-# out of a training frame. Being *pinned* below is not the same as being *trainable*, and T-029 is
-# where that distinction is enforced mechanically rather than by this comment.
-WARMUP_SEASONS: tuple[int, ...] = (2016, 2017, 2018, 2019)
+# out of a training frame. Being *pinned* below is not the same as being *trainable*.
+#
+# **The tuple itself lives in `corpus`** (T-029) and is re-exported here. `splits` enforces the same
+# distinction mechanically at the estimator boundary, it is standard-library-only, and it cannot
+# import this pandas module -- so one definition had to live somewhere both could reach. Which
+# seasons may be *trained on* is a curation policy; which seasons may be *downloaded* is this
+# module's business, and the pinned counts and hashes for them stay here.
+WARMUP_SEASONS = _WARMUP_SEASONS
 
 # Every season this loader may fetch a schedule for. `_validate_season` gates on this; the split
 # above governs what may be trained on.

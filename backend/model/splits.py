@@ -25,8 +25,36 @@ in time, each separated from the next by a 120-133 day offseason (verified acros
 directly. If a future source ever labels seasons differently, or backfills a game into the wrong
 season, the season-number check would pass and the temporal one would fire.
 
+## Warm-up seasons are Elo state and nothing else (D-037, T-029)
+
+The corpus carries 2016-2019 so that fold 1 trains on **converged** Elo ratings rather than on
+burn-in noise. Those seasons must reach `elo.Timeline` and must never reach the estimator: the
+pre-2020 home-advantage regime is a different game, and a fold that trains on it is fitting a
+constant that no longer holds. The plan's security note for this task is one line — *a fold must
+never train on a different home-advantage regime* — and it is enforced twice here, because the two
+routes in are different in kind:
+
+  - **Nominally**, at construction. `Fold` refuses to name a warm-up season at all, so a fold that
+    would train on one is not a thing that exists and then gets caught. This closes the route where
+    someone writes the fold set out wrongly.
+
+  - **Temporally**, in `split_games`. That is the only half that can catch a warm-up *game* carrying
+    a modeling season's label — which the season-number check passes by construction, because the
+    label is what it reads. Same reasoning as the train/test assertion above, applied to the other
+    boundary: labels are a claim, dates are the fact. The two eras are separated by **858 days**
+    (last warm-up game 2019-06-14, first modeling game 2021-10-19, with no 2020 or 2021 season
+    pinned), so `corpus.WARMUP_ERA_END` sits in a gap nothing legitimate is near.
+
+Warm-up games in the input to `split_games` are **dropped, not refused**. That is the shape T-030's
+call actually has: Elo needs the whole corpus in its `Context` and the estimator must see none of
+it, so one collection is passed to both and this module is what separates them.
+`corpus.partition_warmup` is the ergonomic half — it makes the right thing easy; this module makes
+the wrong thing impossible, and neither substitutes for the other.
+
 Standard library only (D-021), like `features` and `corpus`: this decides which rows T-009 trains on,
-so its tests must run in CI, and `dataset.py`'s do not.
+so its tests must run in CI, and `dataset.py`'s do not. It is also why `WARMUP_SEASONS` lives in
+`corpus` rather than in `loader`, where the download pins are — `loader` is unavoidably pandas, and
+one definition of "which seasons may be trained on" had to sit somewhere both could reach.
 """
 
 from __future__ import annotations
@@ -34,7 +62,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .corpus import assert_curated
+from .corpus import (
+    WARMUP_ERA_END,
+    WARMUP_SEASONS,
+    assert_curated,
+    is_warmup_season,
+)
 from .features import Game
 
 
@@ -59,6 +92,16 @@ class Fold:
             raise FoldError(f"fold testing on {self.test_season} has no training seasons")
         if len(set(self.train_seasons)) != len(self.train_seasons):
             raise FoldError(f"fold {self} repeats a training season")
+        # D-037, the nominal half. A warm-up season is Elo state and nothing else, so a fold naming
+        # one is not a fold to catch later — it is a fold that should not be constructible.
+        warmup = [s for s in self.seasons if is_warmup_season(s)]
+        if warmup:
+            raise FoldError(
+                f"season(s) {warmup} are warm-up seasons {WARMUP_SEASONS} — they exist to converge "
+                "Elo ratings and must never become training or test rows (D-037). Their "
+                "home-advantage regime predates the modeling window, so a fold that names one is "
+                "training on a different game."
+            )
         late = [s for s in self.train_seasons if s >= self.test_season]
         if late:
             raise FoldError(
@@ -107,6 +150,13 @@ def split_games(games: Sequence[Game], fold: Fold) -> tuple[list[Game], list[Gam
          and that is intentional (fold 1 must not see 2025), so it is asserted rather than assumed.
       4. **Train strictly precedes test in time** — the guarantee that actually matters, and the one
          a season-number comparison only approximates. See the module docstring.
+      5. **No row comes from the warm-up era** (D-037). `Fold` already refuses to name a warm-up
+         season, so the *nominal* route is shut before this function runs; this is the temporal one,
+         and it is the only one that can catch a warm-up game carrying a modeling season's label.
+
+    Warm-up games in the input are **dropped, not refused**. That is the intended shape of T-030's
+    call: Elo needs the whole corpus in its Context and the estimator must see none of it, so one
+    collection is passed to both and this function is what separates them.
     """
     assert_curated(games)
 
@@ -123,6 +173,24 @@ def split_games(games: Sequence[Game], fold: Fold) -> tuple[list[Game], list[Gam
 
     train = [g for s in fold.train_seasons for g in by_season[s]]
     test = by_season[fold.test_season]
+
+    # D-037, the temporal half — and the only half that can fire here, which is why it is a date
+    # check and not a season-label check duplicating `Fold.__post_init__`. A warm-up game mislabelled
+    # into a modeling season passes every season-number test ever written; its *date* does not. The
+    # gap it sits in is 858 days wide (see `corpus.WARMUP_ERA_END`), so this cannot fire on anything
+    # legitimate.
+    for label, rows in (("training", train), ("test", test)):
+        stale = [g for g in rows if g.date <= WARMUP_ERA_END]
+        if stale:
+            first = min(stale, key=lambda g: g.date)
+            raise FoldError(
+                f"fold [{fold}] has {len(stale)} {label} game(s) from the warm-up era, which ended "
+                f"at {WARMUP_ERA_END.isoformat()} — the earliest is {first.game_id!r} at "
+                f"{first.date.isoformat()}, labelled season {first.season}. Warm-up seasons "
+                f"{WARMUP_SEASONS} converge Elo ratings and must never reach the estimator (D-037): "
+                "their home-advantage regime predates the modeling window. A game whose season label "
+                "says otherwise is telling you the label is wrong."
+            )
 
     latest_train = max(g.date for g in train)
     earliest_test = min(g.date for g in test)
