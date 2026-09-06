@@ -1281,12 +1281,88 @@ skip must be justified in the task's outcome rather than discovered later.
   test asserts the round trip reconstructs the probability to 1e-12, which fails if `_factors` ever
   drops a contribution.
 
-- [ ] **T-033** TypeScript scorer + contract check — owner: `frontend-engineer`
+- [x] **T-033** TypeScript scorer + contract check — owner: `frontend-engineer` — **DONE 2026-09-06**
   - acceptance: pure scorer returning probability and contributions; a gate check runs both
     implementations over a grid and asserts agreement on **both** outputs; the check fails CI when
     either implementation drifts
   - security note: this is a second implementation of the scoring path, which D-011 forbids. The
     contract check is the entire justification — it must run in the gate, not locally.
+  - **built:** `frontend/lib/scoring/score.ts` (the scorer), `contract-vectors.json` (**148
+    committed cases**, generated), `contract.test.ts` and `score.test.ts` (+21 frontend tests);
+    `backend/model/contract.py` (the grid and its generator), `backend/tests/test_contract.py`
+    (+14). `prediction.decompose` extracted so the generator calls the served arithmetic rather than
+    a copy of it. **719 backend tests, 32 frontend tests**, ruff / eslint / `tsc --noEmit` clean.
+    **D-050** recorded.
+  - **measured:** across all 148 cases, CPython (macOS/arm64) and V8 agree **bit-for-bit** — 0
+    contribution mismatches, 0 logit mismatches, **max |Δ probability| = 0** against a tolerance of
+    1e-12. CI re-runs the TypeScript half on Ubuntu x86-64 against a file generated on macOS, so a
+    green frontend job is also a cross-platform bit-exactness check.
+
+  ### The gate closes in both directions, including the obvious cheat
+
+  There is no CI job with both runtimes, and adding one would have been *worse*: a new job is not a
+  required status check, so a failing contract would not have blocked anything. The committed file is
+  the intermediary that lets the check live inside the two jobs that already block.
+
+  | sabotage | result |
+  |---|---|
+  | Python arithmetic reassociated (`c * (v-m) / s`) | backend job **red** — committed file is stale |
+  | …then regenerate the file to make the backend green | backend green, **frontend red** |
+  | TypeScript drops standardization | frontend job **red** |
+  | TypeScript drops the intercept | frontend job **red** |
+  | TypeScript sums the terms in reverse | frontend job **red** |
+
+  The second row is the one that matters. A Python arithmetic change **cannot land without the
+  TypeScript being changed to match**, because the regenerated file encodes the new Python and the
+  old TypeScript then disagrees with it. And the reverse cheat is closed by construction: the file is
+  generated *from* Python, so regenerating it to silence a failing TypeScript test still produces a
+  file that says what Python says.
+
+  ### Exact equality, not a tolerance — and a grid that makes that mean something
+
+  Every contribution is `coef * ((value - mean) / std)`: three IEEE-754 operations in a fixed order,
+  which both languages perform identically on doubles. So contributions and the logit are compared
+  with `===`. Only the probability, which passes through `exp`, gets slack.
+
+  That comparison is only worth more than an approximate one if some case can distinguish them.
+  Reversing the summation order across the first grid changed the answer in **2 of 118 cases** — real
+  but thin, and worse, the mutation test was passing partly because it also swapped in a naive
+  sigmoid. Both were fixed: the mutation now changes *only* the order, and a `mixed-magnitude` model
+  was added — two enormous terms that cancel plus an ordinary one, where summing forward keeps the
+  small term and summing backward loses it under the first partial sum. **6 of 148 cases** are now
+  order-sensitive, and a test asserts that count is non-zero so the grid cannot be narrowed back.
+
+  ### Where the line is drawn, and why it is drawn there
+
+  What TypeScript reimplements is `prediction.decompose` and **nothing else**. It does not compute
+  features. `compute_features` stays one implementation behind T-006's property test, and what
+  reaches the browser is a feature vector the API already produced, with one or two values changed
+  by the visitor.
+
+  **A what-if changes a feature's value; it never recomputes a feature from history.** A panel that
+  derived `elo_diff` from game results in the browser would be exactly the drift D-011 exists to
+  prevent — and no contract could cover it, because there would be nothing to compare against
+  case-by-case.
+
+  ### The grid is synthetic, and that is a decision rather than a convenience
+
+  The obvious grid scores the frozen artifact. It cannot: `/models/` is gitignored so a model cannot
+  enter git as if it were source (F-016, F-110), and a fixture carrying the artifact's intercept,
+  coefficients, means and stds would be that model in git under another name — the exact provenance
+  ambiguity the gitignore exists to prevent.
+
+  So the grid **brackets** the shipped model instead: coefficients to ±8 against its |0.13|–|0.71|,
+  means to ±1000, stds from 1e-3 to 1e3 against its .089–90 — asserted by a test, so the bracketing
+  claim cannot quietly stop being true. It also reaches places the real model never goes: saturated
+  logits at both ends, a single-feature model, a negative intercept, and the cancellation case above.
+
+  ### One boundary the contract cannot cover, handled separately
+
+  A `std` of 0 is the one input where the two languages genuinely disagree — Python raises
+  `ZeroDivisionError`, JavaScript returns `Infinity` and carries on. The fitter substitutes 1.0 for a
+  degenerate feature, so a zero can never come from a real artifact — but the model reaches the
+  browser as JSON over HTTP, which is a boundary, so `assertUsableModel` refuses it there. Same for a
+  coefficient that did not survive a truncated response.
 
 - [ ] **T-034** Game detail surface — owner: `frontend-engineer`
   - acceptance: a route per game showing probability, confidence band with its historical hit rate,

@@ -534,3 +534,37 @@
   prediction. Mixing versions would average a frozen model's trial with whatever superseded it and
   call the result a track record, which D-017 (2026-27 is the genuine trial of one version) makes
   meaningless. (Implements user stories 20/21/31; supersedes nothing.)
+- **D-050** 2026-09-06 — **One sanctioned second implementation of the scoring arithmetic, bounded to
+  the arithmetic, valid only while the contract gate holds it.** D-011 forbids a second
+  implementation of the scoring path, and the reason is sound: two implementations drift, and the
+  symptom is a user seeing one number on a page and a different one in the accuracy record, with
+  neither wrong in a way anybody can point at.
+
+  T-034 needs one anyway. Story 25 wants a visitor to change a value and watch the probability
+  respond; story 27 requires that exploration never reach anything that records it. A server round
+  trip per interaction would be slow *and* would put a scoring request into a service whose entire
+  security property is that it has no write path. So the browser scores.
+
+  The exception is drawn as narrowly as it can be, and the boundary is the load-bearing part:
+
+  - **What is duplicated is `prediction.decompose` and nothing else** — the logistic arithmetic,
+    about five lines. `compute_features` stays a single implementation behind T-006's property test.
+    A what-if changes a feature's **value**; it never recomputes a feature from history. A browser
+    that derived `elo_diff` from game results would be the drift D-011 exists to prevent, and would
+    not be covered by any contract.
+  - **The exception is conditional on the gate.** `backend/model/contract.py` generates a committed
+    grid from the Python implementation; `test_contract.py` fails if the grid is stale, and
+    `contract.test.ts` fails if the TypeScript disagrees. Both live in required status checks on
+    `main`. If either check is ever removed, this decision lapses with it and the second
+    implementation must go — a duplicate scorer with no gate is simply a D-011 violation.
+  - **Agreement is exact where it can be.** Contributions and the logit are compared with `==`, not
+    a tolerance: each contribution is three IEEE-754 operations in a fixed order, which both
+    languages perform identically, and the summation order is pinned on both sides. Only the
+    probability, which passes through `exp`, is given slack — measured at **exactly 0 divergence**
+    across 148 cases, with the tolerance retained because `exp` is not specified to agree across
+    platforms.
+  - **The grid is synthetic.** Scoring the frozen artifact would mean committing its parameters, and
+    `/models/` is gitignored precisely so a model cannot enter git as if it were source (F-016,
+    F-110). The grid instead **brackets** the shipped model — coefficients to ±8 against its
+    |0.13|–|0.71|, means to ±1000, stds from 1e-3 to 1e3 against its .089–90 — and additionally
+    covers regions the real model never visits. (**Scopes D-011**; supersedes nothing.)

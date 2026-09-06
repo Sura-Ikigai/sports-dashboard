@@ -48,6 +48,7 @@ standard-library-only for that reason, and the served image carries no training 
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -109,6 +110,53 @@ def _sigmoid(z: float) -> float:
 
 
 @dataclass(frozen=True, slots=True)
+class Decomposition:
+    """The arithmetic's output: a probability and the terms that produced it.
+
+    Separate from `Prediction`, which additionally carries who and when. This is what a *what-if*
+    produces -- a probability for a vector nobody predicted, about no particular game, made at no
+    particular moment -- so it deliberately has nowhere to put a game id (story 27: hypothetical
+    exploration must never be recordable as a prediction).
+    """
+
+    home_win_probability: float
+    baseline_logit: float
+    contributions: dict[str, float]
+
+    @property
+    def logit(self) -> float:
+        return self.baseline_logit + sum(self.contributions.values())
+
+
+def decompose(model: LogisticModel, values: Sequence[float]) -> Decomposition:
+    """**The arithmetic.** One implementation in Python, and the one T-033's TypeScript is held to.
+
+    Args:
+        model: the fitted model. Any `LogisticModel`, not only one matching `FEATURE_NAMES` -- the
+            contract grid scores synthetic models whose feature sets this code has never computed.
+        values: feature values in `model.feature_names` order. `Scorer.predict` gets this order from
+            `to_vector`; `model.contract` builds it directly.
+
+    The parenthesization is load-bearing rather than stylistic. `coef * ((value - mean) / std)` is
+    three IEEE-754 operations in a fixed order, so any implementation performing the same three in
+    the same order gets a **bit-identical** result -- which is why `contract.py` can hold the
+    TypeScript to exact equality on contributions rather than to a tolerance. Rewriting it as
+    `coef * (value - mean) / std` would change the rounding and quietly break that.
+    """
+    contributions = {
+        name: coefficient * ((value - mean) / std)
+        for name, value, mean, std, coefficient in zip(
+            model.feature_names, values, model.means, model.stds, model.coefficients, strict=True,
+        )
+    }
+    return Decomposition(
+        home_win_probability=_sigmoid(model.intercept + sum(contributions.values())),
+        baseline_logit=model.intercept,
+        contributions=contributions,
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class Scorer:
     """A fitted model plus the version that identifies it. The unit both callers hold.
 
@@ -154,24 +202,14 @@ class Scorer:
             A `Prediction` whose contributions sum to `logit - baseline_logit` exactly.
         """
         features = compute_features(context, target, as_of)
-        vector = to_vector(features)
-
-        model = self.model
-        contributions = {
-            name: coefficient * ((value - mean) / std)
-            for name, value, mean, std, coefficient in zip(
-                model.feature_names, vector, model.means, model.stds, model.coefficients,
-                strict=True,
-            )
-        }
-        z = model.intercept + sum(contributions.values())
+        decomposed = decompose(self.model, to_vector(features))
 
         return Prediction(
             game_id=target.game_id,
             as_of=as_of,
             model_version=self.model_version,
-            home_win_probability=_sigmoid(z),
-            baseline_logit=model.intercept,
+            home_win_probability=decomposed.home_win_probability,
+            baseline_logit=decomposed.baseline_logit,
             features=features,
-            contributions=contributions,
+            contributions=decomposed.contributions,
         )

@@ -1,0 +1,2837 @@
+{
+  "contract_version": 1,
+  "generated_by": "backend/model/contract.py -- regenerate with `python -m model.contract`",
+  "probability_tolerance": 1e-12,
+  "models": {
+    "frozen-shape": {
+      "why": "four features at the magnitudes the shipped model actually uses -- the ordinary case",
+      "feature_names": [
+        "elo_diff",
+        "home_b2b",
+        "away_b2b",
+        "avail_diff"
+      ],
+      "intercept": 0.25,
+      "coefficients": {
+        "elo_diff": 0.7,
+        "home_b2b": -0.16,
+        "away_b2b": 0.14,
+        "avail_diff": 0.12
+      },
+      "means": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "stds": {
+        "elo_diff": 90.0,
+        "home_b2b": 0.35,
+        "away_b2b": 0.38,
+        "avail_diff": 0.089
+      }
+    },
+    "saturating": {
+      "why": "coefficients large enough to drive |z| past 40, so both branches of the stable sigmoid run and the probability saturates at each end",
+      "feature_names": [
+        "a",
+        "b"
+      ],
+      "intercept": 0.0,
+      "coefficients": {
+        "a": 8.0,
+        "b": -8.0
+      },
+      "means": {
+        "a": 0.0,
+        "b": 0.0
+      },
+      "stds": {
+        "a": 1.0,
+        "b": 1.0
+      }
+    },
+    "tiny-std": {
+      "why": "standardization that multiplies the raw value by a thousand -- catches an implementation that divides where it should multiply, or reorders the three operations",
+      "feature_names": [
+        "a",
+        "b"
+      ],
+      "intercept": -0.5,
+      "coefficients": {
+        "a": 0.5,
+        "b": -0.25
+      },
+      "means": {
+        "a": 0.0,
+        "b": 0.5
+      },
+      "stds": {
+        "a": 0.001,
+        "b": 0.001
+      }
+    },
+    "wide-mean": {
+      "why": "means far from zero and a large std, so `value - mean` dominates and cancellation matters",
+      "feature_names": [
+        "a",
+        "b"
+      ],
+      "intercept": 1.0,
+      "coefficients": {
+        "a": 1.5,
+        "b": -1.5
+      },
+      "means": {
+        "a": 1000.0,
+        "b": -1000.0
+      },
+      "stds": {
+        "a": 1000.0,
+        "b": 250.0
+      }
+    },
+    "mixed-magnitude": {
+      "why": "two enormous terms that cancel, plus an ordinary one. Summed in order the cancellation happens first and the small term survives; summed in reverse the small term is lost under the first enormous partial sum and the total is different. Floating-point addition is not associative, and this is the model that makes exact equality on the logit earn its keep -- a comparison with any tolerance at all would find nothing here",
+      "feature_names": [
+        "huge",
+        "opposite",
+        "ordinary"
+      ],
+      "intercept": 0.5,
+      "coefficients": {
+        "huge": 1e+16,
+        "opposite": -1e+16,
+        "ordinary": 1.0
+      },
+      "means": {
+        "huge": 0.0,
+        "opposite": 0.0,
+        "ordinary": 0.0
+      },
+      "stds": {
+        "huge": 1.0,
+        "opposite": 1.0,
+        "ordinary": 1.0
+      }
+    },
+    "single-feature": {
+      "why": "one term, so a summation bug that only shows with several terms cannot hide behind them",
+      "feature_names": [
+        "only"
+      ],
+      "intercept": -3.0,
+      "coefficients": {
+        "only": 2.0
+      },
+      "means": {
+        "only": 0.5
+      },
+      "stds": {
+        "only": 2.0
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "frozen-shape/at-the-mean",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.5621765008857981,
+        "baseline_logit": 0.25,
+        "logit": 0.25,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/elo_diff@-6s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": -539.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.018890961937039062,
+        "baseline_logit": 0.25,
+        "logit": -3.9499999999999993,
+        "contributions": {
+          "elo_diff": -4.199999999999999,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/elo_diff@-3s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": -269.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.1358728970090943,
+        "baseline_logit": 0.25,
+        "logit": -1.8499999999999996,
+        "contributions": {
+          "elo_diff": -2.0999999999999996,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/elo_diff@-1s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": -89.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.3893607660507781,
+        "baseline_logit": 0.25,
+        "logit": -0.44999999999999996,
+        "contributions": {
+          "elo_diff": -0.7,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/elo_diff@-0.25s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": -21.5,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.5187412158785352,
+        "baseline_logit": 0.25,
+        "logit": 0.07500000000000001,
+        "contributions": {
+          "elo_diff": -0.175,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/elo_diff@+0.25s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 23.5,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.6046790847140093,
+        "baseline_logit": 0.25,
+        "logit": 0.425,
+        "contributions": {
+          "elo_diff": 0.175,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/elo_diff@+1s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 91.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.7211151780228631,
+        "baseline_logit": 0.25,
+        "logit": 0.95,
+        "contributions": {
+          "elo_diff": 0.7,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/elo_diff@+3s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 271.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.9129342275597286,
+        "baseline_logit": 0.25,
+        "logit": 2.3499999999999996,
+        "contributions": {
+          "elo_diff": 2.0999999999999996,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/elo_diff@+6s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 541.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.9884562475160777,
+        "baseline_logit": 0.25,
+        "logit": 4.449999999999999,
+        "contributions": {
+          "elo_diff": 4.199999999999999,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/home_b2b@-6s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": -1.9599999999999995,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.7702989490466019,
+        "baseline_logit": 0.25,
+        "logit": 1.21,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": 0.9599999999999999,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/home_b2b@-3s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": -0.9099999999999998,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.6748052725823135,
+        "baseline_logit": 0.25,
+        "logit": 0.73,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": 0.4799999999999999,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/home_b2b@-1s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": -0.20999999999999996,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.6010878788483698,
+        "baseline_logit": 0.25,
+        "logit": 0.41000000000000003,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": 0.16,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/home_b2b@-0.25s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.05250000000000002,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.5719961329315186,
+        "baseline_logit": 0.25,
+        "logit": 0.29,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": 0.04,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/home_b2b@+0.25s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.2275,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.5523079095743253,
+        "baseline_logit": 0.25,
+        "logit": 0.21,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.04,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/home_b2b@+1s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.49,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.5224848247918001,
+        "baseline_logit": 0.25,
+        "logit": 0.09,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.16,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/home_b2b@+3s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 1.19,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.4427521454014444,
+        "baseline_logit": 0.25,
+        "logit": -0.22999999999999993,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.4799999999999999,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/home_b2b@+6s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 2.2399999999999998,
+        "away_b2b": 0.18,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.32959884019113145,
+        "baseline_logit": 0.25,
+        "logit": -0.7099999999999999,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.9599999999999999,
+          "away_b2b": 0.0,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/away_b2b@-6s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": -2.1,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.35663485430559816,
+        "baseline_logit": 0.25,
+        "logit": -0.5900000000000002,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": -0.8400000000000002,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/away_b2b@-3s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": -0.9600000000000002,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.457602059225649,
+        "baseline_logit": 0.25,
+        "logit": -0.1700000000000001,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": -0.4200000000000001,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/away_b2b@-1s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": -0.2,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.5274723043445937,
+        "baseline_logit": 0.25,
+        "logit": 0.10999999999999999,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": -0.14,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/away_b2b@-0.25s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.08499999999999999,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.5535439031511183,
+        "baseline_logit": 0.25,
+        "logit": 0.215,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": -0.035,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/away_b2b@+0.25s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.275,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.5707716118944918,
+        "baseline_logit": 0.25,
+        "logit": 0.28500000000000003,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": 0.03500000000000001,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/away_b2b@+1s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.56,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.5962826992967879,
+        "baseline_logit": 0.25,
+        "logit": 0.39,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": 0.14000000000000004,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/away_b2b@+3s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 1.32,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.6615031592029524,
+        "baseline_logit": 0.25,
+        "logit": 0.6700000000000002,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": 0.4200000000000001,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/away_b2b@+6s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 2.4600000000000004,
+        "avail_diff": -0.001
+      },
+      "expected": {
+        "home_win_probability": 0.7483817216070644,
+        "baseline_logit": 0.25,
+        "logit": 1.0900000000000003,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": 0.8400000000000002,
+          "avail_diff": 0.0
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/avail_diff@-6s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.535
+      },
+      "expected": {
+        "home_win_probability": 0.3846162436088178,
+        "baseline_logit": 0.25,
+        "logit": -0.4700000000000001,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": -0.7200000000000001
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/avail_diff@-3s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.268
+      },
+      "expected": {
+        "home_win_probability": 0.47252769565540625,
+        "baseline_logit": 0.25,
+        "logit": -0.11000000000000004,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": -0.36000000000000004
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/avail_diff@-1s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.09
+      },
+      "expected": {
+        "home_win_probability": 0.5324543063873187,
+        "baseline_logit": 0.25,
+        "logit": 0.13,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": -0.12
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/avail_diff@-0.25s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": -0.02325
+      },
+      "expected": {
+        "home_win_probability": 0.5547792351072148,
+        "baseline_logit": 0.25,
+        "logit": 0.22,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": -0.03
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/avail_diff@+0.25s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": 0.021249999999999998
+      },
+      "expected": {
+        "home_win_probability": 0.569546223939229,
+        "baseline_logit": 0.25,
+        "logit": 0.28,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": 0.03
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/avail_diff@+1s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": 0.088
+      },
+      "expected": {
+        "home_win_probability": 0.5914589784327801,
+        "baseline_logit": 0.25,
+        "logit": 0.37,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": 0.12
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/avail_diff@+3s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": 0.266
+      },
+      "expected": {
+        "home_win_probability": 0.6479408020806503,
+        "baseline_logit": 0.25,
+        "logit": 0.6100000000000001,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": 0.36000000000000004
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/avail_diff@+6s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 1.0,
+        "home_b2b": 0.14,
+        "away_b2b": 0.18,
+        "avail_diff": 0.533
+      },
+      "expected": {
+        "home_win_probability": 0.7251194977898231,
+        "baseline_logit": 0.25,
+        "logit": 0.9700000000000001,
+        "contributions": {
+          "elo_diff": 0.0,
+          "home_b2b": -0.0,
+          "away_b2b": 0.0,
+          "avail_diff": 0.7200000000000001
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/all@-3s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": -269.0,
+        "home_b2b": -0.9099999999999998,
+        "away_b2b": -0.9600000000000002,
+        "avail_diff": -0.268
+      },
+      "expected": {
+        "home_win_probability": 0.10433122311900135,
+        "baseline_logit": 0.25,
+        "logit": -2.1499999999999995,
+        "contributions": {
+          "elo_diff": -2.0999999999999996,
+          "home_b2b": 0.4799999999999999,
+          "away_b2b": -0.4200000000000001,
+          "avail_diff": -0.36000000000000004
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/all@-1s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": -89.0,
+        "home_b2b": -0.20999999999999996,
+        "away_b2b": -0.2,
+        "avail_diff": -0.09
+      },
+      "expected": {
+        "home_win_probability": 0.36586440898919936,
+        "baseline_logit": 0.25,
+        "logit": -0.5499999999999999,
+        "contributions": {
+          "elo_diff": -0.7,
+          "home_b2b": 0.16,
+          "away_b2b": -0.14,
+          "avail_diff": -0.12
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/all@+1s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 91.0,
+        "home_b2b": 0.49,
+        "away_b2b": 0.56,
+        "avail_diff": 0.088
+      },
+      "expected": {
+        "home_win_probability": 0.7407748991821539,
+        "baseline_logit": 0.25,
+        "logit": 1.0499999999999998,
+        "contributions": {
+          "elo_diff": 0.7,
+          "home_b2b": -0.16,
+          "away_b2b": 0.14000000000000004,
+          "avail_diff": 0.12
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/all@+3s",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 271.0,
+        "home_b2b": 1.19,
+        "away_b2b": 1.32,
+        "avail_diff": 0.266
+      },
+      "expected": {
+        "home_win_probability": 0.9340109905087812,
+        "baseline_logit": 0.25,
+        "logit": 2.6499999999999995,
+        "contributions": {
+          "elo_diff": 2.0999999999999996,
+          "home_b2b": -0.4799999999999999,
+          "away_b2b": 0.4200000000000001,
+          "avail_diff": 0.36000000000000004
+        }
+      }
+    },
+    {
+      "id": "frozen-shape/alternating",
+      "model": "frozen-shape",
+      "features": {
+        "elo_diff": 181.0,
+        "home_b2b": -0.5599999999999999,
+        "away_b2b": 0.94,
+        "avail_diff": -0.179
+      },
+      "expected": {
+        "home_win_probability": 0.8818430221907304,
+        "baseline_logit": 0.25,
+        "logit": 2.01,
+        "contributions": {
+          "elo_diff": 1.4,
+          "home_b2b": 0.32,
+          "away_b2b": 0.28,
+          "avail_diff": -0.24
+        }
+      }
+    },
+    {
+      "id": "saturating/at-the-mean",
+      "model": "saturating",
+      "features": {
+        "a": 0.0,
+        "b": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.5,
+        "baseline_logit": 0.0,
+        "logit": 0.0,
+        "contributions": {
+          "a": 0.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "saturating/a@-6s",
+      "model": "saturating",
+      "features": {
+        "a": -6.0,
+        "b": 0.0
+      },
+      "expected": {
+        "home_win_probability": 1.4251640827409352e-21,
+        "baseline_logit": 0.0,
+        "logit": -48.0,
+        "contributions": {
+          "a": -48.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "saturating/a@-3s",
+      "model": "saturating",
+      "features": {
+        "a": -3.0,
+        "b": 0.0
+      },
+      "expected": {
+        "home_win_probability": 3.775134544136581e-11,
+        "baseline_logit": 0.0,
+        "logit": -24.0,
+        "contributions": {
+          "a": -24.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "saturating/a@-1s",
+      "model": "saturating",
+      "features": {
+        "a": -1.0,
+        "b": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.00033535013046647816,
+        "baseline_logit": 0.0,
+        "logit": -8.0,
+        "contributions": {
+          "a": -8.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "saturating/a@-0.25s",
+      "model": "saturating",
+      "features": {
+        "a": -0.25,
+        "b": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.11920292202211755,
+        "baseline_logit": 0.0,
+        "logit": -2.0,
+        "contributions": {
+          "a": -2.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "saturating/a@+0.25s",
+      "model": "saturating",
+      "features": {
+        "a": 0.25,
+        "b": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.8807970779778823,
+        "baseline_logit": 0.0,
+        "logit": 2.0,
+        "contributions": {
+          "a": 2.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "saturating/a@+1s",
+      "model": "saturating",
+      "features": {
+        "a": 1.0,
+        "b": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.9996646498695336,
+        "baseline_logit": 0.0,
+        "logit": 8.0,
+        "contributions": {
+          "a": 8.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "saturating/a@+3s",
+      "model": "saturating",
+      "features": {
+        "a": 3.0,
+        "b": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.9999999999622486,
+        "baseline_logit": 0.0,
+        "logit": 24.0,
+        "contributions": {
+          "a": 24.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "saturating/a@+6s",
+      "model": "saturating",
+      "features": {
+        "a": 6.0,
+        "b": 0.0
+      },
+      "expected": {
+        "home_win_probability": 1.0,
+        "baseline_logit": 0.0,
+        "logit": 48.0,
+        "contributions": {
+          "a": 48.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "saturating/b@-6s",
+      "model": "saturating",
+      "features": {
+        "a": 0.0,
+        "b": -6.0
+      },
+      "expected": {
+        "home_win_probability": 1.0,
+        "baseline_logit": 0.0,
+        "logit": 48.0,
+        "contributions": {
+          "a": 0.0,
+          "b": 48.0
+        }
+      }
+    },
+    {
+      "id": "saturating/b@-3s",
+      "model": "saturating",
+      "features": {
+        "a": 0.0,
+        "b": -3.0
+      },
+      "expected": {
+        "home_win_probability": 0.9999999999622486,
+        "baseline_logit": 0.0,
+        "logit": 24.0,
+        "contributions": {
+          "a": 0.0,
+          "b": 24.0
+        }
+      }
+    },
+    {
+      "id": "saturating/b@-1s",
+      "model": "saturating",
+      "features": {
+        "a": 0.0,
+        "b": -1.0
+      },
+      "expected": {
+        "home_win_probability": 0.9996646498695336,
+        "baseline_logit": 0.0,
+        "logit": 8.0,
+        "contributions": {
+          "a": 0.0,
+          "b": 8.0
+        }
+      }
+    },
+    {
+      "id": "saturating/b@-0.25s",
+      "model": "saturating",
+      "features": {
+        "a": 0.0,
+        "b": -0.25
+      },
+      "expected": {
+        "home_win_probability": 0.8807970779778823,
+        "baseline_logit": 0.0,
+        "logit": 2.0,
+        "contributions": {
+          "a": 0.0,
+          "b": 2.0
+        }
+      }
+    },
+    {
+      "id": "saturating/b@+0.25s",
+      "model": "saturating",
+      "features": {
+        "a": 0.0,
+        "b": 0.25
+      },
+      "expected": {
+        "home_win_probability": 0.11920292202211755,
+        "baseline_logit": 0.0,
+        "logit": -2.0,
+        "contributions": {
+          "a": 0.0,
+          "b": -2.0
+        }
+      }
+    },
+    {
+      "id": "saturating/b@+1s",
+      "model": "saturating",
+      "features": {
+        "a": 0.0,
+        "b": 1.0
+      },
+      "expected": {
+        "home_win_probability": 0.00033535013046647816,
+        "baseline_logit": 0.0,
+        "logit": -8.0,
+        "contributions": {
+          "a": 0.0,
+          "b": -8.0
+        }
+      }
+    },
+    {
+      "id": "saturating/b@+3s",
+      "model": "saturating",
+      "features": {
+        "a": 0.0,
+        "b": 3.0
+      },
+      "expected": {
+        "home_win_probability": 3.775134544136581e-11,
+        "baseline_logit": 0.0,
+        "logit": -24.0,
+        "contributions": {
+          "a": 0.0,
+          "b": -24.0
+        }
+      }
+    },
+    {
+      "id": "saturating/b@+6s",
+      "model": "saturating",
+      "features": {
+        "a": 0.0,
+        "b": 6.0
+      },
+      "expected": {
+        "home_win_probability": 1.4251640827409352e-21,
+        "baseline_logit": 0.0,
+        "logit": -48.0,
+        "contributions": {
+          "a": 0.0,
+          "b": -48.0
+        }
+      }
+    },
+    {
+      "id": "saturating/all@-3s",
+      "model": "saturating",
+      "features": {
+        "a": -3.0,
+        "b": -3.0
+      },
+      "expected": {
+        "home_win_probability": 0.5,
+        "baseline_logit": 0.0,
+        "logit": 0.0,
+        "contributions": {
+          "a": -24.0,
+          "b": 24.0
+        }
+      }
+    },
+    {
+      "id": "saturating/all@-1s",
+      "model": "saturating",
+      "features": {
+        "a": -1.0,
+        "b": -1.0
+      },
+      "expected": {
+        "home_win_probability": 0.5,
+        "baseline_logit": 0.0,
+        "logit": 0.0,
+        "contributions": {
+          "a": -8.0,
+          "b": 8.0
+        }
+      }
+    },
+    {
+      "id": "saturating/all@+1s",
+      "model": "saturating",
+      "features": {
+        "a": 1.0,
+        "b": 1.0
+      },
+      "expected": {
+        "home_win_probability": 0.5,
+        "baseline_logit": 0.0,
+        "logit": 0.0,
+        "contributions": {
+          "a": 8.0,
+          "b": -8.0
+        }
+      }
+    },
+    {
+      "id": "saturating/all@+3s",
+      "model": "saturating",
+      "features": {
+        "a": 3.0,
+        "b": 3.0
+      },
+      "expected": {
+        "home_win_probability": 0.5,
+        "baseline_logit": 0.0,
+        "logit": 0.0,
+        "contributions": {
+          "a": 24.0,
+          "b": -24.0
+        }
+      }
+    },
+    {
+      "id": "saturating/alternating",
+      "model": "saturating",
+      "features": {
+        "a": 2.0,
+        "b": -2.0
+      },
+      "expected": {
+        "home_win_probability": 0.9999999999999873,
+        "baseline_logit": 0.0,
+        "logit": 32.0,
+        "contributions": {
+          "a": 16.0,
+          "b": 16.0
+        }
+      }
+    },
+    {
+      "id": "tiny-std/at-the-mean",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.0,
+        "b": 0.5
+      },
+      "expected": {
+        "home_win_probability": 0.37754066879814546,
+        "baseline_logit": -0.5,
+        "logit": -0.5,
+        "contributions": {
+          "a": 0.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "tiny-std/a@-6s",
+      "model": "tiny-std",
+      "features": {
+        "a": -0.006,
+        "b": 0.5
+      },
+      "expected": {
+        "home_win_probability": 0.029312230751356316,
+        "baseline_logit": -0.5,
+        "logit": -3.5,
+        "contributions": {
+          "a": -3.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "tiny-std/a@-3s",
+      "model": "tiny-std",
+      "features": {
+        "a": -0.003,
+        "b": 0.5
+      },
+      "expected": {
+        "home_win_probability": 0.11920292202211755,
+        "baseline_logit": -0.5,
+        "logit": -2.0,
+        "contributions": {
+          "a": -1.5,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "tiny-std/a@-1s",
+      "model": "tiny-std",
+      "features": {
+        "a": -0.001,
+        "b": 0.5
+      },
+      "expected": {
+        "home_win_probability": 0.2689414213699951,
+        "baseline_logit": -0.5,
+        "logit": -1.0,
+        "contributions": {
+          "a": -0.5,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "tiny-std/a@-0.25s",
+      "model": "tiny-std",
+      "features": {
+        "a": -0.00025,
+        "b": 0.5
+      },
+      "expected": {
+        "home_win_probability": 0.34864513533394575,
+        "baseline_logit": -0.5,
+        "logit": -0.625,
+        "contributions": {
+          "a": -0.125,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "tiny-std/a@+0.25s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.00025,
+        "b": 0.5
+      },
+      "expected": {
+        "home_win_probability": 0.4073334000459302,
+        "baseline_logit": -0.5,
+        "logit": -0.375,
+        "contributions": {
+          "a": 0.125,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "tiny-std/a@+1s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.001,
+        "b": 0.5
+      },
+      "expected": {
+        "home_win_probability": 0.5,
+        "baseline_logit": -0.5,
+        "logit": 0.0,
+        "contributions": {
+          "a": 0.5,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "tiny-std/a@+3s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.003,
+        "b": 0.5
+      },
+      "expected": {
+        "home_win_probability": 0.7310585786300049,
+        "baseline_logit": -0.5,
+        "logit": 1.0,
+        "contributions": {
+          "a": 1.5,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "tiny-std/a@+6s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.006,
+        "b": 0.5
+      },
+      "expected": {
+        "home_win_probability": 0.9241418199787566,
+        "baseline_logit": -0.5,
+        "logit": 2.5,
+        "contributions": {
+          "a": 3.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "tiny-std/b@-6s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.0,
+        "b": 0.494
+      },
+      "expected": {
+        "home_win_probability": 0.7310585786300051,
+        "baseline_logit": -0.5,
+        "logit": 1.0000000000000013,
+        "contributions": {
+          "a": 0.0,
+          "b": 1.5000000000000013
+        }
+      }
+    },
+    {
+      "id": "tiny-std/b@-3s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.0,
+        "b": 0.497
+      },
+      "expected": {
+        "home_win_probability": 0.5621765008857983,
+        "baseline_logit": -0.5,
+        "logit": 0.25000000000000067,
+        "contributions": {
+          "a": 0.0,
+          "b": 0.7500000000000007
+        }
+      }
+    },
+    {
+      "id": "tiny-std/b@-1s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.0,
+        "b": 0.499
+      },
+      "expected": {
+        "home_win_probability": 0.43782349911420193,
+        "baseline_logit": -0.5,
+        "logit": -0.24999999999999978,
+        "contributions": {
+          "a": 0.0,
+          "b": 0.2500000000000002
+        }
+      }
+    },
+    {
+      "id": "tiny-std/b@-0.25s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.0,
+        "b": 0.49975
+      },
+      "expected": {
+        "home_win_probability": 0.39233683016710674,
+        "baseline_logit": -0.5,
+        "logit": -0.4375000000000069,
+        "contributions": {
+          "a": 0.0,
+          "b": 0.06249999999999312
+        }
+      }
+    },
+    {
+      "id": "tiny-std/b@+0.25s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.0,
+        "b": 0.50025
+      },
+      "expected": {
+        "home_win_probability": 0.36296920551961837,
+        "baseline_logit": -0.5,
+        "logit": -0.5624999999999931,
+        "contributions": {
+          "a": 0.0,
+          "b": -0.06249999999999312
+        }
+      }
+    },
+    {
+      "id": "tiny-std/b@+1s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.0,
+        "b": 0.501
+      },
+      "expected": {
+        "home_win_probability": 0.32082130082460697,
+        "baseline_logit": -0.5,
+        "logit": -0.7500000000000002,
+        "contributions": {
+          "a": 0.0,
+          "b": -0.2500000000000002
+        }
+      }
+    },
+    {
+      "id": "tiny-std/b@+3s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.0,
+        "b": 0.503
+      },
+      "expected": {
+        "home_win_probability": 0.22270013882530876,
+        "baseline_logit": -0.5,
+        "logit": -1.2500000000000007,
+        "contributions": {
+          "a": 0.0,
+          "b": -0.7500000000000007
+        }
+      }
+    },
+    {
+      "id": "tiny-std/b@+6s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.0,
+        "b": 0.506
+      },
+      "expected": {
+        "home_win_probability": 0.11920292202211741,
+        "baseline_logit": -0.5,
+        "logit": -2.0000000000000013,
+        "contributions": {
+          "a": 0.0,
+          "b": -1.5000000000000013
+        }
+      }
+    },
+    {
+      "id": "tiny-std/all@-3s",
+      "model": "tiny-std",
+      "features": {
+        "a": -0.003,
+        "b": 0.497
+      },
+      "expected": {
+        "home_win_probability": 0.22270013882530898,
+        "baseline_logit": -0.5,
+        "logit": -1.2499999999999993,
+        "contributions": {
+          "a": -1.5,
+          "b": 0.7500000000000007
+        }
+      }
+    },
+    {
+      "id": "tiny-std/all@-1s",
+      "model": "tiny-std",
+      "features": {
+        "a": -0.001,
+        "b": 0.499
+      },
+      "expected": {
+        "home_win_probability": 0.3208213008246071,
+        "baseline_logit": -0.5,
+        "logit": -0.7499999999999998,
+        "contributions": {
+          "a": -0.5,
+          "b": 0.2500000000000002
+        }
+      }
+    },
+    {
+      "id": "tiny-std/all@+1s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.001,
+        "b": 0.501
+      },
+      "expected": {
+        "home_win_probability": 0.4378234991142019,
+        "baseline_logit": -0.5,
+        "logit": -0.2500000000000002,
+        "contributions": {
+          "a": 0.5,
+          "b": -0.2500000000000002
+        }
+      }
+    },
+    {
+      "id": "tiny-std/all@+3s",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.003,
+        "b": 0.503
+      },
+      "expected": {
+        "home_win_probability": 0.562176500885798,
+        "baseline_logit": -0.5,
+        "logit": 0.24999999999999933,
+        "contributions": {
+          "a": 1.5,
+          "b": -0.7500000000000007
+        }
+      }
+    },
+    {
+      "id": "tiny-std/alternating",
+      "model": "tiny-std",
+      "features": {
+        "a": 0.002,
+        "b": 0.498
+      },
+      "expected": {
+        "home_win_probability": 0.731058578630005,
+        "baseline_logit": -0.5,
+        "logit": 1.0000000000000004,
+        "contributions": {
+          "a": 1.0,
+          "b": 0.5000000000000004
+        }
+      }
+    },
+    {
+      "id": "wide-mean/at-the-mean",
+      "model": "wide-mean",
+      "features": {
+        "a": 1000.0,
+        "b": -1000.0
+      },
+      "expected": {
+        "home_win_probability": 0.7310585786300049,
+        "baseline_logit": 1.0,
+        "logit": 1.0,
+        "contributions": {
+          "a": 0.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "wide-mean/a@-6s",
+      "model": "wide-mean",
+      "features": {
+        "a": -5000.0,
+        "b": -1000.0
+      },
+      "expected": {
+        "home_win_probability": 0.00033535013046647816,
+        "baseline_logit": 1.0,
+        "logit": -8.0,
+        "contributions": {
+          "a": -9.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "wide-mean/a@-3s",
+      "model": "wide-mean",
+      "features": {
+        "a": -2000.0,
+        "b": -1000.0
+      },
+      "expected": {
+        "home_win_probability": 0.029312230751356316,
+        "baseline_logit": 1.0,
+        "logit": -3.5,
+        "contributions": {
+          "a": -4.5,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "wide-mean/a@-1s",
+      "model": "wide-mean",
+      "features": {
+        "a": 0.0,
+        "b": -1000.0
+      },
+      "expected": {
+        "home_win_probability": 0.37754066879814546,
+        "baseline_logit": 1.0,
+        "logit": -0.5,
+        "contributions": {
+          "a": -1.5,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "wide-mean/a@-0.25s",
+      "model": "wide-mean",
+      "features": {
+        "a": 750.0,
+        "b": -1000.0
+      },
+      "expected": {
+        "home_win_probability": 0.6513548646660542,
+        "baseline_logit": 1.0,
+        "logit": 0.625,
+        "contributions": {
+          "a": -0.375,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "wide-mean/a@+0.25s",
+      "model": "wide-mean",
+      "features": {
+        "a": 1250.0,
+        "b": -1000.0
+      },
+      "expected": {
+        "home_win_probability": 0.7981867777396212,
+        "baseline_logit": 1.0,
+        "logit": 1.375,
+        "contributions": {
+          "a": 0.375,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "wide-mean/a@+1s",
+      "model": "wide-mean",
+      "features": {
+        "a": 2000.0,
+        "b": -1000.0
+      },
+      "expected": {
+        "home_win_probability": 0.9241418199787566,
+        "baseline_logit": 1.0,
+        "logit": 2.5,
+        "contributions": {
+          "a": 1.5,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "wide-mean/a@+3s",
+      "model": "wide-mean",
+      "features": {
+        "a": 4000.0,
+        "b": -1000.0
+      },
+      "expected": {
+        "home_win_probability": 0.995929862284104,
+        "baseline_logit": 1.0,
+        "logit": 5.5,
+        "contributions": {
+          "a": 4.5,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "wide-mean/a@+6s",
+      "model": "wide-mean",
+      "features": {
+        "a": 7000.0,
+        "b": -1000.0
+      },
+      "expected": {
+        "home_win_probability": 0.9999546021312976,
+        "baseline_logit": 1.0,
+        "logit": 10.0,
+        "contributions": {
+          "a": 9.0,
+          "b": -0.0
+        }
+      }
+    },
+    {
+      "id": "wide-mean/b@-6s",
+      "model": "wide-mean",
+      "features": {
+        "a": 1000.0,
+        "b": -2500.0
+      },
+      "expected": {
+        "home_win_probability": 0.9999546021312976,
+        "baseline_logit": 1.0,
+        "logit": 10.0,
+        "contributions": {
+          "a": 0.0,
+          "b": 9.0
+        }
+      }
+    },
+    {
+      "id": "wide-mean/b@-3s",
+      "model": "wide-mean",
+      "features": {
+        "a": 1000.0,
+        "b": -1750.0
+      },
+      "expected": {
+        "home_win_probability": 0.995929862284104,
+        "baseline_logit": 1.0,
+        "logit": 5.5,
+        "contributions": {
+          "a": 0.0,
+          "b": 4.5
+        }
+      }
+    },
+    {
+      "id": "wide-mean/b@-1s",
+      "model": "wide-mean",
+      "features": {
+        "a": 1000.0,
+        "b": -1250.0
+      },
+      "expected": {
+        "home_win_probability": 0.9241418199787566,
+        "baseline_logit": 1.0,
+        "logit": 2.5,
+        "contributions": {
+          "a": 0.0,
+          "b": 1.5
+        }
+      }
+    },
+    {
+      "id": "wide-mean/b@-0.25s",
+      "model": "wide-mean",
+      "features": {
+        "a": 1000.0,
+        "b": -1062.5
+      },
+      "expected": {
+        "home_win_probability": 0.7981867777396212,
+        "baseline_logit": 1.0,
+        "logit": 1.375,
+        "contributions": {
+          "a": 0.0,
+          "b": 0.375
+        }
+      }
+    },
+    {
+      "id": "wide-mean/b@+0.25s",
+      "model": "wide-mean",
+      "features": {
+        "a": 1000.0,
+        "b": -937.5
+      },
+      "expected": {
+        "home_win_probability": 0.6513548646660542,
+        "baseline_logit": 1.0,
+        "logit": 0.625,
+        "contributions": {
+          "a": 0.0,
+          "b": -0.375
+        }
+      }
+    },
+    {
+      "id": "wide-mean/b@+1s",
+      "model": "wide-mean",
+      "features": {
+        "a": 1000.0,
+        "b": -750.0
+      },
+      "expected": {
+        "home_win_probability": 0.37754066879814546,
+        "baseline_logit": 1.0,
+        "logit": -0.5,
+        "contributions": {
+          "a": 0.0,
+          "b": -1.5
+        }
+      }
+    },
+    {
+      "id": "wide-mean/b@+3s",
+      "model": "wide-mean",
+      "features": {
+        "a": 1000.0,
+        "b": -250.0
+      },
+      "expected": {
+        "home_win_probability": 0.029312230751356316,
+        "baseline_logit": 1.0,
+        "logit": -3.5,
+        "contributions": {
+          "a": 0.0,
+          "b": -4.5
+        }
+      }
+    },
+    {
+      "id": "wide-mean/b@+6s",
+      "model": "wide-mean",
+      "features": {
+        "a": 1000.0,
+        "b": 500.0
+      },
+      "expected": {
+        "home_win_probability": 0.00033535013046647816,
+        "baseline_logit": 1.0,
+        "logit": -8.0,
+        "contributions": {
+          "a": 0.0,
+          "b": -9.0
+        }
+      }
+    },
+    {
+      "id": "wide-mean/all@-3s",
+      "model": "wide-mean",
+      "features": {
+        "a": -2000.0,
+        "b": -1750.0
+      },
+      "expected": {
+        "home_win_probability": 0.7310585786300049,
+        "baseline_logit": 1.0,
+        "logit": 1.0,
+        "contributions": {
+          "a": -4.5,
+          "b": 4.5
+        }
+      }
+    },
+    {
+      "id": "wide-mean/all@-1s",
+      "model": "wide-mean",
+      "features": {
+        "a": 0.0,
+        "b": -1250.0
+      },
+      "expected": {
+        "home_win_probability": 0.7310585786300049,
+        "baseline_logit": 1.0,
+        "logit": 1.0,
+        "contributions": {
+          "a": -1.5,
+          "b": 1.5
+        }
+      }
+    },
+    {
+      "id": "wide-mean/all@+1s",
+      "model": "wide-mean",
+      "features": {
+        "a": 2000.0,
+        "b": -750.0
+      },
+      "expected": {
+        "home_win_probability": 0.7310585786300049,
+        "baseline_logit": 1.0,
+        "logit": 1.0,
+        "contributions": {
+          "a": 1.5,
+          "b": -1.5
+        }
+      }
+    },
+    {
+      "id": "wide-mean/all@+3s",
+      "model": "wide-mean",
+      "features": {
+        "a": 4000.0,
+        "b": -250.0
+      },
+      "expected": {
+        "home_win_probability": 0.7310585786300049,
+        "baseline_logit": 1.0,
+        "logit": 1.0,
+        "contributions": {
+          "a": 4.5,
+          "b": -4.5
+        }
+      }
+    },
+    {
+      "id": "wide-mean/alternating",
+      "model": "wide-mean",
+      "features": {
+        "a": 3000.0,
+        "b": -1500.0
+      },
+      "expected": {
+        "home_win_probability": 0.9990889488055994,
+        "baseline_logit": 1.0,
+        "logit": 7.0,
+        "contributions": {
+          "a": 3.0,
+          "b": 3.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/at-the-mean",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": 0.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.6224593312018546,
+        "baseline_logit": 0.5,
+        "logit": 0.5,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": -0.0,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/huge@-6s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": -6.0,
+        "opposite": 0.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.0,
+        "baseline_logit": 0.5,
+        "logit": -6e+16,
+        "contributions": {
+          "huge": -6e+16,
+          "opposite": -0.0,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/huge@-3s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": -3.0,
+        "opposite": 0.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.0,
+        "baseline_logit": 0.5,
+        "logit": -3e+16,
+        "contributions": {
+          "huge": -3e+16,
+          "opposite": -0.0,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/huge@-1s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": -1.0,
+        "opposite": 0.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.0,
+        "baseline_logit": 0.5,
+        "logit": -1e+16,
+        "contributions": {
+          "huge": -1e+16,
+          "opposite": -0.0,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/huge@-0.25s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": -0.25,
+        "opposite": 0.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.0,
+        "baseline_logit": 0.5,
+        "logit": -2499999999999999.5,
+        "contributions": {
+          "huge": -2500000000000000.0,
+          "opposite": -0.0,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/huge@+0.25s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.25,
+        "opposite": 0.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 1.0,
+        "baseline_logit": 0.5,
+        "logit": 2500000000000000.5,
+        "contributions": {
+          "huge": 2500000000000000.0,
+          "opposite": -0.0,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/huge@+1s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 1.0,
+        "opposite": 0.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 1.0,
+        "baseline_logit": 0.5,
+        "logit": 1e+16,
+        "contributions": {
+          "huge": 1e+16,
+          "opposite": -0.0,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/huge@+3s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 3.0,
+        "opposite": 0.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 1.0,
+        "baseline_logit": 0.5,
+        "logit": 3e+16,
+        "contributions": {
+          "huge": 3e+16,
+          "opposite": -0.0,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/huge@+6s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 6.0,
+        "opposite": 0.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 1.0,
+        "baseline_logit": 0.5,
+        "logit": 6e+16,
+        "contributions": {
+          "huge": 6e+16,
+          "opposite": -0.0,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/opposite@-6s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": -6.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 1.0,
+        "baseline_logit": 0.5,
+        "logit": 6e+16,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": 6e+16,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/opposite@-3s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": -3.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 1.0,
+        "baseline_logit": 0.5,
+        "logit": 3e+16,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": 3e+16,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/opposite@-1s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": -1.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 1.0,
+        "baseline_logit": 0.5,
+        "logit": 1e+16,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": 1e+16,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/opposite@-0.25s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": -0.25,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 1.0,
+        "baseline_logit": 0.5,
+        "logit": 2500000000000000.5,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": 2500000000000000.0,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/opposite@+0.25s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": 0.25,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.0,
+        "baseline_logit": 0.5,
+        "logit": -2499999999999999.5,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": -2500000000000000.0,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/opposite@+1s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": 1.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.0,
+        "baseline_logit": 0.5,
+        "logit": -1e+16,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": -1e+16,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/opposite@+3s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": 3.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.0,
+        "baseline_logit": 0.5,
+        "logit": -3e+16,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": -3e+16,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/opposite@+6s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": 6.0,
+        "ordinary": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.0,
+        "baseline_logit": 0.5,
+        "logit": -6e+16,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": -6e+16,
+          "ordinary": 0.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/ordinary@-6s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": 0.0,
+        "ordinary": -6.0
+      },
+      "expected": {
+        "home_win_probability": 0.004070137715896127,
+        "baseline_logit": 0.5,
+        "logit": -5.5,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": -0.0,
+          "ordinary": -6.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/ordinary@-3s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": 0.0,
+        "ordinary": -3.0
+      },
+      "expected": {
+        "home_win_probability": 0.07585818002124356,
+        "baseline_logit": 0.5,
+        "logit": -2.5,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": -0.0,
+          "ordinary": -3.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/ordinary@-1s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": 0.0,
+        "ordinary": -1.0
+      },
+      "expected": {
+        "home_win_probability": 0.37754066879814546,
+        "baseline_logit": 0.5,
+        "logit": -0.5,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": -0.0,
+          "ordinary": -1.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/ordinary@-0.25s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": 0.0,
+        "ordinary": -0.25
+      },
+      "expected": {
+        "home_win_probability": 0.5621765008857981,
+        "baseline_logit": 0.5,
+        "logit": 0.25,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": -0.0,
+          "ordinary": -0.25
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/ordinary@+0.25s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": 0.0,
+        "ordinary": 0.25
+      },
+      "expected": {
+        "home_win_probability": 0.679178699175393,
+        "baseline_logit": 0.5,
+        "logit": 0.75,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": -0.0,
+          "ordinary": 0.25
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/ordinary@+1s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": 0.0,
+        "ordinary": 1.0
+      },
+      "expected": {
+        "home_win_probability": 0.8175744761936437,
+        "baseline_logit": 0.5,
+        "logit": 1.5,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": -0.0,
+          "ordinary": 1.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/ordinary@+3s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": 0.0,
+        "ordinary": 3.0
+      },
+      "expected": {
+        "home_win_probability": 0.9706877692486436,
+        "baseline_logit": 0.5,
+        "logit": 3.5,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": -0.0,
+          "ordinary": 3.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/ordinary@+6s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 0.0,
+        "opposite": 0.0,
+        "ordinary": 6.0
+      },
+      "expected": {
+        "home_win_probability": 0.998498817743263,
+        "baseline_logit": 0.5,
+        "logit": 6.5,
+        "contributions": {
+          "huge": 0.0,
+          "opposite": -0.0,
+          "ordinary": 6.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/all@-3s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": -3.0,
+        "opposite": -3.0,
+        "ordinary": -3.0
+      },
+      "expected": {
+        "home_win_probability": 0.07585818002124356,
+        "baseline_logit": 0.5,
+        "logit": -2.5,
+        "contributions": {
+          "huge": -3e+16,
+          "opposite": 3e+16,
+          "ordinary": -3.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/all@-1s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": -1.0,
+        "opposite": -1.0,
+        "ordinary": -1.0
+      },
+      "expected": {
+        "home_win_probability": 0.37754066879814546,
+        "baseline_logit": 0.5,
+        "logit": -0.5,
+        "contributions": {
+          "huge": -1e+16,
+          "opposite": 1e+16,
+          "ordinary": -1.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/all@+1s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 1.0,
+        "opposite": 1.0,
+        "ordinary": 1.0
+      },
+      "expected": {
+        "home_win_probability": 0.8175744761936437,
+        "baseline_logit": 0.5,
+        "logit": 1.5,
+        "contributions": {
+          "huge": 1e+16,
+          "opposite": -1e+16,
+          "ordinary": 1.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/all@+3s",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 3.0,
+        "opposite": 3.0,
+        "ordinary": 3.0
+      },
+      "expected": {
+        "home_win_probability": 0.9706877692486436,
+        "baseline_logit": 0.5,
+        "logit": 3.5,
+        "contributions": {
+          "huge": 3e+16,
+          "opposite": -3e+16,
+          "ordinary": 3.0
+        }
+      }
+    },
+    {
+      "id": "mixed-magnitude/alternating",
+      "model": "mixed-magnitude",
+      "features": {
+        "huge": 2.0,
+        "opposite": -2.0,
+        "ordinary": 2.0
+      },
+      "expected": {
+        "home_win_probability": 1.0,
+        "baseline_logit": 0.5,
+        "logit": 4e+16,
+        "contributions": {
+          "huge": 2e+16,
+          "opposite": 2e+16,
+          "ordinary": 2.0
+        }
+      }
+    },
+    {
+      "id": "single-feature/at-the-mean",
+      "model": "single-feature",
+      "features": {
+        "only": 0.5
+      },
+      "expected": {
+        "home_win_probability": 0.04742587317756679,
+        "baseline_logit": -3.0,
+        "logit": -3.0,
+        "contributions": {
+          "only": 0.0
+        }
+      }
+    },
+    {
+      "id": "single-feature/only@-6s",
+      "model": "single-feature",
+      "features": {
+        "only": -11.5
+      },
+      "expected": {
+        "home_win_probability": 3.059022269256247e-07,
+        "baseline_logit": -3.0,
+        "logit": -15.0,
+        "contributions": {
+          "only": -12.0
+        }
+      }
+    },
+    {
+      "id": "single-feature/only@-3s",
+      "model": "single-feature",
+      "features": {
+        "only": -5.5
+      },
+      "expected": {
+        "home_win_probability": 0.00012339457598623172,
+        "baseline_logit": -3.0,
+        "logit": -9.0,
+        "contributions": {
+          "only": -6.0
+        }
+      }
+    },
+    {
+      "id": "single-feature/only@-1s",
+      "model": "single-feature",
+      "features": {
+        "only": -1.5
+      },
+      "expected": {
+        "home_win_probability": 0.006692850924284856,
+        "baseline_logit": -3.0,
+        "logit": -5.0,
+        "contributions": {
+          "only": -2.0
+        }
+      }
+    },
+    {
+      "id": "single-feature/only@-0.25s",
+      "model": "single-feature",
+      "features": {
+        "only": 0.0
+      },
+      "expected": {
+        "home_win_probability": 0.029312230751356316,
+        "baseline_logit": -3.0,
+        "logit": -3.5,
+        "contributions": {
+          "only": -0.5
+        }
+      }
+    },
+    {
+      "id": "single-feature/only@+0.25s",
+      "model": "single-feature",
+      "features": {
+        "only": 1.0
+      },
+      "expected": {
+        "home_win_probability": 0.07585818002124356,
+        "baseline_logit": -3.0,
+        "logit": -2.5,
+        "contributions": {
+          "only": 0.5
+        }
+      }
+    },
+    {
+      "id": "single-feature/only@+1s",
+      "model": "single-feature",
+      "features": {
+        "only": 2.5
+      },
+      "expected": {
+        "home_win_probability": 0.2689414213699951,
+        "baseline_logit": -3.0,
+        "logit": -1.0,
+        "contributions": {
+          "only": 2.0
+        }
+      }
+    },
+    {
+      "id": "single-feature/only@+3s",
+      "model": "single-feature",
+      "features": {
+        "only": 6.5
+      },
+      "expected": {
+        "home_win_probability": 0.9525741268224334,
+        "baseline_logit": -3.0,
+        "logit": 3.0,
+        "contributions": {
+          "only": 6.0
+        }
+      }
+    },
+    {
+      "id": "single-feature/only@+6s",
+      "model": "single-feature",
+      "features": {
+        "only": 12.5
+      },
+      "expected": {
+        "home_win_probability": 0.9998766054240137,
+        "baseline_logit": -3.0,
+        "logit": 9.0,
+        "contributions": {
+          "only": 12.0
+        }
+      }
+    },
+    {
+      "id": "single-feature/all@-3s",
+      "model": "single-feature",
+      "features": {
+        "only": -5.5
+      },
+      "expected": {
+        "home_win_probability": 0.00012339457598623172,
+        "baseline_logit": -3.0,
+        "logit": -9.0,
+        "contributions": {
+          "only": -6.0
+        }
+      }
+    },
+    {
+      "id": "single-feature/all@-1s",
+      "model": "single-feature",
+      "features": {
+        "only": -1.5
+      },
+      "expected": {
+        "home_win_probability": 0.006692850924284856,
+        "baseline_logit": -3.0,
+        "logit": -5.0,
+        "contributions": {
+          "only": -2.0
+        }
+      }
+    },
+    {
+      "id": "single-feature/all@+1s",
+      "model": "single-feature",
+      "features": {
+        "only": 2.5
+      },
+      "expected": {
+        "home_win_probability": 0.2689414213699951,
+        "baseline_logit": -3.0,
+        "logit": -1.0,
+        "contributions": {
+          "only": 2.0
+        }
+      }
+    },
+    {
+      "id": "single-feature/all@+3s",
+      "model": "single-feature",
+      "features": {
+        "only": 6.5
+      },
+      "expected": {
+        "home_win_probability": 0.9525741268224334,
+        "baseline_logit": -3.0,
+        "logit": 3.0,
+        "contributions": {
+          "only": 6.0
+        }
+      }
+    },
+    {
+      "id": "single-feature/alternating",
+      "model": "single-feature",
+      "features": {
+        "only": 4.5
+      },
+      "expected": {
+        "home_win_probability": 0.7310585786300049,
+        "baseline_logit": -3.0,
+        "logit": 1.0,
+        "contributions": {
+          "only": 4.0
+        }
+      }
+    }
+  ]
+}
