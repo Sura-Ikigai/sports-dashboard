@@ -618,7 +618,6 @@ def test_a_store_query_returning_future_rows_produces_identical_vectors(
     """
     games = store.load_games(conn)
     appearances = store.load_appearances(conn)
-    cities = store.load_game_cities(conn)
 
     # Three quarters of the way through the later season: both sides have real history behind them,
     # and a quarter of that season is still dated after the prediction moment.
@@ -638,10 +637,8 @@ def test_a_store_query_returning_future_rows_produces_identical_vectors(
     past_appearances = {
         team: [a for a in rows if a.date < target.date] for team, rows in appearances.items()
     }
-    past_cities = {g.game_id: cities[g.game_id] for g in past_games}
-    past_cities[target.game_id] = cities[target.game_id]
     without_future = compute_features(
-        Context(past_games, past_appearances, past_cities), target.matchup, target.date
+        Context(past_games, past_appearances), target.matchup, target.date
     )
 
     assert with_future == without_future

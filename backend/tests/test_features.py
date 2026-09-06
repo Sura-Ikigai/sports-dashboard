@@ -28,7 +28,6 @@ from model import elo
 from model.availability import Appearance, AvailabilityConfig, team_availability
 from model.features import (
     FEATURE_NAMES,
-    REST_EDGE_CAP,
     Context,
     Coverage,
     FeatureInputError,
@@ -40,7 +39,6 @@ from model.features import (
     compute_training_features,
     to_vector,
 )
-from model.venues import city_for, distance_miles
 
 SEASON = 2024
 # F-054: deliberately NOT midnight. Every `as_of` here is a whole-day offset from this epoch, so a
@@ -48,11 +46,6 @@ SEASON = 2024
 # survive the whole suite, including the microsecond test written to catch it. 5,360 of the 6,615
 # real games tip off at a non-midnight instant, so 19:00Z is also the realistic choice.
 _EPOCH = datetime(2024, 1, 1, 19, 0, tzinfo=UTC)
-
-BOSTON = city_for("Boston", "MA")
-DENVER = city_for("Denver", "CO")
-MIAMI = city_for("Miami", "FL")
-MEXICO_CITY = city_for("Mexico City")
 
 #: A rotation big enough to be a rotation (`availability` reads the top nine by minutes).
 ROTATION = 9
@@ -120,46 +113,40 @@ def participation(games_: list[Game], extra: list[Game] | None = None) -> dict:
 def ctx(
     games_: list[Game],
     *,
-    cities: dict | None = None,
-    default_city=BOSTON,
     appearances: dict | None = None,
     coverage: Coverage | None = None,
     targets: list[Matchup] | None = None,
     **kwargs,
 ) -> Context:
-    """A Context over `games_`, defaulting every unspecified venue to Boston and every team to a
-    healthy rotation. The defaults exist so a test about rest does not have to describe injuries."""
-    resolved = {g.game_id: default_city for g in games_}
-    for target in targets or []:
-        resolved[target.game_id] = default_city
-    resolved.update(cities or {})
+    """A Context over `games_`, defaulting every team to a healthy rotation. The default exists so a
+    test about rest does not have to describe injuries.
+
+    `targets` names matchups that are not in `games_`, so their teams get a participation entry — a
+    Context refuses a history team it has no records for, and a target-only team would otherwise
+    look like a team the caller forgot to load.
+    """
     history = games_ if coverage is None else GameHistory(games_, coverage=coverage)
     people = participation(games_) if appearances is None else appearances
     for target in targets or []:
         for team in (target.home_id, target.away_id):
             people.setdefault(team, [])
-    return Context(history, people, resolved, **kwargs)
+    return Context(history, people, **kwargs)
 
 
 # --- golden fixture ------------------------------------------------------------------------------
 #
 # Five completed games, then A (home) vs B (away) on day 9. Hand-computed:
 #
-#   A: day 0 home vs C (+10, Boston) · day 2 at D (-5, Denver) · day 4 home vs B (+20, Boston)
-#      last game day 4 -> 5 days elapsed -> 4 days of rest -> bucketed at REST_EDGE_CAP = 3
-#      previous venue Boston, target venue Boston -> 0 miles travelled
+#   A: day 0 home vs C (+10) · day 2 at D (-5) · day 4 home vs B (+20)
+#      last game day 4 -> 5 days elapsed -> 4 days of rest, so not a back-to-back
 #
-#   B: day 4 at A (-20, Boston) · day 6 home vs C (+9, Miami) · day 8 at D (-12, Denver)
+#   B: day 4 at A (-20) · day 6 home vs C (+9) · day 8 at D (-12)
 #      last game day 8 -> 1 day elapsed -> 0 days of rest -> a back-to-back
-#      previous venue Denver, target venue Boston -> 1,765.98 miles travelled
 #
 #   elo_diff    24.5659...  cross-checked below against `elo.pregame_rating_differences`
 #   home_b2b     0.0        A rested four days
 #   away_b2b     1.0        B played yesterday
-#   rest_edge    3.0        3 (A, capped) - 0 (B)
 #   avail_diff   0.0        both rotations fully healthy throughout
-#   travel_diff  -1765.98   0 (A, home stand) - 1765.98 (B, in from Denver)
-#   altitude     0.0        Boston is 20 feet above sea level
 
 GOLDEN_HISTORY = [
     game("g1", 0, "A", "C", 110, 100),
@@ -168,30 +155,18 @@ GOLDEN_HISTORY = [
     game("g4", 6, "B", "C", 99, 90),
     game("g5", 8, "D", "B", 100, 88),
 ]
-GOLDEN_CITIES = {
-    "g1": BOSTON,
-    "g2": DENVER,
-    "g3": BOSTON,
-    "g4": MIAMI,
-    "g5": DENVER,
-    "target": BOSTON,
-}
 GOLDEN_TARGET = matchup("target", 9, "A", "B")
 GOLDEN_AS_OF = at(9)
-DENVER_TO_BOSTON = 1765.9803786079297
 GOLDEN_EXPECTED = {
     "elo_diff": 24.5659385477843,
     "home_b2b": 0.0,
     "away_b2b": 1.0,
-    "rest_edge": 3.0,
     "avail_diff": 0.0,
-    "travel_diff": -DENVER_TO_BOSTON,
-    "altitude": 0.0,
 }
 
 
 def golden_context(**kwargs) -> Context:
-    return ctx(GOLDEN_HISTORY, cities=GOLDEN_CITIES, **kwargs)
+    return ctx(GOLDEN_HISTORY, **kwargs)
 
 
 def golden(context: Context | None = None) -> dict:
@@ -233,8 +208,7 @@ def test_the_phase_one_features_are_gone():
 
 def test_features_are_antisymmetric_when_the_target_sides_are_swapped():
     """Every difference feature is signed home-minus-away, so playing the same game the other way
-    round negates it. The two indicators swap rather than negate, and `altitude` is a property of
-    the venue and does not move.
+    round negates it. The two indicators swap rather than negate.
 
     Only the *target* is mirrored, not the history: MOV Elo's update applies the home adjustment to
     whichever side was at home, so mirroring completed games changes the ratings themselves and
@@ -244,11 +218,10 @@ def test_features_are_antisymmetric_when_the_target_sides_are_swapped():
     reverse = compute_features(
         golden_context(), matchup("target", 9, "B", "A"), GOLDEN_AS_OF
     )
-    for name in ("elo_diff", "rest_edge", "avail_diff", "travel_diff"):
+    for name in ("elo_diff", "avail_diff"):
         assert reverse[name] == pytest.approx(-forward[name]), name
     assert reverse["home_b2b"] == forward["away_b2b"]
     assert reverse["away_b2b"] == forward["home_b2b"]
-    assert reverse["altitude"] == forward["altitude"]
 
 
 # --- the leakage property test -------------------------------------------------------------------
@@ -318,25 +291,22 @@ def test_leakage_adding_games_and_player_rows_at_or_after_as_of_does_not_change_
     for trial in range(200):
         polluted = list(GOLDEN_HISTORY)
         people = participation(GOLDEN_HISTORY)
-        cities = dict(GOLDEN_CITIES)
         for n in range(rng.randint(1, 8)):
             future = _random_future_game(rng, trial * 10 + n, as_of_day=9, boundary=n == 0)
             polluted.append(future)
-            cities[future.game_id] = rng.choice([BOSTON, DENVER, MIAMI, MEXICO_CITY])
             for row in _future_rows(rng, future):
                 people.setdefault(row.player_id.split("-")[0], []).append(row)
         rng.shuffle(polluted)  # position in the sequence must not matter either
         for rows in people.values():
             rng.shuffle(rows)
-        context = Context(polluted, people, cities)
+        context = Context(polluted, people)
         assert compute_features(context, GOLDEN_TARGET, GOLDEN_AS_OF) == expected
 
 
 def test_leakage_control_a_game_before_as_of_does_change_the_features():
     """First control. Proves a *game* dated before the as-of moment actually reaches the output."""
     with_past = [*GOLDEN_HISTORY, game("past", 8.5, "A", "E", 130, 90)]
-    cities = {**GOLDEN_CITIES, "past": MIAMI}
-    assert compute_features(ctx(with_past, cities=cities), GOLDEN_TARGET, GOLDEN_AS_OF) != golden()
+    assert compute_features(ctx(with_past), GOLDEN_TARGET, GOLDEN_AS_OF) != golden()
 
 
 def test_leakage_control_a_player_row_before_as_of_does_change_the_features():
@@ -352,7 +322,7 @@ def test_leakage_control_a_player_row_before_as_of_does_change_the_features():
         for a in people["B"]
     ]
     polluted = compute_features(
-        ctx(GOLDEN_HISTORY, cities=GOLDEN_CITIES, appearances=people),
+        ctx(GOLDEN_HISTORY, appearances=people),
         GOLDEN_TARGET,
         GOLDEN_AS_OF,
     )
@@ -362,9 +332,8 @@ def test_leakage_control_a_player_row_before_as_of_does_change_the_features():
 def test_leakage_a_game_at_exactly_the_as_of_instant_is_excluded():
     """The filter is strict (`<`), not inclusive. This is the boundary the training case rests on."""
     boundary = [*GOLDEN_HISTORY, game("boundary", 9, "A", "E", 140, 80)]
-    cities = {**GOLDEN_CITIES, "boundary": DENVER}
     assert compute_features(
-        ctx(boundary, cities=cities), GOLDEN_TARGET, GOLDEN_AS_OF
+        ctx(boundary), GOLDEN_TARGET, GOLDEN_AS_OF
     ) == pytest.approx(GOLDEN_EXPECTED)
 
 
@@ -378,7 +347,7 @@ def test_leakage_a_player_row_at_exactly_the_as_of_instant_is_excluded():
             *[Appearance("target", at(9), f"{team}-p{i}", None, True) for i in range(ROTATION)],
         ]
     assert compute_features(
-        ctx(GOLDEN_HISTORY, cities=GOLDEN_CITIES, appearances=people),
+        ctx(GOLDEN_HISTORY, appearances=people),
         GOLDEN_TARGET,
         GOLDEN_AS_OF,
     ) == pytest.approx(GOLDEN_EXPECTED)
@@ -388,9 +357,8 @@ def test_leakage_a_game_one_microsecond_before_as_of_is_included():
     """...and the exclusion above is about the boundary itself, not a coarser day-level comparison
     that would also drop legitimate same-day earlier games."""
     just_before = [*GOLDEN_HISTORY, game("just-before", 9 - 1e-6 / 86400, "A", "E", 140, 80)]
-    cities = {**GOLDEN_CITIES, "just-before": DENVER}
     assert compute_features(
-        ctx(just_before, cities=cities), GOLDEN_TARGET, GOLDEN_AS_OF
+        ctx(just_before), GOLDEN_TARGET, GOLDEN_AS_OF
     ) != pytest.approx(GOLDEN_EXPECTED)
 
 
@@ -398,8 +366,7 @@ def test_leakage_a_completed_game_is_excluded_from_its_own_features():
     """The training case: `as_of` is the target's own tip-off and the target is in the history."""
     target = game("g6", 9, "A", "B", 150, 70)
     history = [*GOLDEN_HISTORY, target]
-    cities = {**GOLDEN_CITIES, "g6": BOSTON}
-    context = ctx(history, cities=cities)
+    context = ctx(history)
     got = compute_training_features(context, target)
     for name, value in GOLDEN_EXPECTED.items():
         # `elo_diff` is the one to watch: a 150-70 result would move it by tens of points.
@@ -415,7 +382,7 @@ def test_leakage_the_targets_own_row_dated_microseconds_early_cannot_reach_elo()
     id; the Elo timeline has to be told, and `exclude_game_id` is what tells it.
     """
     early = Game("target", at(9) - timedelta(microseconds=1), SEASON, "A", "B", 160, 60)
-    context = ctx([*GOLDEN_HISTORY, early], cities=GOLDEN_CITIES)
+    context = ctx([*GOLDEN_HISTORY, early])
     assert compute_features(context, GOLDEN_TARGET, GOLDEN_AS_OF)["elo_diff"] == pytest.approx(
         GOLDEN_EXPECTED["elo_diff"]
     )
@@ -432,7 +399,7 @@ def test_leakage_the_targets_own_player_rows_dated_microseconds_early_cannot_rea
             *[Appearance("target", early, f"{team}-p{i}", None, True) for i in range(ROTATION)],
         ]
     got = compute_features(
-        ctx(GOLDEN_HISTORY, cities=GOLDEN_CITIES, appearances=people), GOLDEN_TARGET, GOLDEN_AS_OF
+        ctx(GOLDEN_HISTORY, appearances=people), GOLDEN_TARGET, GOLDEN_AS_OF
     )
     assert got["avail_diff"] == pytest.approx(GOLDEN_EXPECTED["avail_diff"])
 
@@ -465,8 +432,7 @@ def test_the_as_of_filter_has_sub_day_granularity():
     """A whole-day comparison would let a game earlier the same day into a window it does not belong
     in, and keep one out that does."""
     same_day_earlier = [*GOLDEN_HISTORY, game("earlier", 8.9, "B", "E", 150, 70)]
-    cities = {**GOLDEN_CITIES, "earlier": MIAMI}
-    got = compute_features(ctx(same_day_earlier, cities=cities), GOLDEN_TARGET, GOLDEN_AS_OF)
+    got = compute_features(ctx(same_day_earlier), GOLDEN_TARGET, GOLDEN_AS_OF)
     assert got["elo_diff"] != pytest.approx(GOLDEN_EXPECTED["elo_diff"])
 
 
@@ -525,25 +491,30 @@ def test_elo_diff_omits_the_home_adjustment():
     assert forward != 0.0
 
 
-# --- rest: home_b2b, away_b2b, rest_edge (D-034) --------------------------------------------------
+# --- rest: home_b2b and away_b2b (D-034, reduced to the two indicators by T-030) -------------------
+#
+# `rest_edge` was the third of D-034's rest features and the dev ablation dropped it: removing the
+# whole rest block costs -.0081 mean AUC, removing `rest_edge` alone costs -.0001. The signal lives
+# in the indicators. What these tests now pin is the boundary the indicators sit on -- whether a team
+# played yesterday -- which is the only thing read off the rest calculation at all.
 
 
 @pytest.mark.parametrize(
-    ("previous_day", "expected_rest", "expected_b2b"),
+    ("previous_day", "expected_b2b"),
     [
-        (9.0, 0, 1.0),  # yesterday -- a back-to-back
-        (8.0, 1, 0.0),
-        (7.0, 2, 0.0),
-        (6.0, 3, 0.0),
-        (2.0, 3, 0.0),  # eight days: bucketed at the cap, not eight
+        (9.0, 1.0),  # yesterday -- a back-to-back
+        (8.0, 0.0),
+        (7.0, 0.0),
+        (6.0, 0.0),
+        (2.0, 0.0),  # eight days
     ],
 )
-def test_rest_is_whole_days_bucketed_at_the_cap(previous_day, expected_rest, expected_b2b):
+def test_the_indicator_fires_only_when_the_team_played_yesterday(previous_day, expected_b2b):
     history = [game("prev", previous_day, "A", "C", 110, 100), game("bprev", 9.0, "B", "D", 110, 100)]
     target = matchup("t", 10, "A", "B")
     got = compute_features(ctx(history, targets=[target]), target, at(10))
     assert got["home_b2b"] == expected_b2b
-    assert got["rest_edge"] == float(expected_rest - 0)  # B always played yesterday
+    assert got["away_b2b"] == 1.0  # B always played yesterday
 
 
 def test_the_two_back_to_back_indicators_are_independent():
@@ -552,7 +523,7 @@ def test_the_two_back_to_back_indicators_are_independent():
     history = [game("a", 9, "A", "C", 110, 100), game("b", 9.01, "B", "D", 110, 100)]
     target = matchup("t", 10, "A", "B")
     got = compute_features(ctx(history, targets=[target]), target, at(10))
-    assert (got["home_b2b"], got["away_b2b"], got["rest_edge"]) == (1.0, 1.0, 0.0)
+    assert (got["home_b2b"], got["away_b2b"]) == (1.0, 1.0)
 
 
 def test_a_late_tip_off_still_reads_as_a_back_to_back():
@@ -572,104 +543,65 @@ def test_a_late_tip_off_still_reads_as_a_back_to_back():
     assert got["home_b2b"] == 1.0
 
 
-def test_no_previous_game_reads_as_fully_rested_and_not_a_back_to_back():
-    """A season opener has no previous game at all. The cap produces the honest reading without a
-    special case, and the indicator must not fire on an absent gap."""
+def test_no_previous_game_is_not_a_back_to_back():
+    """A season opener has no previous game at all. `_rest_days` returns None there, and the indicator
+    must not fire on an absent gap -- which a numeric sentinel could do by accident if it were ever
+    chosen to be zero."""
     history = [game("bprev", 9, "B", "D", 110, 100)]
     target = matchup("t", 10, "A", "B")
     got = compute_features(ctx(history, targets=[target]), target, at(10))
     assert got["home_b2b"] == 0.0
-    assert got["rest_edge"] == float(REST_EDGE_CAP)
+    assert got["away_b2b"] == 1.0
 
 
-def test_rest_is_not_season_scoped_and_a_cross_season_gap_lands_on_the_cap():
-    """Deliberately unlike travel. A months-long gap reads honestly as "fully rested"; it does not
-    read honestly as "flew 2,400 miles", which is why only one of the two is season-scoped."""
+def test_rest_is_not_season_scoped_and_a_cross_season_gap_is_not_a_back_to_back():
+    """A months-long gap reads honestly as well rested, and needs no season boundary to say so."""
     history = [game("prev", 0, "A", "C", 110, 100), game("bprev", 129, "B", "D", 110, 100)]
     target = matchup("t", 130, "A", "B", season=SEASON + 1)
     got = compute_features(ctx(history, targets=[target]), target, at(130))
-    assert got["rest_edge"] == float(REST_EDGE_CAP - 0)
+    assert got["home_b2b"] == 0.0
 
 
 def test_rest_is_measured_to_tip_off_not_to_as_of():
-    """A prediction made days out still describes the rest the teams will have at tip-off."""
+    """A prediction made days out still describes the rest the teams will have at tip-off. B played on
+    day 9, so it is on a back-to-back for a day-10 tip-off however early the prediction is made."""
     history = [game("prev", 6, "A", "C", 110, 100), game("bprev", 9, "B", "D", 110, 100)]
     target = matchup("t", 10, "A", "B")
     context = ctx(history, targets=[target])
-    assert compute_features(context, target, at(10))["rest_edge"] == pytest.approx(
-        compute_features(context, target, at(9.5))["rest_edge"]
-    )
+    assert compute_features(context, target, at(10))["away_b2b"] == 1.0
+    assert compute_features(context, target, at(9.5))["away_b2b"] == 1.0
 
 
-# --- travel_diff (D-036) -------------------------------------------------------------------------
+# --- travel_diff and altitude: dropped by T-030's ablation --------------------------------------
+#
+# Both were built in T-028, measured on the dev seasons under a rule committed before the numbers
+# existed, and removed: dropping the pair was worth +.0001 mean AUC, and `altitude` alone scored
+# +.0007 to remove. Their tests went with them rather than being kept as tests of dead code.
+#
+# The deletion reached further than the feature list. They were the only readers of the venue table,
+# so `Context` no longer takes one -- which is why there is no venue anywhere in this file any more.
+# That is deliberate and is asserted below: a required input that no feature reads is a step that can
+# fail for no benefit, and `venues.city_for` is by design a step that can fail.
 
 
-def test_travel_is_zero_for_a_home_stand():
-    history = [game("prev", 8, "A", "C", 110, 100), game("bprev", 8, "B", "D", 110, 100)]
-    target = matchup("t", 10, "A", "B")
-    cities = {"prev": BOSTON, "bprev": BOSTON, "t": BOSTON}
-    assert compute_features(ctx(history, cities=cities, targets=[target]), target, at(10))[
-        "travel_diff"
-    ] == 0.0
+def test_the_context_requires_no_venue_because_no_feature_reads_one():
+    """The structural half of T-030's drop.
+
+    A Context builds from games and participation alone. If a venue map ever becomes required again,
+    it must be because a feature reads it -- and this is what makes adding one back a visible
+    decision rather than a quiet re-coupling of the prediction path to a lookup that can raise.
+    """
+    import inspect
+
+    params = set(inspect.signature(Context.__init__).parameters)
+    assert params == {"self", "history", "appearances", "elo_config", "availability_config"}
+    assert Context(GOLDEN_HISTORY, participation(GOLDEN_HISTORY)) is not None
 
 
-def test_travel_diff_is_negative_when_the_away_team_flew_further():
-    """Signed home-minus-away like every other difference here, so the coefficient is expected to be
-    negative: travel is a cost, and the sign convention is about orientation, not about which way is
-    good."""
-    history = [game("prev", 8, "A", "C", 110, 100), game("bprev", 8, "B", "D", 110, 100)]
-    target = matchup("t", 10, "A", "B")
-    cities = {"prev": BOSTON, "bprev": DENVER, "t": BOSTON}
-    got = compute_features(ctx(history, cities=cities, targets=[target]), target, at(10))
-    assert got["travel_diff"] == pytest.approx(-DENVER_TO_BOSTON)
-    assert DENVER_TO_BOSTON == pytest.approx(distance_miles(DENVER, BOSTON))
-
-
-def test_travel_is_season_scoped_so_a_season_opener_carries_none():
-    """The offseason case. Last season's last game was in Denver; the flight home happened four
-    months ago and is not fatigue. Rest deliberately does *not* work this way -- see its test."""
-    history = [game("prev", 0, "D", "A", 110, 100), game("bprev", 129, "B", "C", 110, 100)]
-    target = matchup("t", 130, "A", "B", season=SEASON + 1)
-    cities = {"prev": DENVER, "bprev": BOSTON, "t": BOSTON}
-    got = compute_features(ctx(history, cities=cities, targets=[target]), target, at(130))
-    assert got["travel_diff"] == 0.0
-
-
-def test_a_history_game_without_a_city_is_refused_at_construction():
-    """Loudly, once, rather than 6,000 times as a quiet zero."""
-    with pytest.raises(FeatureInputError, match="no venue city"):
-        Context(GOLDEN_HISTORY, participation(GOLDEN_HISTORY), {"g1": BOSTON})
-
-
-def test_a_target_without_a_city_is_refused_at_computation():
-    context = ctx(GOLDEN_HISTORY, cities={g.game_id: BOSTON for g in GOLDEN_HISTORY})
-    with pytest.raises(FeatureInputError, match="no venue city in this Context"):
-        compute_features(context, GOLDEN_TARGET, GOLDEN_AS_OF)
-
-
-# --- altitude (D-036) ----------------------------------------------------------------------------
-
-
-def test_altitude_fires_at_denver_and_not_at_boston():
-    history = [game("prev", 8, "A", "C", 110, 100), game("bprev", 8, "B", "D", 110, 100)]
-    target = matchup("t", 10, "A", "B")
-    for city, expected in ((DENVER, 1.0), (BOSTON, 0.0)):
-        cities = {"prev": city, "bprev": city, "t": city}
-        got = compute_features(ctx(history, cities=cities, targets=[target]), target, at(10))
-        assert got["altitude"] == expected, city.name
-
-
-def test_altitude_does_not_fire_at_a_high_altitude_neutral_site():
-    """Mexico City is 7,350 feet and is in this corpus. The feature's content is the *asymmetry* --
-    at Denver the visitor is the unacclimated side, which is a home advantage the model can price.
-    At a neutral site both teams flew in, the elevation affects them equally, and it says nothing
-    about who wins."""
-    history = [game("prev", 8, "A", "C", 110, 100), game("bprev", 8, "B", "D", 110, 100)]
-    target = matchup("t", 10, "A", "B", neutral=True)
-    cities = {"prev": BOSTON, "bprev": BOSTON, "t": MEXICO_CITY}
-    assert MEXICO_CITY.is_high_altitude
-    got = compute_features(ctx(history, cities=cities, targets=[target]), target, at(10))
-    assert got["altitude"] == 0.0
+def test_the_dropped_features_are_neither_emitted_nor_accepted():
+    assert not {"travel_diff", "altitude"} & set(golden())
+    with pytest.raises(FeatureInputError, match="unexpected="):
+        to_vector({**{n: 0.0 for n in FEATURE_NAMES}, "travel_diff": 1.0})
 
 
 # --- avail_diff (D-035) --------------------------------------------------------------------------
@@ -756,7 +688,7 @@ def test_a_team_with_no_participation_records_is_refused():
     people = participation(GOLDEN_HISTORY)
     del people["B"]
     with pytest.raises(FeatureInputError, match="no participation records"):
-        Context(GOLDEN_HISTORY, people, GOLDEN_CITIES)
+        Context(GOLDEN_HISTORY, people)
 
 
 def test_the_availability_config_is_honoured_through_the_context():
@@ -801,20 +733,13 @@ def test_a_context_subclass_is_refused():
     class Sneaky(Context):
         pass
 
-    sneaky = Sneaky(GOLDEN_HISTORY, participation(GOLDEN_HISTORY), GOLDEN_CITIES)
+    sneaky = Sneaky(GOLDEN_HISTORY, participation(GOLDEN_HISTORY))
     with pytest.raises(FeatureInputError, match="subclasses Context"):
         compute_features(sneaky, GOLDEN_TARGET, GOLDEN_AS_OF)
 
 
-def test_game_cities_must_contain_cities():
-    with pytest.raises(FeatureInputError, match="must be a venues.City"):
-        Context(GOLDEN_HISTORY, participation(GOLDEN_HISTORY),
-                {**GOLDEN_CITIES, "g1": "Boston"})
 
 
-def test_game_cities_must_be_a_mapping():
-    with pytest.raises(FeatureInputError, match="must be a Mapping"):
-        Context(GOLDEN_HISTORY, participation(GOLDEN_HISTORY), [("g1", BOSTON)])
 
 
 def test_the_context_is_reusable_and_repeated_calls_are_identical():
@@ -827,14 +752,14 @@ def test_the_context_is_reusable_and_repeated_calls_are_identical():
 def test_history_order_does_not_change_the_result():
     shuffled = list(reversed(GOLDEN_HISTORY))
     assert compute_features(
-        ctx(shuffled, cities=GOLDEN_CITIES), GOLDEN_TARGET, GOLDEN_AS_OF
+        ctx(shuffled), GOLDEN_TARGET, GOLDEN_AS_OF
     ) == golden()
 
 
 def test_the_module_does_not_mutate_the_history_it_is_given():
     history = list(GOLDEN_HISTORY)
     before = list(history)
-    compute_features(ctx(history, cities=GOLDEN_CITIES), GOLDEN_TARGET, GOLDEN_AS_OF)
+    compute_features(ctx(history), GOLDEN_TARGET, GOLDEN_AS_OF)
     assert history == before
 
 
@@ -846,9 +771,9 @@ def test_a_prebuilt_index_is_equivalent_to_the_raw_sequence():
     passing the games -- there is no "already filtered" state to build once and reuse."""
     prebuilt = GameHistory(GOLDEN_HISTORY)
     assert compute_features(
-        ctx(GOLDEN_HISTORY, cities=GOLDEN_CITIES), GOLDEN_TARGET, GOLDEN_AS_OF
+        ctx(GOLDEN_HISTORY), GOLDEN_TARGET, GOLDEN_AS_OF
     ) == compute_features(
-        Context(prebuilt, participation(GOLDEN_HISTORY), GOLDEN_CITIES),
+        Context(prebuilt, participation(GOLDEN_HISTORY)),
         GOLDEN_TARGET,
         GOLDEN_AS_OF,
     )
@@ -865,7 +790,7 @@ def test_a_game_history_subclass_cannot_bypass_the_as_of_filter():
             return self._records.get(team, ())
 
     with pytest.raises(FeatureInputError, match="subclasses GameHistory"):
-        Context(Leaky(GOLDEN_HISTORY), participation(GOLDEN_HISTORY), GOLDEN_CITIES)
+        Context(Leaky(GOLDEN_HISTORY), participation(GOLDEN_HISTORY))
 
 
 def test_naive_datetimes_are_refused_everywhere_they_could_enter():
@@ -938,7 +863,7 @@ def test_a_game_id_collision_against_a_different_opponent_is_refused():
     """F-068: the exclusion must not be a blunt id match. Dropping any record sharing the target's
     id made the control fail OPEN -- it silently deleted a real historical game from both windows."""
     collision = Game("target", at(3), SEASON, "A", "E", 130, 90)
-    context = ctx([*GOLDEN_HISTORY, collision], cities={**GOLDEN_CITIES, "target": BOSTON})
+    context = ctx([*GOLDEN_HISTORY, collision])
     with pytest.raises(FeatureInputError, match="game ids must identify one game"):
         compute_features(context, GOLDEN_TARGET, GOLDEN_AS_OF)
 
@@ -949,7 +874,7 @@ def test_index_is_a_function_of_the_set_of_games_not_their_order():
     for _ in range(20):
         shuffled = list(GOLDEN_HISTORY)
         rng.shuffle(shuffled)
-        assert compute_features(ctx(shuffled, cities=GOLDEN_CITIES), GOLDEN_TARGET, GOLDEN_AS_OF) == expected
+        assert compute_features(ctx(shuffled), GOLDEN_TARGET, GOLDEN_AS_OF) == expected
 
 
 def test_neutral_site_defaults_to_false_on_both_types():
@@ -965,30 +890,28 @@ def test_an_incomplete_history_silently_returns_priors_when_it_declares_nothing(
     perfectly ordinary-looking vector -- which is why the declaration, not the symptom, is the check.
     """
     without_b = [g for g in GOLDEN_HISTORY if "B" not in (g.home_id, g.away_id)]
-    cities = {g.game_id: GOLDEN_CITIES[g.game_id] for g in without_b}
-    cities["target"] = BOSTON
     people = participation(without_b)
     people["B"] = []
-    got = compute_features(Context(without_b, people, cities), GOLDEN_TARGET, GOLDEN_AS_OF)
+    got = compute_features(Context(without_b, people), GOLDEN_TARGET, GOLDEN_AS_OF)
     assert set(got) == set(FEATURE_NAMES)
     assert got != golden()
 
 
 def test_a_team_narrowed_history_refuses_a_target_it_does_not_cover():
     coverage = Coverage(teams=frozenset({"A", "C", "D"}))
-    context = ctx(GOLDEN_HISTORY, cities=GOLDEN_CITIES, coverage=coverage)
+    context = ctx(GOLDEN_HISTORY, coverage=coverage)
     with pytest.raises(FeatureInputError, match="does not include"):
         compute_features(context, GOLDEN_TARGET, GOLDEN_AS_OF)
 
 
 def test_a_team_narrowed_history_still_computes_the_teams_it_does_cover():
     coverage = Coverage(teams=frozenset({"A", "B", "C", "D"}))
-    context = ctx(GOLDEN_HISTORY, cities=GOLDEN_CITIES, coverage=coverage)
+    context = ctx(GOLDEN_HISTORY, coverage=coverage)
     assert compute_features(context, GOLDEN_TARGET, GOLDEN_AS_OF) == golden()
 
 
 def test_declaring_an_empty_coverage_is_identical_to_declaring_nothing():
-    context = ctx(GOLDEN_HISTORY, cities=GOLDEN_CITIES, coverage=Coverage())
+    context = ctx(GOLDEN_HISTORY, coverage=Coverage())
     assert compute_features(context, GOLDEN_TARGET, GOLDEN_AS_OF) == golden()
 
 
@@ -996,21 +919,21 @@ def test_a_history_declaring_a_start_is_refused_because_lookback_is_unbounded():
     """Blunt on purpose: rest is not season-scoped and `elo_diff` is running state over every prior
     season including D-037's warm-up, so no lower bound is ever sufficient."""
     coverage = Coverage(complete_from=at(-30))
-    context = ctx(GOLDEN_HISTORY, cities=GOLDEN_CITIES, coverage=coverage)
+    context = ctx(GOLDEN_HISTORY, coverage=coverage)
     with pytest.raises(FeatureInputError, match="cannot support features that look back"):
         compute_features(context, GOLDEN_TARGET, GOLDEN_AS_OF)
 
 
 def test_an_as_of_past_the_declared_record_end_is_refused():
     coverage = Coverage(complete_to=at(8.5))
-    context = ctx(GOLDEN_HISTORY, cities=GOLDEN_CITIES, coverage=coverage)
+    context = ctx(GOLDEN_HISTORY, coverage=coverage)
     with pytest.raises(FeatureInputError, match="declared record end"):
         compute_features(context, GOLDEN_TARGET, GOLDEN_AS_OF)
 
 
 def test_the_complete_to_boundary_is_inclusive_at_the_exact_instant():
     coverage = Coverage(complete_to=GOLDEN_AS_OF)
-    context = ctx(GOLDEN_HISTORY, cities=GOLDEN_CITIES, coverage=coverage)
+    context = ctx(GOLDEN_HISTORY, coverage=coverage)
     assert compute_features(context, GOLDEN_TARGET, GOLDEN_AS_OF) == golden()
 
 
@@ -1062,22 +985,16 @@ def test_to_vector_order_is_pinned_to_literals_not_to_feature_names():
         "elo_diff",
         "home_b2b",
         "away_b2b",
-        "rest_edge",
         "avail_diff",
-        "travel_diff",
-        "altitude",
     )
     assert to_vector(
         {
             "elo_diff": 1.0,
             "home_b2b": 2.0,
             "away_b2b": 3.0,
-            "rest_edge": 4.0,
-            "avail_diff": 5.0,
-            "travel_diff": 6.0,
-            "altitude": 7.0,
+            "avail_diff": 4.0,
         }
-    ) == (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0)
+    ) == (1.0, 2.0, 3.0, 4.0)
 
 
 def test_to_vector_refuses_a_mapping_that_does_not_match_the_contract():
@@ -1098,7 +1015,7 @@ def test_to_vector_refuses_non_finite_and_non_numeric_values():
 def test_compute_training_features_uses_the_tip_off_instant_exactly():
     """The rule with no parameter: a training loop cannot pick a leaky as-of because it picks none."""
     target = game("g6", 9, "A", "B", 150, 70)
-    context = ctx([*GOLDEN_HISTORY, target], cities={**GOLDEN_CITIES, "g6": BOSTON})
+    context = ctx([*GOLDEN_HISTORY, target])
     assert compute_training_features(context, target) == compute_features(
         context, target.matchup, target.date
     )

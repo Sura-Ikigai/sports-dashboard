@@ -511,5 +511,9 @@ def load_context(conn: sa.Connection, *, teams: Iterable[str] | None = None) -> 
     # its map against the history's teams, and a team-narrowed history still contains the *opponents*
     # of every game those teams played. Loading all participation is the honest way to satisfy that;
     # it is one query either way.
-    appearances = load_appearances(conn)
-    return Context(history, appearances, load_game_cities(conn))
+    #
+    # T-030 removed the venue join from here. `load_game_cities` is still supported and still tested
+    # -- travel and elevation are worth *showing* on a game page -- but no feature reads one any
+    # more, and a Context that required a venue would make an unresolvable city (T-031's Manchester
+    # fixture, its five NBA Cup placeholder rows) fatal to a prediction that does not depend on it.
+    return Context(history, load_appearances(conn))

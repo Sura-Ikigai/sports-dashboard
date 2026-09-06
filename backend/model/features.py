@@ -14,22 +14,47 @@ to be reproducible from committed code.
   home_b2b      1.0 when the home team played the previous day (zero days of rest), else 0.0.
   away_b2b      The same for the away team. Separate indicators on purpose (user story 7): whether
                 a back-to-back costs the two sides equally is a thing to measure, not assume.
-  rest_edge     Home minus away days of rest, each bucketed at `REST_EDGE_CAP`. Integer in
-                [-3, 3]. Together with the two indicators this is D-034's re-encoding of the old
-                capped-linear `rest_diff`, whose single slope had to serve both the 0-day cliff and
-                the flat region past it.
   avail_diff    Home minus away lagged rotation availability (D-035). The only genuinely new
                 factor -- it correlates with `elo_diff` at just +.255, against the .87-.92 band that
                 made the Phase 1 features three measurements of one thing.
-  travel_diff   Home minus away miles travelled since each team's previous game of this season
-                (D-036). Signed home-minus-away like every other difference here, so its
-                coefficient is expected to be *negative*: travel is a cost, and the sign convention
-                is about orientation, not about which way is good.
-  altitude      1.0 when this game is played at a high-elevation venue and is not at a neutral site.
 
 `form_diff` and `home_advantage` are gone (D-033). Form was a worse ruler for what Elo now measures.
 Home advantage was never identifiable (D-024) -- a column of 1.0 differing from the intercept by a
 constant -- and it lives in the intercept, where it always did.
+
+## Three features were built, measured, and dropped (T-030)
+
+D-034 asked for rest as two back-to-back indicators **plus** a bucketed `rest_edge`, and T-028 built
+all three. The dev ablation split them apart: removing the whole rest **block** costs -.0081 mean
+AUC, while removing `rest_edge` alone costs **-.0001** and *raises* accuracy. The rest signal is
+real and it lives in the two indicators; `rest_edge` was absorbed by them, which is what a ±.47
+correlation predicts.
+
+That leaves D-034's actual intent satisfied. Its purpose was that *"the 0-day cliff gets its own
+coefficient instead of sharing a slope with a flat region"* -- the indicators **are** the cliff, and
+the measurement says the flat region past it carries nothing.
+
+Dropping it was a decision taken **after** seeing the ablation, which the pre-registered protocol
+(T-030 rule 2) reserved for the owner precisely because it is post-hoc selection. It was taken by the
+owner, on the record, and it is recorded as a deviation rather than folded into the protocol as
+though the rule had allowed it. The risk it carries is small and bounded -- the two candidate sets
+differ by .0001 dev AUC -- but "small" is not "none", and T-035 reports it as what it was.
+
+## `travel_diff` and `altitude` were built, measured, and dropped (T-030)
+
+D-036 asked for both and T-028 built both. The ablation on the dev seasons -- run under a rule
+committed before the numbers existed -- measured removing the pair at **+.0001 mean AUC**: not a cost
+at all. `altitude` alone scored **+.0007** to remove, i.e. it was very slightly *hurting*. So they are
+gone, and the deletion goes further than the feature list: they were the only readers of the venue
+table, so `Context` no longer takes one.
+
+That is not tidiness. Resolving a venue is a step that can **fail** -- `venues.city_for` has no
+fallback, by design -- and T-031's live 2027 schedule contains a game in Manchester, which the table
+does not know, plus five NBA Cup placeholder rows with no venue at all. Keeping the lookup would
+mean the scheduled-prediction job crashing on a UK fixture in order to compute a feature the model
+does not use. `venues.py` and `store.load_game_cities` are untouched and still tested: travel and
+elevation are worth *showing* on a game page even when the model does not price them. They are
+simply no longer on the path that has to succeed for a prediction to exist.
 
 ## The Context, and why the as-of filter had to move up a level
 
@@ -126,11 +151,9 @@ from .records import (
     Matchup,
     _require_aware,
 )
-from .venues import City, distance_miles
 
 __all__ = [
     "FEATURE_NAMES",
-    "REST_EDGE_CAP",
     "Context",
     "Coverage",
     "FeatureError",
@@ -146,13 +169,6 @@ __all__ = [
 
 # --- tuning constants (D-034; grounded in the measured 2022-2026 schedule) ------------------------
 
-# Days of rest are bucketed at three. Measured over 2022-2026: the median gap between a team's
-# consecutive games is 2.0 days, p95 is 3.9, and only 2.3% of gaps reach 5. Past three days the
-# marginal day stops being rest and starts being schedule structure, and the sample supporting a
-# distinction is thin. The cap also removes any need for a special case at a season's first game --
-# "fully rested" is the honest reading of a months-long gap, and the cap produces it.
-REST_EDGE_CAP: int = 3
-
 # A back-to-back is zero days of rest: two games on consecutive days.
 _B2B_REST_DAYS: int = 0
 
@@ -164,10 +180,7 @@ FEATURE_NAMES: tuple[str, ...] = (
     "elo_diff",
     "home_b2b",
     "away_b2b",
-    "rest_edge",
     "avail_diff",
-    "travel_diff",
-    "altitude",
 )
 
 
@@ -462,8 +475,8 @@ class GameHistory:
             )
 
 
-def _rest_days(records: tuple[_TeamGame, ...], tip_off: datetime) -> int:
-    """Whole days of rest before `tip_off`, bucketed into [0, REST_EDGE_CAP].
+def _rest_days(records: tuple[_TeamGame, ...], tip_off: datetime) -> int | None:
+    """Whole days of rest before `tip_off`, or `None` when the team has no previous game.
 
     **Elapsed hours rounded to days, not a difference of calendar dates.** Every date in this
     pipeline is UTC, and a 10:30pm Eastern tip-off is already the next day in UTC -- so differencing
@@ -479,39 +492,19 @@ def _rest_days(records: tuple[_TeamGame, ...], tip_off: datetime) -> int:
     and keys predictions by `as_of` instead of updating a row in place. Computing it from `as_of`
     would hide that by making the number self-consistently meaningless instead of visibly wrong.
 
-    Not season-scoped, and needs no empty-history case: the previous season\'s last game, or no game
-    at all, both land on the cap, which reads as fully rested.
+    Not season-scoped: a months-long gap reads honestly as "well rested", and the only thing read off
+    this number now is whether it is zero.
+
+    `None` for "no previous game" rather than a large sentinel. Until T-030 this returned a capped
+    value, and the cap did double duty -- bounding `rest_edge` and standing in for "fully rested" at a
+    season opener. With `rest_edge` dropped, nothing reads the magnitude any more, so a cap would be a
+    bound on a number no feature consumes: a guarded-looking path that guards nothing, which is
+    F-060\'s shape. `None` says what is actually true, and the caller has to handle it.
     """
     if not records:
-        return REST_EDGE_CAP
+        return None
     elapsed_days = (tip_off - records[-1].date).total_seconds() / _SECONDS_PER_DAY
-    return min(max(round(elapsed_days) - 1, 0), REST_EDGE_CAP)
-
-
-def _travel_miles(
-    records: tuple[_TeamGame, ...], destination: City, season: int, cities: Mapping[str, City]
-) -> float:
-    """Miles from the team\'s previous game **of this season** to `destination`.
-
-    Season-scoped, unlike rest, and for the opposite reason. A months-long gap reads honestly as
-    "fully rested", so rest needs no season boundary; it does not read honestly as "flew 2,400
-    miles", so travel does. A season\'s first game carries no accumulated travel and returns 0.0 --
-    which is a real claim about the world, not a fallback for missing data. Missing data is refused
-    at `Context` construction, where a game with no venue is an error rather than a silent zero.
-    """
-    if not records:
-        return 0.0
-    previous = records[-1]
-    if previous.season != season:
-        return 0.0
-    origin = cities.get(previous.game_id)
-    if origin is None:
-        raise FeatureInputError(
-            f"game {previous.game_id!r} is in the history but has no venue in this Context -- "
-            "travel has no fallback, and a silent 0.0 would read as a home stand. Build the "
-            "Context with a city for every game its history contains."
-        )
-    return distance_miles(origin, destination)
+    return max(round(elapsed_days) - 1, 0)
 
 
 class Context:
@@ -523,13 +516,18 @@ class Context:
     the whole point: the as-of filter is now the integrity control for three sources rather than one,
     and the cheapest way to apply it uniformly is to make an un-filtered read impossible to express.
 
-    ## Why all three are required rather than optional
+    ## Why participation is required rather than optional
 
-    An optional participation map would default `avail_diff` to 0.0 and an optional venue map would
-    default `travel_diff` to 0.0, and both zeros are values the feature legitimately takes -- a
-    perfectly healthy pair of teams, a home stand. So a caller who forgot to load the box scores
-    would get a feature vector that is wrong in a way nothing downstream can detect, which is the
-    silent-failure shape F-045 and F-113 both closed other routes to. There is no partial Context.
+    An optional participation map would default `avail_diff` to 0.0 -- which is a value the feature
+    legitimately takes, a perfectly healthy pair of teams. So a caller who forgot to load the box
+    scores would get a feature vector that is wrong in a way nothing downstream can detect, which is
+    the silent-failure shape F-045 and F-113 both closed other routes to. There is no partial
+    Context.
+
+    It carried a venue map too until T-030, when the ablation dropped the only two features that read
+    one. What a Context requires is exactly what the features read -- no more, because a required
+    input nothing consumes is a step that can fail for no benefit, and `venues.city_for` is
+    deliberately a step that can fail.
 
     Args:
         history: every completed game available, as a **sequence** of `Game` records (list or tuple
@@ -541,43 +539,20 @@ class Context:
         appearances: `team_id` -> that team\'s `availability.Appearance` records, over the same
             games. Must cover every team the history does; a team missing here would silently read
             as league-average availability forever.
-        game_cities: `game_id` -> the `venues.City` the game was played in, for every game in the
-            history. Resolving cities here rather than per feature means an unknown venue fails once,
-            loudly, at construction -- rather than 6,000 times, quietly, as zero travel.
     """
 
-    __slots__ = ("_availability", "_cities", "_elo", "_history")
+    __slots__ = ("_availability", "_elo", "_history")
 
     def __init__(
         self,
         history: GameHistory | Sequence[Game],
         appearances: Mapping[str, Sequence[availability_module.Appearance]],
-        game_cities: Mapping[str, City],
         *,
         elo_config: elo_module.EloConfig | None = None,
         availability_config: availability_module.AvailabilityConfig | None = None,
     ) -> None:
         index = GameHistory.of(history)
         games = index.games
-
-        if not isinstance(game_cities, Mapping):
-            raise FeatureInputError(
-                f"game_cities must be a Mapping of game id -> City, got "
-                f"{type(game_cities).__name__}"
-            )
-        for game_id, city in game_cities.items():
-            if not isinstance(city, City):
-                raise FeatureInputError(
-                    f"game_cities[{game_id!r}] must be a venues.City, got {type(city).__name__}"
-                )
-        missing = [game.game_id for game in games if game.game_id not in game_cities]
-        if missing:
-            # Loud, once, at construction -- see the class docstring. `travel_diff` has no fallback.
-            raise FeatureInputError(
-                f"{len(missing)} game(s) in the history have no venue city (first few: "
-                f"{sorted(missing)[:5]}). Travel is measured from the previous game\'s venue and a "
-                "missing one would read as a home stand, so it is refused rather than defaulted."
-            )
 
         history_teams = index.teams
         absent = sorted(history_teams - set(appearances))
@@ -590,7 +565,6 @@ class Context:
             )
 
         self._history = index
-        self._cities = dict(game_cities)
         self._elo = elo_module.Timeline(
             games, config=elo_config if elo_config is not None else elo_module.DEFAULT_CONFIG
         )
@@ -646,8 +620,8 @@ def compute_features(context: Context, target: Matchup, as_of: datetime) -> dict
         A dict keyed by exactly `FEATURE_NAMES`.
 
     Raises:
-        FeatureInputError: naive `as_of`, wrong target type, a malformed or under-covering Context,
-            or a venue this Context cannot resolve.
+        FeatureInputError: naive `as_of`, wrong target type, or a malformed or under-covering
+            Context.
         FeatureLeakageError: `as_of` is after `target.date`.
     """
     if not isinstance(target, Matchup):
@@ -671,14 +645,6 @@ def compute_features(context: Context, target: Matchup, as_of: datetime) -> dict
     # incomplete history yields priors, and priors are what a legitimate opening night looks like.
     index._require_covers(target, as_of)
 
-    destination = context._cities.get(target.game_id)
-    if destination is None:
-        raise FeatureInputError(
-            f"game {target.game_id!r} has no venue city in this Context -- `travel_diff` and "
-            "`altitude` are both read off the venue, and neither has a defensible default. Include "
-            "the target\'s venue when building the Context."
-        )
-
     home = index._records_before(target.home_id, as_of, target.game_id, target.away_id)
     away = index._records_before(target.away_id, as_of, target.game_id, target.home_id)
 
@@ -695,21 +661,8 @@ def compute_features(context: Context, target: Matchup, as_of: datetime) -> dict
         ),
         "home_b2b": 1.0 if home_rest == _B2B_REST_DAYS else 0.0,
         "away_b2b": 1.0 if away_rest == _B2B_REST_DAYS else 0.0,
-        "rest_edge": float(home_rest - away_rest),
         "avail_diff": context._availability.difference_before(
             target.home_id, target.away_id, as_of, exclude_game_id=target.game_id
-        ),
-        "travel_diff": (
-            _travel_miles(home, destination, target.season, context._cities)
-            - _travel_miles(away, destination, target.season, context._cities)
-        ),
-        # An indicator on the venue, not a difference -- there is no "away altitude" to subtract.
-        # Neutral sites are excluded because the feature\'s content is the *asymmetry*: at Denver the
-        # visitor is the unacclimated side, which is a home-team advantage the model can price. At
-        # Mexico City (7,350 ft, and in this corpus) both teams flew in, so the elevation affects
-        # them equally and carries no information about who wins.
-        "altitude": (
-            1.0 if destination.is_high_altitude and not target.neutral_site else 0.0
         ),
     }
 

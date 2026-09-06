@@ -929,7 +929,7 @@ skip must be justified in the task's outcome rather than discovered later.
   is required regardless of whether the warm-up is kept, and `elo`'s open question about the
   2019 → 2022 carryover gap is now known to be worth even less than it looked.
 
-- [ ] **T-030** Refit, the single 2026 evaluation, and freeze — owner: `backend-engineer`
+- [x] **T-030** Refit, the single 2026 evaluation, and freeze — owner: `backend-engineer` — **DONE 2026-09-05**
   - acceptance: feature selection performed on 2024/2025 only; the feature set frozen and committed
     before 2026 is touched; **exactly one** evaluation run against 2026; per-fold accuracy, log loss
     and AUC reported with the ablation; versioned JSON artifact emitted
@@ -947,6 +947,132 @@ skip must be justified in the task's outcome rather than discovered later.
        magnitude than `rest_edge`'s* +.027, which is not a candidate for removal. So the ablation on
        2024/2025 decides, with removal as the standing prior: drop unless leaving them out measurably
        hurts, and report the number either way before the set is frozen.
+  - **built:** `backend/model/selection.py`, `backend/model/run_evaluation.py` rewritten,
+    `backend/tests/test_selection.py` and `backend/tests/test_run_evaluation.py` (+22 tests).
+    **554 backend tests pass with zero skips**, ruff clean. Results committed at
+    `docs/results/t030-ablation-dev.json`, `t030-walk-forward.json`, `t030-sealed-runs.jsonl`.
+
+  ### THE HEADLINE — the sealed 2026 season, model `c97a9b14ddd5`
+
+  | | measured | bar | |
+  |---|---|---|---|
+  | **Accuracy** | **.6800** | ≥ .62 | **MET** |
+  | **Log loss** | **.6005** | < .6870 (constant .55534) | **MET** |
+  | AUC | .7319 | — | |
+
+  **Both halves of D-008 met.** Four features: `elo_diff`, `home_b2b`, `away_b2b`, `avail_diff`.
+
+  ### And the honest comparison, which is the part that matters
+
+  The plan's stated expectation was **AUC .7323 → ~.745**. That did not happen.
+
+  | | Phase 1 | this cycle | Δ |
+  |---|---|---|---|
+  | sealed accuracy | .6762 | **.6800** | **+.0038** |
+  | sealed log loss | .6020 | **.6005** | **-.0015** |
+  | sealed AUC | .7323 | .7319 | **-.0004** |
+
+  On the headline metric the two models are **the same model to three decimal places**. +.0038
+  accuracy is five games out of 1,322. Anyone reading only this table should conclude the rebuild
+  bought nothing, and on the sealed season that reading is correct.
+
+  ### Where it did buy something
+
+  | fold | P1 accuracy | v2 accuracy | P1 AUC | v2 AUC |
+  |---|---|---|---|---|
+  | train 22-23 → test 2024 | .6444 | **.6664** | .7083 | **.7254** |
+  | train 22-24 → test 2025 | .6503 | **.6707** | .7138 | **.7265** |
+  | train 22-25 → test 2026 *(sealed)* | .6762 | **.6800** | .7323 | .7319 |
+  | **spread / stdev** | .0318 / .0169 | **.0136 / .0070** | | |
+
+  Two things are visible here and neither is in the headline.
+
+  **The v2 model is far better on less data.** +.0220 and +.0204 accuracy on folds 1 and 2. Phase 1
+  climbed steeply as its training window grew (.6444 → .6762) and had caught up by fold 3; v2 starts
+  near its ceiling and climbs gently (.6664 → .6800). The rebuild made the model **data-efficient**,
+  and the sealed fold is precisely the fold where that advantage has been spent.
+
+  **Fold-to-fold variance more than halved** — stdev .0169 → .0070. A model whose accuracy swings
+  three points between seasons is a model whose single-season number is substantially luck. D-013
+  bought three folds specifically to see this, and this is the clearest thing the three folds have
+  ever shown.
+
+  The implication for D-017's 2026-27 trial is worth stating plainly: **the ceiling on this problem
+  with pre-game features of this kind is around .73 AUC**, and more seasons of training data will not
+  move it. Both models converge there from different directions. Headroom, if it exists, is in a
+  different *class* of input — the out-of-scope list names them — not in better features of this one.
+
+  ### Availability did not return nothing
+
+  The plan hedged that it might. It did not: `avail_diff` is the second-largest contributor after Elo
+  (leave-one-out -.0031 mean dev AUC), and **its coefficient nearly triples across the folds**:
+
+  | | 2024 | 2025 | 2026 |
+  |---|---|---|---|
+  | `elo_diff` | +.5547 | +.6649 | +.7124 |
+  | `home_b2b` | -.1352 | -.1446 | -.1510 |
+  | `away_b2b` | +.1249 | +.1301 | +.1334 |
+  | `avail_diff` | +.0563 | +.0793 | **+.1279** |
+  | intercept | +.2797 | +.2615 | +.2501 |
+
+  Every sign is the one the design predicted, on a season the model had never seen. The b2b pair
+  stays asymmetric at every fold (-.151 against +.133 on the sealed one), which is user story 7
+  answered with data rather than assumption. What returned nothing was the *aggregate* gain on 2026
+  — not the factor.
+
+  ### Calibration on the sealed season
+
+  | band | n | predicted | observed |
+  |---|---|---|---|
+  | .2–.3 | 104 | .253 | .240 |
+  | .3–.4 | 153 | .354 | .333 |
+  | .4–.5 | 209 | .451 | .445 |
+  | .5–.6 | 244 | .551 | .594 |
+  | .6–.7 | 250 | .651 | .648 |
+  | .7–.8 | 192 | .749 | .776 |
+  | .8–.9 | 111 | .843 | .811 |
+
+  A 70% call is right about 78% of the time and an 84% call about 81%; the largest miss is the
+  coin-flip band. This is what makes the waterfall worth building — the probabilities mean something.
+
+  ### The protocol, and the two places it was departed from
+
+  Both are recorded rather than smoothed over, because a protocol you only report following is not a
+  protocol.
+
+  1. **`rest_edge` was dropped after the ablation, which is post-hoc selection.** Rule 2 reserved that
+     case for the owner and the owner took it: `rest_edge` cost -.0001 to remove while the rest
+     *block* cost -.0081, so the signal lives in the two indicators and `rest_edge` was absorbed by
+     them (a ±.47 correlation predicts exactly that). `selection.DROP_CANDIDATES` is deliberately
+     **not** amended to include it — amending it would rewrite the pre-registration to match the
+     outcome and leave no trace of the departure. The two candidate sets differ by .0001 dev AUC, so
+     the risk is small; small is not none. D-034's *intent* survives: its purpose was that "the 0-day
+     cliff gets its own coefficient instead of sharing a slope with a flat region", the indicators
+     **are** the cliff, and the flat region measured empty.
+
+  2. **The sealed fold was computed three times, and the log records two.** The first was the real
+     run. The second was a re-derivation to persist the results table — which called `evaluate_fold`
+     directly, bypassing an append that at the time lived in `main`, and logged nothing. That hole is
+     now closed (the append follows the *evaluation*, not the command line, with a test), and the
+     third computation is line 2 of the log. **All three produced `model_version` `c97a9b14ddd5`**,
+     which is a content hash — an identical hash *is* the evidence that no new information was
+     obtained. But "it happened to be harmless" is not the property being claimed, and the un-logged
+     one is recorded here because the log cannot record it retroactively.
+
+  ### What made the protocol real rather than ceremonial
+
+  - **The rule was committed before the numbers existed** (`165239d`), then the freeze (`caf50cb`),
+    then the runner (`30bde86`), then the run. Git history is the proof, and it is the only form of
+    proof a pre-registration can have.
+  - **`selection` cannot reach 2026.** `DEV_FOLDS` is filtered by test season, `_dev_folds` raises if
+    the sealed fold ever enters it, and a test asserts the sealed season does not appear as a literal
+    anywhere in the module. Exploration had to be free, or the pressure to peek lands somewhere worse.
+  - **Reaching the sealed fold requires typing `--spend-the-sealed-fold`**, a phrase that says what it
+    costs. It is not a safety catch to be removed later; it is the record that someone chose.
+  - **A second look cannot be silent.** It is not prevented — it cannot be — but every evaluation of
+    the sealed fold appends to a committed log, and because `model_version` is a content hash, two
+    lines with the same version are a re-derivation while two with different versions are a second
+    attempt. The file makes that distinction without anyone having to remember which run was which.
 
 - [ ] **T-031** `prediction` service, persistence, and the scheduled job — owner: `backend-engineer`
   - acceptance: one interface returning probability, feature vector, per-feature logit contributions
