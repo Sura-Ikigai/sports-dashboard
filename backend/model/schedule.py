@@ -154,7 +154,10 @@ def _known_franchises(conn: sa.Connection) -> frozenset[str]:
 
 def _check_structure(frame: pd.DataFrame, season: int, franchises: frozenset[str]) -> int:
     """Structural validation. Returns the number of placeholder rows excluded."""
-    required = {"game_id", "date", "season", "season_type", "home_id", "away_id", "status"}
+    required = {
+        "game_id", "date", "season", "season_type", "home_id", "away_id", "status",
+        "home_score", "away_score",
+    }
     missing = sorted(required - set(frame.columns))
     if missing:
         raise ScheduleError(f"live schedule frame is missing column(s) {missing}")
@@ -273,6 +276,13 @@ def _check_continuity(
     return added, changed
 
 
+def _score(value) -> int | None:
+    """A score, or None for a game that has not been played. `pd.NA`/NaN both become None."""
+    if value is None or pd.isna(value):
+        return None
+    return int(value)
+
+
 def _rows_for_upsert(frame: pd.DataFrame, digest: str, seen: datetime) -> list[dict]:
     return [
         {
@@ -285,6 +295,8 @@ def _rows_for_upsert(frame: pd.DataFrame, digest: str, seen: datetime) -> list[d
             "neutral_site": bool(row.neutral_site),
             "venue_id": row.venue_id,
             "status": row.status,
+            "home_score": _score(row.home_score),
+            "away_score": _score(row.away_score),
             "first_seen": seen,
             "last_seen": seen,
             "snapshot_sha256": digest,
@@ -359,14 +371,17 @@ def ingest_snapshot(
     conn.execute(
         sa.text(
             "INSERT INTO scheduled_games (game_id, season, season_type, game_date, home_id,"
-            " away_id, neutral_site, venue_id, status, first_seen, last_seen, snapshot_sha256)"
+            " away_id, neutral_site, venue_id, status, home_score, away_score, first_seen,"
+            " last_seen, snapshot_sha256)"
             " VALUES (:game_id, :season, :season_type, :game_date, :home_id, :away_id,"
-            " :neutral_site, :venue_id, :status, :first_seen, :last_seen, :snapshot_sha256)"
+            " :neutral_site, :venue_id, :status, :home_score, :away_score, :first_seen,"
+            " :last_seen, :snapshot_sha256)"
             " ON CONFLICT (game_id) DO UPDATE SET"
             "   season = EXCLUDED.season, season_type = EXCLUDED.season_type,"
             "   game_date = EXCLUDED.game_date, home_id = EXCLUDED.home_id,"
             "   away_id = EXCLUDED.away_id, neutral_site = EXCLUDED.neutral_site,"
             "   venue_id = EXCLUDED.venue_id, status = EXCLUDED.status,"
+            "   home_score = EXCLUDED.home_score, away_score = EXCLUDED.away_score,"
             "   last_seen = EXCLUDED.last_seen, snapshot_sha256 = EXCLUDED.snapshot_sha256"
         ),
         _rows_for_upsert(real, digest, seen),

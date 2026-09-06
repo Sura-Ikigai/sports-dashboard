@@ -110,6 +110,17 @@ def upgrade() -> None:
         # `status_type_name`. Postponement is an explicit state here, not something inferred from a
         # row disappearing -- verified across all four postponements of the completed 2026 season.
         sa.Column("status", sa.String(), nullable=False),
+        # Scores, present only once a game is `STATUS_FINAL`. They are here because the corpus
+        # **cannot** absorb them: `model.ingest` verifies against `EXPECTED_COMPLETED_COUNTS`, and a
+        # season in progress has no pinnable count, so `load_season(2027)` is refused by design.
+        # Without these, Elo would freeze at the end of 2026 while the 2027 season played out --
+        # every prediction after opening night built on ratings months out of date.
+        #
+        # This is the D-046/D-048 split doing exactly what it was drawn for: the model is **fitted**
+        # only on the verified corpus, and its **inference state** may also read live results. Two
+        # guarantees for two jobs, and the table a row lives in says which one it carries.
+        sa.Column("home_score", sa.Integer(), nullable=True),
+        sa.Column("away_score", sa.Integer(), nullable=True),
         sa.Column("first_seen", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.text("now()")),
         sa.Column("last_seen", sa.DateTime(timezone=True), nullable=False,
@@ -117,6 +128,12 @@ def upgrade() -> None:
         sa.Column("snapshot_sha256", sa.String(64), nullable=False),
         sa.PrimaryKeyConstraint("game_id"),
         sa.CheckConstraint("home_id <> away_id", name="ck_scheduled_games_distinct_teams"),
+        # A final game has both scores or neither -- never one. A half-populated row would reach Elo
+        # as a game with a missing side and fail deep inside a replay rather than here.
+        sa.CheckConstraint(
+            "(home_score IS NULL) = (away_score IS NULL)",
+            name="ck_scheduled_games_scores_paired",
+        ),
         sa.ForeignKeyConstraint(
             ["snapshot_sha256"], ["schedule_snapshots.sha256"],
             name="fk_scheduled_games_snapshot",

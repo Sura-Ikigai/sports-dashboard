@@ -43,6 +43,7 @@ def _digest(tag: str) -> str:
 _COLUMNS = (
     "game_id", "date", "season", "season_type", "home_id", "away_id",
     "neutral_site", "status", "venue_id", "venue_city", "venue_state",
+    "home_score", "away_score",
 )
 
 
@@ -68,6 +69,10 @@ def _row(n: int, *, home: str | None = None, away: str | None = None, day: int |
         "venue_id": f"v{n % 5}",
         "venue_city": "Boston",
         "venue_state": "MA",
+        # Scores exist only once a game is final -- the source reports 0/0 for an unplayed game, and
+        # the loader gates on status rather than on the values so `None` can never be a score.
+        "home_score": 110 if status == "STATUS_FINAL" else None,
+        "away_score": 104 if status == "STATUS_FINAL" else None,
     }
 
 
@@ -350,3 +355,44 @@ def test_an_empty_corpus_is_refused_rather_than_validating_against_nothing(
         with engine.begin() as conn, pytest.raises(ScheduleError, match="no games"):
             schedule.ingest_snapshot(conn, _schedule(10), _digest("a"), LIVE_SEASON)
         engine.dispose()
+
+
+# ── live results, which the corpus cannot absorb ──────────────────────────────
+
+
+def test_a_final_game_stores_its_scores(conn: sa.Connection) -> None:
+    """The corpus **cannot** take these: `model.ingest` verifies against pinned counts and a season
+    in progress has none, so `load_season(2027)` is refused by design. Without live scores here, Elo
+    would freeze at the end of 2026 while the 2027 season played out."""
+    frame = _schedule(10)
+    frame.loc[frame["game_id"] == "live-0", ["status", "home_score", "away_score"]] = [
+        "STATUS_FINAL", 118, 104,
+    ]
+    report = schedule.ingest_snapshot(conn, frame, _digest("a"), LIVE_SEASON)
+    assert report.completed_count == 1
+
+    row = conn.execute(
+        sa.text("SELECT status, home_score, away_score FROM scheduled_games WHERE game_id='live-0'")
+    ).first()
+    assert (row.status, row.home_score, row.away_score) == ("STATUS_FINAL", 118, 104)
+
+
+def test_an_unplayed_game_stores_no_scores(conn: sa.Connection) -> None:
+    """The control, and the reason the loader gates on status rather than on the values: this source
+    reports 0/0 for an unplayed game, which a `Game` would refuse as a tie (F-049) -- the right
+    failure, but a baffling one to debug three layers down."""
+    schedule.ingest_snapshot(conn, _schedule(5), _digest("a"), LIVE_SEASON)
+    rows = conn.execute(
+        sa.text("SELECT home_score, away_score FROM scheduled_games")
+    ).all()
+    assert all(r.home_score is None and r.away_score is None for r in rows)
+
+
+def test_a_half_scored_row_is_refused_by_the_database(conn: sa.Connection) -> None:
+    """A check constraint rather than application code: a half-populated row would reach Elo as a
+    game missing a side and fail deep inside a replay rather than at the boundary."""
+    schedule.ingest_snapshot(conn, _schedule(5), _digest("a"), LIVE_SEASON)
+    with pytest.raises(sa.exc.IntegrityError, match="scores_paired"):
+        conn.execute(
+            sa.text("UPDATE scheduled_games SET home_score = 100 WHERE game_id = 'live-0'")
+        )

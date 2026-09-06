@@ -942,11 +942,11 @@ def read_live_schedule(path: Path, season: int) -> pd.DataFrame:
     keeps everything and carries `status` instead, because the rows worth predicting are exactly the
     ones that function drops.
 
-    Scores are deliberately **not** normalized to integers here. An unplayed game arrives as `0`/`0`
-    in this source, which is indistinguishable from a real 0-0 result by inspection -- and a 0-0
-    `Game` is refused downstream as a tie (F-049), which is the correct failure but a confusing one.
-    The scheduled path produces `Matchup` records, which carry no scores at all, so the ambiguity
-    never gets a chance to matter.
+    Scores are carried, but **only for games the source calls final**. An unplayed game arrives as
+    `0`/`0` here, which is indistinguishable by inspection from a real 0-0 result -- and a 0-0 `Game`
+    is refused downstream as a tie (F-049), the correct failure but a baffling one to debug. Gating
+    on `status_type_completed` rather than on the values means the ambiguity never arises: an unplayed
+    game gets `None`, and `None` cannot be mistaken for a score.
     """
     raw = pd.read_csv(
         path,
@@ -970,6 +970,12 @@ def read_live_schedule(path: Path, season: int) -> pd.DataFrame:
         "away_id": raw["away_id"].astype(str).str.strip(),
         "neutral_site": raw["neutral_site"] == "true",
         "status": raw["status_type_name"].astype(str).str.strip(),
+        "home_score": pd.to_numeric(raw["home_score"], errors="coerce").where(
+            raw["status_type_completed"] == "true"
+        ),
+        "away_score": pd.to_numeric(raw["away_score"], errors="coerce").where(
+            raw["status_type_completed"] == "true"
+        ),
         "venue_id": raw["venue_id"].astype(str).str.strip().replace("", None),
         "venue_city": raw["venue_address_city"].astype(str).str.strip().replace("", None),
         "venue_state": raw["venue_address_state"].astype(str).str.strip().replace("", None),
