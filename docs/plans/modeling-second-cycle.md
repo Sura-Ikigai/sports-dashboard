@@ -1364,7 +1364,7 @@ skip must be justified in the task's outcome rather than discovered later.
   browser as JSON over HTTP, which is a boundary, so `assertUsableModel` refuses it there. Same for a
   coefficient that did not survive a truncated response.
 
-- [ ] **T-034** Game detail surface — owner: `frontend-engineer`
+- [x] **T-034** Game detail surface — owner: `frontend-engineer` — **DONE 2026-09-06**
   - acceptance: a route per game showing probability, confidence band with its historical hit rate,
     the contribution waterfall with each factor's underlying value, model version and as-of moment;
     a fenced what-if panel that is visually distinct, never persisted and never counted; responsive;
@@ -1374,6 +1374,97 @@ skip must be justified in the task's outcome rather than discovered later.
   - ui/ux intent for review: direction must read pre-attentively; the fence between real and
     hypothetical must survive a screenshot with no surrounding text; the chart must carry a zero
     baseline; color must not be the only channel carrying sign.
+  - **built:** `app/games/[gameId]/` (page + segment layout), `components/prediction/`
+    (`GameDetail`, `ProbabilityHeadline`, `ContributionWaterfall`, `WhatIfPanel`,
+    `PredictionHistory`), `lib/api/predictions.ts`, `lib/scoring/presentation.ts`. **+42 frontend
+    tests (76 total)**; 719 backend tests unchanged; `tsc --noEmit`, eslint and ruff clean.
+  - **verified against the real 2027 data** through a live backend on `ingest_smoke`: the real
+    prediction, its real decomposition and its real snapshot render; swinging Elo to −260 and putting
+    the home team on a back-to-back takes the hypothetical from **56.8% to 18.6%** while the real
+    headline never moves. At 390px: **0px horizontal overflow**, bar column collapsed, all four
+    controls tabbable with accessible names.
+
+  ### The chart is a table, not a chart with a table bolted on
+
+  The usual way to make a chart accessible is to render it and add a visually-hidden table saying the
+  same thing. Two representations of one dataset drift — one gets a new row, a rounding change, a
+  reorder — and the one that drifts is always the one nobody looks at.
+
+  So there is **one** structure. Every number lives in a real `<td>`; the bar is a decorative layer
+  in a cell marked `aria-hidden`, and deleting it would cost the visual reading and nothing else. The
+  screen-reader alternative is not an alternative — it is the DOM.
+
+  Sign is carried by four channels: **position** (which side of the drawn, labelled zero line),
+  **words** ("toward home" / "toward away" in their own column), **a glyph**, and colour last and
+  redundantly — sky and amber rather than green and red, which the commonest colour vision deficiency
+  collapses together. jsdom cannot see colour, which is the point: the channel that makes the chart
+  accessible is the same one that makes it testable.
+
+  ### The fence, and the design it ruled out
+
+  The obvious what-if lets the visitor move a control and watch **the main waterfall** respond. It is
+  lovely, and it produces a screenshot indistinguishable from the model's real prediction. So the
+  real prediction on this page never moves; everything hypothetical is computed and shown inside the
+  panel, marked four ways that all survive a crop — diagonal stripes, a dashed border, a
+  `HYPOTHETICAL — NOT RECORDED, NOT SCORED` badge adjacent to the numbers rather than in a distant
+  heading, and the actual probability printed beside the hypothetical one so the pair reads as a
+  comparison.
+
+  **Never persisted is structural, and tested twice.** A behavioural test drives every control and
+  fails on a single `fetch`, `sendBeacon`, storage write or history entry; a source scan refuses
+  those same names anywhere under `components/prediction/`. Both, because they miss different things:
+  a scan cannot see a request made through a helper it does not recognise, and a behavioural test
+  cannot see one on a branch it never renders. Under sabotage, **each caught both** planted leaks.
+
+  ### Five controls, each verified by sabotage
+
+  | control | broken by | fired |
+  |---|---|---|
+  | nothing leaves the page | `localStorage.setItem` in the panel | ✅ (both tests) |
+  | nothing leaves the page | `fetch(…, {method:"POST"})` in the panel | ✅ (both tests) |
+  | the fence is legible in a crop | badge reworded to "Explore" | ✅ |
+  | sign is not colour-only | direction words removed | ✅ |
+  | zero is not a direction | `>= 0 ? home : away` | ✅ |
+
+  ### Three things the browser told me that the tests had not
+
+  Driving the real page found what a fixture could not:
+
+  - **The baseline row claimed a direction.** It rendered "▶ toward home", which reads as a fifth
+    factor about this game when it is a property of every game. Direction now says three different
+    things for three different kinds of row — "starting point", "toward home", "favours home" —
+    because they are three different claims, and one vocabulary for all of them is the kind of small
+    dishonesty that survives review by reading fluently.
+  - **The page title was still "Create Next App"**, inherited from the root layout.
+  - **Nothing linked to the route.** A game detail page nothing can reach is not a deliverable;
+    `GameCard` now links to it, which the shared ESPN id space makes a direct link with no
+    translation layer (F-005).
+
+  ### A fixture that was arithmetically impossible
+
+  `waterfall.test.ts` asserts `baseline + Σfactors = logit`, and it failed on the first run — against
+  my own hand-written fixture, which did not add up. Numbers written by hand to *look* like an API
+  response can violate the identity the whole surface rests on, and every rendering test would still
+  have passed. The fixture is now derived through the scorer and asserted twice: the identity holds,
+  and the contributions are the ones the shipped arithmetic actually produces for those values.
+
+  ### Read the framework's own docs, late
+
+  `frontend/AGENTS.md` says to read `node_modules/next/dist/docs/` before writing Next.js code. I
+  wrote first and checked after. It happened to be fine — `use(params)` in a client page and
+  `export const metadata` in a segment layout are both exactly what the shipped docs prescribe for
+  16.2 — but the checking should have come first, and next time it will.
+
+  ### Known limits, recorded rather than absorbed
+
+  - **`lib/scoring/presentation.ts` is a hand-written map** of feature → label, control and range.
+    The model's feature set is decided in Python and this cannot be what decides it, so every lookup
+    falls back: an unknown feature still renders, still gets a working slider, and still shows its
+    raw name. Tested, because the alternative failure is a model update silently dropping a bar — an
+    incomplete decomposition that still looks complete.
+  - **Client-rendered**, matching `app/page.tsx` rather than introducing a second data-fetching
+    pattern. A server component would paint sooner and put the accessible table in the initial HTML;
+    worth doing the day this surface has a reader who is not the owner.
 
 - [ ] **T-035** Amend §6 and write the v2 analysis — owner: `human`
   - acceptance: `PHASE-1-RESULT.md` §6's reproducibility claim amended to state the Postgres

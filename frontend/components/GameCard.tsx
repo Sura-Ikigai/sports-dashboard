@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { FavoriteButton } from "./FavoriteButton";
 
@@ -11,6 +12,7 @@ interface Team {
 
 interface Game {
   id: number;
+  external_id: string;
   home_team: Team;
   away_team: Team;
   home_score: number | null;
@@ -46,7 +48,18 @@ export function GameCard({ game, favoritedTeamIds }: { game: Game; favoritedTeam
     <div className="border rounded-lg p-4 bg-gray-900 text-white">
       <TeamRow team={game.away_team} score={game.away_score} favorited={favoritedTeamIds.has(game.away_team.id)} />
       <TeamRow team={game.home_team} score={game.home_score} favorited={favoritedTeamIds.has(game.home_team.id)} />
-      <span className="text-xs text-gray-400 uppercase">{game.status}</span>
+      <div className="mt-2 flex items-center justify-between">
+        <span className="text-xs text-gray-400 uppercase">{game.status}</span>
+        {/* The app's games and the prediction API share the ESPN id space (no translation layer
+            exists or is needed), so this is a direct link. A game the model has not scored renders
+            its own "no prediction" state rather than an error. */}
+        <Link
+          href={`/games/${game.external_id}`}
+          className="text-xs underline underline-offset-2 hover:text-sky-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 dark:focus-visible:outline-sky-400"
+        >
+          Prediction &rarr;
+        </Link>
+      </div>
     </div>
   );
 }

@@ -534,11 +534,21 @@
   prediction. Mixing versions would average a frozen model's trial with whatever superseded it and
   call the result a track record, which D-017 (2026-27 is the genuine trial of one version) makes
   meaningless. (Implements user stories 20/21/31; supersedes nothing.)
-- **D-050** 2026-09-06 — **One sanctioned second implementation of the scoring arithmetic, bounded to
-  the arithmetic, valid only while the contract gate holds it.** D-011 forbids a second
-  implementation of the scoring path, and the reason is sound: two implementations drift, and the
-  symptom is a user seeing one number on a page and a different one in the accuracy record, with
-  neither wrong in a way anybody can point at.
+- **D-050** 2026-09-06 — **How D-041's contract is actually drawn: bounded to the arithmetic, exact
+  where it can be, synthetic grid, and lapsing with the gate.**
+
+  > **Correction, filed 2026-09-06.** This was written as a fresh decision and it is not one.
+  > **D-041 already permitted the TypeScript scorer and already made the gate the thing that permits
+  > it** — it was recorded on 2026-08-17, at plan time, and I failed to grep for it before adding
+  > this. What survives here is the part D-041 left open: *how* the contract is drawn. Read D-041 as
+  > the decision and this as its implementation record. The one place this is **stronger** than
+  > D-041 is worth naming: D-041 asks for agreement "to floating-point tolerance" on both outputs,
+  > and what T-033 built holds contributions and the logit to **exact equality**, with tolerance on
+  > the probability alone.
+
+  D-011 forbids a second implementation of the scoring path, and the reason is sound: two
+  implementations drift, and the symptom is a user seeing one number on a page and a different one in
+  the accuracy record, with neither wrong in a way anybody can point at.
 
   T-034 needs one anyway. Story 25 wants a visitor to change a value and watch the probability
   respond; story 27 requires that exploration never reach anything that records it. A server round
@@ -567,4 +577,5 @@
     `/models/` is gitignored precisely so a model cannot enter git as if it were source (F-016,
     F-110). The grid instead **brackets** the shipped model — coefficients to ±8 against its
     |0.13|–|0.71|, means to ±1000, stds from 1e-3 to 1e3 against its .089–90 — and additionally
-    covers regions the real model never visits. (**Scopes D-011**; supersedes nothing.)
+    covers regions the real model never visits. (**Implements D-041**, which scopes D-011.
+    Supersedes nothing.)

@@ -13,6 +13,7 @@ interface Team {
 
 interface Game {
   id: number;
+  external_id: string;
   home_team: Team;
   away_team: Team;
   home_score: number | null;
