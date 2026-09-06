@@ -505,3 +505,32 @@
   season — and nobody has watched what a normal Tuesday looks like. A tight threshold built on zero
   observations would be a number someone made up. (**Complements D-046**, which continues to govern
   immutable training data; supersedes nothing.)
+- **D-049** 2026-09-06 — **Confidence bands are defined on the favoured side's probability, in four
+  fixed bands, and an untested band reports no hit rate rather than a hit rate of zero.** User
+  stories 20, 21 and 31 turn a probability into a label and then ground that label in a track record,
+  which makes the banding a published definition rather than a rendering choice: once hit rates are
+  quoted per band, changing the boundaries silently invalidates every number previously shown.
+
+  The band is taken on `max(p, 1-p)` — the probability the model assigned to the side it favoured —
+  not on the home-win probability. A .75 home probability and a .25 home probability are one call at
+  one confidence pointing opposite ways; filing them apart would make "how often is the model right
+  at this confidence" unanswerable, which is the whole of story 21.
+
+  Four bands, not ten: **Toss-up** [.50, .55), **Lean** [.55, .65), **Clear** [.65, .75), **Strong**
+  [.75, 1.0]. A season is ~1,230 games, so ten bands would hold ~120 games each and sampling noise
+  would swamp the differences between them. The boundaries separate the questions a visitor asks —
+  "is this a coin flip?" from "is this a real call?" — rather than making the arithmetic tidy.
+  `band_for` **raises** on a probability that falls in no band rather than defaulting, so a hole in
+  the tiling is loud; a silent default would file games into the wrong bucket forever.
+
+  A band with nothing scored reports `hit_rate: null`, never `0.0` — the two render identically as
+  `0%` and one of them is a lie. Every band that does have games carries a 95% **Wilson** interval
+  beside the point estimate: three-from-three is 100% and means nothing, and a surface shown only the
+  point estimate has no way to say so. Wilson rather than the normal approximation because the normal
+  form is wrong exactly where it matters here — small samples, rates near 0 or 1 — and produces
+  intervals that run off the end of [0, 1].
+
+  The record is scoped to **one model version**, defaulting to the version that made the most recent
+  prediction. Mixing versions would average a frozen model's trial with whatever superseded it and
+  call the result a track record, which D-017 (2026-27 is the genuine trial of one version) makes
+  meaningless. (Implements user stories 20/21/31; supersedes nothing.)

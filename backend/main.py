@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import SessionLocal
-from routers import nba
+from routers import nba, predictions
 from services import nba_service
 
 scheduler = AsyncIOScheduler()
@@ -39,6 +39,7 @@ app.add_middleware(
 )
 
 app.include_router(nba.router)
+app.include_router(predictions.router)
 
 @app.get("/health")
 def health_check():

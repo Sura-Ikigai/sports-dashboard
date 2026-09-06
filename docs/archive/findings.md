@@ -1394,3 +1394,39 @@ grounds and not on its size.
 **Status: ACCEPTED for the 2026-27 trial, fix carried forward.** `revisit-when: D-017-retrain`.
 The shipped model runs with the defect, as evaluated. For roughly each team's first fifteen games of
 2026-27, `avail_diff` is computed from the previous season's roster.
+
+## Round: T-032 build-time finding @ `HEAD` — 2026-09-06
+
+Filed by the main thread while building T-032. Measured, small, and recorded rather than absorbed.
+
+### F-142 — the accuracy record is recomputed from a full season scan on every request
+
+**Severity: low, and measured rather than asserted.**
+
+`track_record.compute_record` reads every prediction for the model version plus every game those
+predictions are about, then aggregates in Python. `game_detail` calls it too, because a game page
+shows its band's historical hit rate and the definition of a band's hit rate should live in exactly
+one place.
+
+So a single game page pays for a season-wide scan. Measured against a scratch database seeded to
+end-of-season volume — **8,400 predictions over 1,200 games, every game final**:
+
+| endpoint | median | min | max |
+|---|---|---|---|
+| `GET /predictions/accuracy` | **59.1 ms** | 53.6 | 70.7 |
+| `GET /predictions/games/{id}` | **58.4 ms** | 56.4 | 69.7 |
+| `GET /predictions/upcoming` | 3.4 ms | 2.8 | 4.2 |
+
+That is the whole finding: 59 ms at the season's *peak* volume, about 17× the endpoint that narrows
+properly, on a surface D-047 leaves unauthenticated. It is not a problem now and probably never
+becomes one — a personal dashboard is not a traffic profile. It is recorded because the shape is the
+kind that stops being fine quietly: the cost grows with the season, nothing measures it, and the
+first symptom would be a game page that feels slow in April and was fine in November.
+
+**The fix if it ever matters** is a cached `Record` per model version, invalidated when
+`predictions` gains a row — the job writes once an hour, so the cache would be warm essentially
+always. Deliberately not built now: a cache with no measured need is a correctness surface bought
+with nothing, and the number above says there is no need.
+
+**Status: OPEN, accepted.** `revisit-when: a game page exceeds 200 ms, or predictions covers more
+than one season`.

@@ -20,3 +20,16 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_connection():
+    """Dependency-injected raw SQLAlchemy connection, for the read-only model endpoints.
+
+    A `Session` is the ORM's unit of work and the model package has no ORM mapping -- `model.store`
+    and `model.track_record` take a `Connection` and issue their own SQL. Handing them
+    `session.connection()` would work and would also enlist their reads in a transaction the ORM
+    might later flush writes into, which is precisely the coupling D-047's grant split exists to
+    avoid. This opens its own connection, never commits, and closes it after the request.
+    """
+    with engine.connect() as conn:
+        yield conn

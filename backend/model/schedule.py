@@ -63,6 +63,7 @@ import pandas as pd
 import sqlalchemy as sa
 
 from . import corpus, loader
+from .records import KNOWN_STATUSES
 
 #: Placeholder team ids the source uses for undetermined NBA Cup participants.
 PLACEHOLDER_TEAM_IDS: frozenset[str] = frozenset({"-1", "-2"})
@@ -82,13 +83,10 @@ PLACEHOLDER_TEAM_IDS: frozenset[str] = frozenset({"-1", "-2"})
 # does not already cover.
 MAX_EXCLUDED_SHARE: float = 0.50
 
-#: Statuses this module understands. Anything else is refused rather than guessed at.
-KNOWN_STATUSES: frozenset[str] = frozenset(
-    {"STATUS_SCHEDULED", "STATUS_POSTPONED", "STATUS_FINAL", "STATUS_IN_PROGRESS", "STATUS_CANCELED"}
-)
-
-#: Statuses a game can carry and still be worth predicting.
-PREDICTABLE_STATUSES: frozenset[str] = frozenset({"STATUS_SCHEDULED"})
+# `KNOWN_STATUSES` is imported from `records` rather than defined here. It moved because
+# `track_record.py` needs the same constants and is imported by the FastAPI service, and this module
+# pulls pandas -- so a constant reached from the served path cannot live behind that import
+# (D-016/D-021). `records` is standard-library-only and already exists for exactly this reason.
 
 
 class ScheduleError(RuntimeError):

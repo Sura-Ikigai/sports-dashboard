@@ -84,9 +84,20 @@ class Prediction:
 
     @property
     def favoured(self) -> str:
-        """`"home"` or `"away"`. At exactly 0.5 this says `"away"`, which is arbitrary and would be a
-        poor thing to display -- a surface should show the probability, not a pick."""
-        return "home" if self.home_win_probability > 0.5 else "away"
+        """`"home"` or `"away"` -- delegates to the module-level `favoured`, which is the one
+        definition. See it for what happens at exactly 0.5."""
+        return favoured(self.home_win_probability)
+
+
+def favoured(probability: float) -> str:
+    """`"home"` or `"away"`, given a home-win probability. **The** definition, used everywhere.
+
+    At exactly 0.5 this says `"away"`, which is arbitrary. It is defined in one place rather than
+    two because the alternative is a surface that shows one pick and a track record that scores a
+    different one -- and at a coin flip neither would be wrong in a way anybody could point at.
+    A surface should show the probability, not a pick.
+    """
+    return "home" if probability > 0.5 else "away"
 
 
 def _sigmoid(z: float) -> float:

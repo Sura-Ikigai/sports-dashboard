@@ -1169,11 +1169,117 @@ skip must be justified in the task's outcome rather than discovered later.
   feature by .0579 on the 523 affected dev games and **exactly .0000 on the other 2,117**. Accepted
   for the trial, carried to D-017's retrain.
 
-- [ ] **T-032** Predictions API — owner: `backend-engineer`
+- [x] **T-032** Predictions API — owner: `backend-engineer` — **DONE 2026-09-06**
   - acceptance: a prediction with its decomposition for a given game; upcoming predictions; the
     accuracy record by confidence band; the last prediction before tip-off is the one scored
   - security note: read-only endpoints against a database with no authorization boundary (D-047).
     Return model outputs; do not expose corpus rows wholesale.
+  - **built:** `backend/model/track_record.py` (the reads and the scoring rule),
+    `backend/routers/predictions.py` (four endpoints), response models in `schemas.py`, a
+    `get_connection` dependency in `database.py`, and the schedule status constants moved into
+    `records.py` — see *the served path* below. `backend/tests/test_track_record.py` (68) and
+    `test_predictions_api.py` (24), **+92 tests**. **705 backend tests pass with zero skips**, ruff
+    clean. **D-049** recorded (confidence bands); **F-142** filed and measured.
+  - **verified against the real T-031 data** — 1,200 scheduled games, 95 real predictions,
+    artifact `c97a9b14ddd5`: `/upcoming` returns **43 of 43 opening-week games predicted**, a game's
+    decomposition **reconstructs its probability to 1e-12**, and `/accuracy` correctly reports
+    **0 scored, 95 pending** with every band `null` — which is exactly what October 19th looks like.
+    The scoring half was exercised separately on a scratch copy with synthetic results, because no
+    2027 game has been played; those numbers verify the join and the aggregation, and say nothing
+    about the model.
+
+  ### The four endpoints
+
+  | endpoint | answers |
+  |---|---|
+  | `GET /predictions/upcoming` | what the model expects next, with counts that expose a gap |
+  | `GET /predictions/games/{id}` | one prediction, decomposed, with its history and its band's record |
+  | `GET /predictions/accuracy` | the record by confidence band, for one model version |
+  | `GET /predictions/model` | the frozen model's parameters — **beyond the stated acceptance**, see below |
+
+  ### D-049: what a confidence band is, decided rather than rendered
+
+  Bands are taken on `max(p, 1-p)`, the probability the model gave the side it favoured. A .75 home
+  probability and a .25 home probability are the same call at the same confidence pointing opposite
+  ways, and banding on the raw home probability would file them apart — which makes user story 21
+  ("how often is the model right at this confidence") unanswerable.
+
+  **An untested band reports `hit_rate: null`, never `0.0`.** The two render identically as `0%` and
+  one of them is a lie. Every band that *does* have games carries a 95% Wilson interval beside the
+  point estimate, because three-from-three is 100% and means nothing — and a surface shown only the
+  point estimate has no way to say so. The record is scoped to one model version: mixing them would
+  average a frozen model's trial with whatever superseded it, which D-017 makes meaningless.
+
+  ### The scoring rule is a pure function, and it is the one that can be silently wrong
+
+  "The last prediction before tip-off is the one scored" is a filter over time, and a wrong one
+  changes the reported accuracy with **no symptom**. So it lives in `last_before_tip_off`, over
+  records, with its own test — and with the control that matters: the same prediction is *kept* when
+  it is dated before tip-off and *dropped* when after. Without the control, a filter that dropped
+  everything would pass.
+
+  The database fixture carries a prediction dated an hour *after* tip-off at p=.02, inserted directly
+  because the job could not produce one. If the rule ever leaks, the record shows a confident wrong
+  call in the `strong` band rather than the .80 prediction that actually stood.
+
+  ### D-039's rule, in the only form this table can satisfy
+
+  `store.py` may not contain the string `as_of` **at all** — T-031 obeyed that rather than exempting
+  `load_upcoming`, and it stays absolute. `predictions` has an `as_of` *column*, so the same rule
+  here is not merely inconvenient, it is unsatisfiable: you cannot select a column you may not name.
+
+  The honest resolution is a separate module with its own weaker, still-mechanical rule: naming the
+  column is allowed, **comparing it in SQL is not**. Sabotage-verified. It fired on its first run —
+  on my own error message, `"horizon_days must be between 1 and 30"`, caught by the `BETWEEN`
+  pattern. Prose that could never reach a database, and it was reworded rather than exempted, for the
+  same reason as last time: a rule with one exception has as many as anyone wants.
+
+  ### The served path had a training dependency, and now has a check
+
+  `track_record` first read its status constants from `model.schedule`. `schedule` imports pandas —
+  so the FastAPI service was loading **the entire training stack to learn the string
+  `"STATUS_SCHEDULED"`**, violating D-016/D-021 in the one module whose job is to be importable by
+  the API.
+
+  Found by accident, which is the part worth recording. The constants moved to `records.py` (which
+  exists for exactly this, from T-028's layering fix), and there is now a test that imports the
+  router **in a subprocess** and asserts no pandas, numpy, sklearn or scipy is in `sys.modules` — in
+  a subprocess because the rest of the suite has already imported pandas, so an in-process check
+  would have passed no matter what the module did. Paired with a control that imports
+  `model.schedule` and confirms the probe *can* see a training dependency.
+
+  ### Five controls, each verified by sabotage
+
+  | control | broken by | fired |
+  |---|---|---|
+  | the router contains no SQL | adding a `SELECT` string | ✅ |
+  | the router names no corpus table | adding `"corpus_games"` | ✅ |
+  | the served path pulls no training dependency | `import pandas` in `track_record` | ✅ |
+  | no date comparison reaches the database | `as_of <= :tip_off` in a WHERE clause | ✅ |
+  | no write verb under `/predictions` | adding a `@router.post` | ✅ |
+
+  All five red under sabotage, all green after restore. The write-verb check reads the **OpenAPI
+  schema** rather than `app.routes`: FastAPI 0.139 keeps an included router as a single
+  `_IncludedRouter` entry instead of flattening it, so walking that list finds neither the paths nor
+  the methods — and the first version of that test passed while asserting nothing.
+
+  ### One addition beyond the stated acceptance, and one deliberate omission
+
+  **Added — `GET /predictions/model`.** T-033's TypeScript scorer and T-034's what-if panel run in
+  the browser, and `/models/` is gitignored, so the artifact cannot be imported at build time. Without
+  this endpoint, T-033 would need a backend change smuggled into a frontend task. Public by D-047 and
+  already quoted in the analysis documents. Returns 503 naming the path when the artifact is absent —
+  a deployment input, not code.
+
+  **Omitted — team names.** These endpoints return team *ids*. The app's `teams` table is ESPN-keyed
+  and shares the id space, so T-034 can join client-side against the existing `/nba/teams`. Serving
+  them here would have put a corpus-adjacent join inside the module whose entire security property is
+  "model outputs out, corpus rows never".
+
+  **`baseline_logit` is recovered, not stored.** `predictions` persists the probability and the
+  contributions but not the intercept; `logit - sum(contributions)` is exactly what it was. The API
+  test asserts the round trip reconstructs the probability to 1e-12, which fails if `_factors` ever
+  drops a contribution.
 
 - [ ] **T-033** TypeScript scorer + contract check — owner: `frontend-engineer`
   - acceptance: pure scorer returning probability and contributions; a gate check runs both
