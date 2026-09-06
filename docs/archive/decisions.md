@@ -463,3 +463,45 @@
   holds `SELECT` only on corpus tables and the ingest job holds a separate writing role, so no API
   bug can reach training data. T-021 asserts it by connecting as the API role and proving a write is
   refused. F-001 stays ACCEPTED and fires on `first-user-scoped-data`. (Scopes F-001.)
+- **D-048** 2026-09-06 — **Live operational data is verified by structure and continuity, not by
+  content hash.** D-046 pins SHA-256 over source bytes and per-season row counts. That works because
+  a finished season's schedule file never changes again. T-031 needs the *current* season's file, and
+  it changes nightly: scores fill in, `status_type_completed` flips, playoff rows are appended
+  (2026-27 is 1,206 rows in September and will be ~1,320 by June), and existing rows change identity
+  — the five NBA Cup placeholders carry `home_id = -1` / `away_id = -2` and resolve into real
+  matchups **under the same game ids** in December. A pinned hash is not merely unavailable here; it
+  answers a different question. For the corpus the question is *"is this exactly the data the model
+  was fit on"* — reproducibility. For a live schedule it is *"is this a plausible, self-consistent
+  NBA schedule"* — plausibility. Conflating them would leave the weaker guarantee wearing the
+  stronger one's name.
+
+  So this is a **separate decision with a separate table and a separate code path**, and D-046 is
+  untouched. `corpus_games` keeps its NOT NULL scores and its verified-corpus contract; scheduled
+  games live in `scheduled_games`, and a row crosses over only through the verified ingest. The
+  boundary is visible in the schema rather than remembered.
+
+  What replaces the hash:
+  - **Structure** — required columns present, every row parses, dates timezone-aware, team ids are
+    known franchises, the season label matches the season requested.
+  - **Continuity, against the previous accepted snapshot** — the game count may grow or hold but
+    never shrink, and a game id we have already predicted must not vanish. This is *stronger* than a
+    pinned count for the threat it replaces: a total count masks a partial regression where rows are
+    both lost and gained, and an id-level check does not.
+  - **Provenance** — every snapshot is hashed, dated and retained, and each prediction records which
+    snapshot produced it. Reproducibility is not lost, it moves from *before* to *after*: "what did
+    we know when we predicted this?" is answerable exactly, which is the question a prediction
+    actually raises and one a pre-pinned hash could not have answered better.
+
+  Postponements are an explicit state, not an inference: the source carries `status_type_name =
+  STATUS_POSTPONED`, the postponed row stays in the file permanently and never completes, and the
+  replay is a **new game with a new id** on a new date (verified across all four postponements of the
+  completed 2026 season — e.g. `401810507` on Jan 26 → `401858694` on Apr 1). So a prediction for a
+  postponed game is retained and marked void rather than scored: there is no "eventual result" to
+  score it against, because that game never happened and a different one did. The replay is an
+  ordinary new game and gets its own predictions with features correct for its actual date.
+
+  Change thresholds start permissive and logging. There is exactly one calibration anchor today — the
+  completed 2026 season ended with 4 postponed games out of 1,330, about 0.3% churn across a whole
+  season — and nobody has watched what a normal Tuesday looks like. A tight threshold built on zero
+  observations would be a number someone made up. (**Complements D-046**, which continues to govern
+  immutable training data; supersedes nothing.)
