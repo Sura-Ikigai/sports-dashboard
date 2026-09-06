@@ -14,10 +14,6 @@ to be reproducible from committed code.
   home_b2b      1.0 when the home team played the previous day (zero days of rest), else 0.0.
   away_b2b      The same for the away team. Separate indicators on purpose (user story 7): whether
                 a back-to-back costs the two sides equally is a thing to measure, not assume.
-  rest_edge     Home minus away days of rest, each bucketed at `REST_EDGE_CAP`. Integer in
-                [-3, 3]. Together with the two indicators this is D-034's re-encoding of the old
-                capped-linear `rest_diff`, whose single slope had to serve both the 0-day cliff and
-                the flat region past it.
   avail_diff    Home minus away lagged rotation availability (D-035). The only genuinely new
                 factor -- it correlates with `elo_diff` at just +.255, against the .87-.92 band that
                 made the Phase 1 features three measurements of one thing.
@@ -25,6 +21,24 @@ to be reproducible from committed code.
 `form_diff` and `home_advantage` are gone (D-033). Form was a worse ruler for what Elo now measures.
 Home advantage was never identifiable (D-024) -- a column of 1.0 differing from the intercept by a
 constant -- and it lives in the intercept, where it always did.
+
+## Three features were built, measured, and dropped (T-030)
+
+D-034 asked for rest as two back-to-back indicators **plus** a bucketed `rest_edge`, and T-028 built
+all three. The dev ablation split them apart: removing the whole rest **block** costs -.0081 mean
+AUC, while removing `rest_edge` alone costs **-.0001** and *raises* accuracy. The rest signal is
+real and it lives in the two indicators; `rest_edge` was absorbed by them, which is what a ±.47
+correlation predicts.
+
+That leaves D-034's actual intent satisfied. Its purpose was that *"the 0-day cliff gets its own
+coefficient instead of sharing a slope with a flat region"* -- the indicators **are** the cliff, and
+the measurement says the flat region past it carries nothing.
+
+Dropping it was a decision taken **after** seeing the ablation, which the pre-registered protocol
+(T-030 rule 2) reserved for the owner precisely because it is post-hoc selection. It was taken by the
+owner, on the record, and it is recorded as a deviation rather than folded into the protocol as
+though the rule had allowed it. The risk it carries is small and bounded -- the two candidate sets
+differ by .0001 dev AUC -- but "small" is not "none", and T-035 reports it as what it was.
 
 ## `travel_diff` and `altitude` were built, measured, and dropped (T-030)
 
@@ -140,7 +154,6 @@ from .records import (
 
 __all__ = [
     "FEATURE_NAMES",
-    "REST_EDGE_CAP",
     "Context",
     "Coverage",
     "FeatureError",
@@ -156,13 +169,6 @@ __all__ = [
 
 # --- tuning constants (D-034; grounded in the measured 2022-2026 schedule) ------------------------
 
-# Days of rest are bucketed at three. Measured over 2022-2026: the median gap between a team's
-# consecutive games is 2.0 days, p95 is 3.9, and only 2.3% of gaps reach 5. Past three days the
-# marginal day stops being rest and starts being schedule structure, and the sample supporting a
-# distinction is thin. The cap also removes any need for a special case at a season's first game --
-# "fully rested" is the honest reading of a months-long gap, and the cap produces it.
-REST_EDGE_CAP: int = 3
-
 # A back-to-back is zero days of rest: two games on consecutive days.
 _B2B_REST_DAYS: int = 0
 
@@ -174,7 +180,6 @@ FEATURE_NAMES: tuple[str, ...] = (
     "elo_diff",
     "home_b2b",
     "away_b2b",
-    "rest_edge",
     "avail_diff",
 )
 
@@ -470,8 +475,8 @@ class GameHistory:
             )
 
 
-def _rest_days(records: tuple[_TeamGame, ...], tip_off: datetime) -> int:
-    """Whole days of rest before `tip_off`, bucketed into [0, REST_EDGE_CAP].
+def _rest_days(records: tuple[_TeamGame, ...], tip_off: datetime) -> int | None:
+    """Whole days of rest before `tip_off`, or `None` when the team has no previous game.
 
     **Elapsed hours rounded to days, not a difference of calendar dates.** Every date in this
     pipeline is UTC, and a 10:30pm Eastern tip-off is already the next day in UTC -- so differencing
@@ -487,13 +492,19 @@ def _rest_days(records: tuple[_TeamGame, ...], tip_off: datetime) -> int:
     and keys predictions by `as_of` instead of updating a row in place. Computing it from `as_of`
     would hide that by making the number self-consistently meaningless instead of visibly wrong.
 
-    Not season-scoped, and needs no empty-history case: the previous season\'s last game, or no game
-    at all, both land on the cap, which reads as fully rested.
+    Not season-scoped: a months-long gap reads honestly as "well rested", and the only thing read off
+    this number now is whether it is zero.
+
+    `None` for "no previous game" rather than a large sentinel. Until T-030 this returned a capped
+    value, and the cap did double duty -- bounding `rest_edge` and standing in for "fully rested" at a
+    season opener. With `rest_edge` dropped, nothing reads the magnitude any more, so a cap would be a
+    bound on a number no feature consumes: a guarded-looking path that guards nothing, which is
+    F-060\'s shape. `None` says what is actually true, and the caller has to handle it.
     """
     if not records:
-        return REST_EDGE_CAP
+        return None
     elapsed_days = (tip_off - records[-1].date).total_seconds() / _SECONDS_PER_DAY
-    return min(max(round(elapsed_days) - 1, 0), REST_EDGE_CAP)
+    return max(round(elapsed_days) - 1, 0)
 
 
 class Context:
@@ -650,7 +661,6 @@ def compute_features(context: Context, target: Matchup, as_of: datetime) -> dict
         ),
         "home_b2b": 1.0 if home_rest == _B2B_REST_DAYS else 0.0,
         "away_b2b": 1.0 if away_rest == _B2B_REST_DAYS else 0.0,
-        "rest_edge": float(home_rest - away_rest),
         "avail_diff": context._availability.difference_before(
             target.home_id, target.away_id, as_of, exclude_game_id=target.game_id
         ),

@@ -28,7 +28,6 @@ from model import elo
 from model.availability import Appearance, AvailabilityConfig, team_availability
 from model.features import (
     FEATURE_NAMES,
-    REST_EDGE_CAP,
     Context,
     Coverage,
     FeatureInputError,
@@ -139,7 +138,7 @@ def ctx(
 # Five completed games, then A (home) vs B (away) on day 9. Hand-computed:
 #
 #   A: day 0 home vs C (+10) · day 2 at D (-5) · day 4 home vs B (+20)
-#      last game day 4 -> 5 days elapsed -> 4 days of rest -> bucketed at REST_EDGE_CAP = 3
+#      last game day 4 -> 5 days elapsed -> 4 days of rest, so not a back-to-back
 #
 #   B: day 4 at A (-20) · day 6 home vs C (+9) · day 8 at D (-12)
 #      last game day 8 -> 1 day elapsed -> 0 days of rest -> a back-to-back
@@ -147,7 +146,6 @@ def ctx(
 #   elo_diff    24.5659...  cross-checked below against `elo.pregame_rating_differences`
 #   home_b2b     0.0        A rested four days
 #   away_b2b     1.0        B played yesterday
-#   rest_edge    3.0        3 (A, capped) - 0 (B)
 #   avail_diff   0.0        both rotations fully healthy throughout
 
 GOLDEN_HISTORY = [
@@ -163,7 +161,6 @@ GOLDEN_EXPECTED = {
     "elo_diff": 24.5659385477843,
     "home_b2b": 0.0,
     "away_b2b": 1.0,
-    "rest_edge": 3.0,
     "avail_diff": 0.0,
 }
 
@@ -221,7 +218,7 @@ def test_features_are_antisymmetric_when_the_target_sides_are_swapped():
     reverse = compute_features(
         golden_context(), matchup("target", 9, "B", "A"), GOLDEN_AS_OF
     )
-    for name in ("elo_diff", "rest_edge", "avail_diff"):
+    for name in ("elo_diff", "avail_diff"):
         assert reverse[name] == pytest.approx(-forward[name]), name
     assert reverse["home_b2b"] == forward["away_b2b"]
     assert reverse["away_b2b"] == forward["home_b2b"]
@@ -494,25 +491,30 @@ def test_elo_diff_omits_the_home_adjustment():
     assert forward != 0.0
 
 
-# --- rest: home_b2b, away_b2b, rest_edge (D-034) --------------------------------------------------
+# --- rest: home_b2b and away_b2b (D-034, reduced to the two indicators by T-030) -------------------
+#
+# `rest_edge` was the third of D-034's rest features and the dev ablation dropped it: removing the
+# whole rest block costs -.0081 mean AUC, removing `rest_edge` alone costs -.0001. The signal lives
+# in the indicators. What these tests now pin is the boundary the indicators sit on -- whether a team
+# played yesterday -- which is the only thing read off the rest calculation at all.
 
 
 @pytest.mark.parametrize(
-    ("previous_day", "expected_rest", "expected_b2b"),
+    ("previous_day", "expected_b2b"),
     [
-        (9.0, 0, 1.0),  # yesterday -- a back-to-back
-        (8.0, 1, 0.0),
-        (7.0, 2, 0.0),
-        (6.0, 3, 0.0),
-        (2.0, 3, 0.0),  # eight days: bucketed at the cap, not eight
+        (9.0, 1.0),  # yesterday -- a back-to-back
+        (8.0, 0.0),
+        (7.0, 0.0),
+        (6.0, 0.0),
+        (2.0, 0.0),  # eight days
     ],
 )
-def test_rest_is_whole_days_bucketed_at_the_cap(previous_day, expected_rest, expected_b2b):
+def test_the_indicator_fires_only_when_the_team_played_yesterday(previous_day, expected_b2b):
     history = [game("prev", previous_day, "A", "C", 110, 100), game("bprev", 9.0, "B", "D", 110, 100)]
     target = matchup("t", 10, "A", "B")
     got = compute_features(ctx(history, targets=[target]), target, at(10))
     assert got["home_b2b"] == expected_b2b
-    assert got["rest_edge"] == float(expected_rest - 0)  # B always played yesterday
+    assert got["away_b2b"] == 1.0  # B always played yesterday
 
 
 def test_the_two_back_to_back_indicators_are_independent():
@@ -521,7 +523,7 @@ def test_the_two_back_to_back_indicators_are_independent():
     history = [game("a", 9, "A", "C", 110, 100), game("b", 9.01, "B", "D", 110, 100)]
     target = matchup("t", 10, "A", "B")
     got = compute_features(ctx(history, targets=[target]), target, at(10))
-    assert (got["home_b2b"], got["away_b2b"], got["rest_edge"]) == (1.0, 1.0, 0.0)
+    assert (got["home_b2b"], got["away_b2b"]) == (1.0, 1.0)
 
 
 def test_a_late_tip_off_still_reads_as_a_back_to_back():
@@ -541,33 +543,33 @@ def test_a_late_tip_off_still_reads_as_a_back_to_back():
     assert got["home_b2b"] == 1.0
 
 
-def test_no_previous_game_reads_as_fully_rested_and_not_a_back_to_back():
-    """A season opener has no previous game at all. The cap produces the honest reading without a
-    special case, and the indicator must not fire on an absent gap."""
+def test_no_previous_game_is_not_a_back_to_back():
+    """A season opener has no previous game at all. `_rest_days` returns None there, and the indicator
+    must not fire on an absent gap -- which a numeric sentinel could do by accident if it were ever
+    chosen to be zero."""
     history = [game("bprev", 9, "B", "D", 110, 100)]
     target = matchup("t", 10, "A", "B")
     got = compute_features(ctx(history, targets=[target]), target, at(10))
     assert got["home_b2b"] == 0.0
-    assert got["rest_edge"] == float(REST_EDGE_CAP)
+    assert got["away_b2b"] == 1.0
 
 
-def test_rest_is_not_season_scoped_and_a_cross_season_gap_lands_on_the_cap():
-    """Deliberately unlike travel. A months-long gap reads honestly as "fully rested"; it does not
-    read honestly as "flew 2,400 miles", which is why only one of the two is season-scoped."""
+def test_rest_is_not_season_scoped_and_a_cross_season_gap_is_not_a_back_to_back():
+    """A months-long gap reads honestly as well rested, and needs no season boundary to say so."""
     history = [game("prev", 0, "A", "C", 110, 100), game("bprev", 129, "B", "D", 110, 100)]
     target = matchup("t", 130, "A", "B", season=SEASON + 1)
     got = compute_features(ctx(history, targets=[target]), target, at(130))
-    assert got["rest_edge"] == float(REST_EDGE_CAP - 0)
+    assert got["home_b2b"] == 0.0
 
 
 def test_rest_is_measured_to_tip_off_not_to_as_of():
-    """A prediction made days out still describes the rest the teams will have at tip-off."""
+    """A prediction made days out still describes the rest the teams will have at tip-off. B played on
+    day 9, so it is on a back-to-back for a day-10 tip-off however early the prediction is made."""
     history = [game("prev", 6, "A", "C", 110, 100), game("bprev", 9, "B", "D", 110, 100)]
     target = matchup("t", 10, "A", "B")
     context = ctx(history, targets=[target])
-    assert compute_features(context, target, at(10))["rest_edge"] == pytest.approx(
-        compute_features(context, target, at(9.5))["rest_edge"]
-    )
+    assert compute_features(context, target, at(10))["away_b2b"] == 1.0
+    assert compute_features(context, target, at(9.5))["away_b2b"] == 1.0
 
 
 # --- travel_diff and altitude: dropped by T-030's ablation --------------------------------------
@@ -983,7 +985,6 @@ def test_to_vector_order_is_pinned_to_literals_not_to_feature_names():
         "elo_diff",
         "home_b2b",
         "away_b2b",
-        "rest_edge",
         "avail_diff",
     )
     assert to_vector(
@@ -991,10 +992,9 @@ def test_to_vector_order_is_pinned_to_literals_not_to_feature_names():
             "elo_diff": 1.0,
             "home_b2b": 2.0,
             "away_b2b": 3.0,
-            "rest_edge": 4.0,
-            "avail_diff": 5.0,
+            "avail_diff": 4.0,
         }
-    ) == (1.0, 2.0, 3.0, 4.0, 5.0)
+    ) == (1.0, 2.0, 3.0, 4.0)
 
 
 def test_to_vector_refuses_a_mapping_that_does_not_match_the_contract():

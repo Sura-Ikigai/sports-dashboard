@@ -34,6 +34,14 @@ The owner's call, taken 2026-09-05 on T-028's and T-029's measurements:
      a question. Acting on it here would be selection on a rule invented after seeing the data, which
      is the thing this whole ceremony exists to prevent.
 
+     **This is exactly what happened, and it is recorded rather than smoothed over.** `rest_edge`
+     came back at -.0001 to remove; the question went to the owner and the owner chose to drop it.
+     That is post-hoc selection, it is a deviation from this rule, and `DROP_CANDIDATES` below is
+     deliberately *not* amended to include it -- amending it would rewrite the pre-registration to
+     match the outcome, which would leave no trace that the protocol had been departed from. The two
+     candidate sets differed by .0001 dev AUC, so the overfitting risk it carries is small; small is
+     not none, and T-035 reports it as what it was.
+
   3. **The threshold is 0.0020 mean dev AUC.** T-028 measured all six non-Elo features together worth
      +.0090 AUC over Elo alone; this is a fifth of that. Below it, on ~2,641 dev games, a difference
      is not distinguishable from resampling noise -- and D-040's waterfall is *better* with fewer
@@ -224,7 +232,9 @@ def run(url: str) -> dict:
     candidates = [full]
     for name in FEATURE_NAMES:
         candidates.append(score(rows, _without(name), f"without {name}"))
-    # Blocks: correlated groups leave-one-out understates, plus the pair under decision.
+    # Blocks: correlated groups leave-one-out understates, plus the pair under decision. The rest
+    # block was three features when this ran first; `rest_edge` left it after the owner's call, and
+    # `_without` simply skips a name the set no longer carries.
     candidates.append(
         score(rows, _without("home_b2b", "away_b2b", "rest_edge"), "without the rest block")
     )
