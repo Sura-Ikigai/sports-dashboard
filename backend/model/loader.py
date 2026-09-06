@@ -120,6 +120,12 @@ WARMUP_SEASONS = _WARMUP_SEASONS
 # above governs what may be trained on.
 SCHEDULE_SEASONS: tuple[int, ...] = WARMUP_SEASONS + SEASONS
 
+# Seasons the live path (T-031, D-048) may fetch: every pinned season, plus the one after the last
+# pinned one, which is the season currently being played. It is by definition a season no pin can
+# describe, so `download_live_schedule` gates on this rather than on the pinned list -- gating on the
+# pinned list would make the live path impossible, gating on nothing would let a typo fetch 1997.
+LIVE_SEASONS: tuple[int, ...] = (*SCHEDULE_SEASONS, max(SCHEDULE_SEASONS) + 1)
+
 # Box-score assets exist for the modeling seasons only. Availability (D-035) is a lagged feature over
 # the training window; the warm-up seasons feed Elo, which needs scores and nothing else.
 BOX_SEASONS: tuple[int, ...] = SEASONS
@@ -269,6 +275,11 @@ REQUIRED_COLUMNS: tuple[str, ...] = (
     "home_score",
     "away_score",
     "status_type_completed",
+    # T-031/D-048: the live path needs to tell scheduled from postponed, and postponement is an
+    # explicit state in this source rather than something to infer from a row disappearing. All four
+    # postponements of the completed 2026 season carry `STATUS_POSTPONED` here, keep their row
+    # permanently, and are replayed as new games with new ids.
+    "status_type_name",
     "neutral_site",
     "venue_id",
     "venue_full_name",
@@ -870,3 +881,110 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# --- the live schedule (T-031, D-048) -------------------------------------------------------------
+#
+# Deliberately a separate function from `load_season`, for the same reason `load_warmup_games` is:
+# the training path's default must be structurally incapable of returning something it should not.
+# `load_season` verifies against `EXPECTED_COMPLETED_COUNTS` and `EXPECTED_SHA256`, and *that is the
+# right behaviour for a finished season and the wrong behaviour for a live one.* A file that changes
+# nightly has no pinnable hash and no pinnable count, so a live fetch cannot go through machinery
+# whose whole job is to refuse anything that moved.
+#
+# What replaces those pins is D-048's structure-and-continuity check, and it lives in `ingest` rather
+# than here -- continuity is a comparison against what the database already accepted, and this module
+# has no database. This function's job ends at "these are the bytes, and this is their hash".
+
+
+def download_live_schedule(
+    season: int, data_dir: Path = DEFAULT_DATA_DIR
+) -> tuple[Path, str]:
+    """Fetch the current season's schedule, unverified against any pin, and return its SHA-256.
+
+    **Always re-downloads.** Caching would defeat the purpose: the file's whole significance is that
+    it changed since yesterday. The provenance posture is unchanged from every other fetch here --
+    TLS asserted after redirects, host allowlist, size cap, atomic write -- and the returned hash is
+    what `schedule_snapshots` records so a prediction can be traced to exact bytes after the fact.
+
+    `season` is validated against `SCHEDULE_SEASONS + (next season,)`: the live season is by
+    definition one this loader has never pinned, so gating it on the pinned list would make it
+    impossible, while gating on nothing would let a typo fetch an arbitrary year.
+    """
+    if season not in LIVE_SEASONS:
+        raise LoaderVerificationError(
+            f"season {season} is not a live season -- expected one of {LIVE_SEASONS}. A finished "
+            "season goes through `load_season`, which verifies it against its pinned hash and count; "
+            "this path exists only for a season those pins cannot describe."
+        )
+    # A separate filename from the pinned one. `_dest_path` is where a *verified* season lands, and
+    # writing live bytes there would let a later `load_season` read an unpinned file from cache and
+    # verify it against a hash it was never meant to match -- a confusing failure at best, and at
+    # worst a pinned season quietly served from live data.
+    dest = _contained_path(f"nba_schedule_{season}_live.csv", data_dir)
+
+    def _verify(raw: bytes, source: str) -> None:
+        # Framing only, and that is the point of this path: there is no content pin to check
+        # against. What is asserted is that we got a CSV with the columns this code reads, not an
+        # HTML error page, a truncated body, or a file whose shape changed upstream.
+        _validate_header(raw, season, source=source)
+
+    path = _download_verified(
+        _asset_url(season), dest, season=season, verify=_verify, force=True
+    )
+    return path, hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def read_live_schedule(path: Path, season: int) -> pd.DataFrame:
+    """Parse a live schedule into the normalized frame, **keeping games that have not been played.**
+
+    `_read_completed_games` filters to `status_type_completed` and gives every row a score. This one
+    keeps everything and carries `status` instead, because the rows worth predicting are exactly the
+    ones that function drops.
+
+    Scores are deliberately **not** normalized to integers here. An unplayed game arrives as `0`/`0`
+    in this source, which is indistinguishable from a real 0-0 result by inspection -- and a 0-0
+    `Game` is refused downstream as a tie (F-049), which is the correct failure but a confusing one.
+    The scheduled path produces `Matchup` records, which carry no scores at all, so the ambiguity
+    never gets a chance to matter.
+    """
+    raw = pd.read_csv(
+        path,
+        usecols=list(REQUIRED_COLUMNS),
+        dtype=str,
+        keep_default_na=False,
+        low_memory=False,
+    )
+    bad_seasons = sorted(raw.loc[raw["season"] != str(season), "season"].unique())
+    if bad_seasons:
+        raise LoaderVerificationError(
+            f"{path} contains rows for season(s) {bad_seasons}, expected only {season}"
+        )
+
+    normalized = pd.DataFrame({
+        "game_id": raw["game_id"].astype(str),
+        "date": pd.to_datetime(raw["date"], utc=True),
+        "season": raw["season"].astype(int),
+        "season_type": raw["season_type"].astype(int),
+        "home_id": raw["home_id"].astype(str).str.strip(),
+        "away_id": raw["away_id"].astype(str).str.strip(),
+        "neutral_site": raw["neutral_site"] == "true",
+        "status": raw["status_type_name"].astype(str).str.strip(),
+        "venue_id": raw["venue_id"].astype(str).str.strip().replace("", None),
+        "venue_city": raw["venue_address_city"].astype(str).str.strip().replace("", None),
+        "venue_state": raw["venue_address_state"].astype(str).str.strip().replace("", None),
+    })
+    return normalized.sort_values(["date", "game_id"]).reset_index(drop=True)
+
+
+def load_live_schedule(
+    season: int, data_dir: Path = DEFAULT_DATA_DIR
+) -> tuple[pd.DataFrame, str]:
+    """Download and parse the live schedule. Returns `(frame, sha256)`.
+
+    The one function callers go through, F-026's shape applied to the live family: there is no path
+    that returns live schedule data without the framing check having fired and the hash having been
+    computed, so a snapshot can never be recorded without its bytes being identified.
+    """
+    path, digest = download_live_schedule(season, data_dir)
+    return read_live_schedule(path, season), digest

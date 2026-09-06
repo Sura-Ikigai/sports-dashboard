@@ -54,7 +54,17 @@ SEASON = 2024
 # ── fixtures: a minimally valid season CSV ────────────────────────────────────
 
 
-def _row(game_id: str, *, home: str = "1", away: str = "2", completed: str = "true") -> dict:
+def _row(
+    game_id: str,
+    *,
+    home: str = "1",
+    away: str = "2",
+    completed: str = "true",
+    status: str | None = None,
+) -> dict:
+    # T-031 added `status_type_name` to REQUIRED_COLUMNS: the live path needs to tell scheduled from
+    # postponed, and this source states it explicitly rather than leaving it to be inferred. It
+    # defaults to agreeing with `completed` so no existing fixture has to say the same thing twice.
     return {
         "id": game_id,
         "game_id": game_id,
@@ -66,6 +76,8 @@ def _row(game_id: str, *, home: str = "1", away: str = "2", completed: str = "tr
         "home_score": "110",
         "away_score": "104",
         "status_type_completed": completed,
+        "status_type_name": status
+        or ("STATUS_FINAL" if completed == "true" else "STATUS_SCHEDULED"),
         "neutral_site": "false",
         "venue_id": "3421",
         "venue_full_name": "Test Arena",
