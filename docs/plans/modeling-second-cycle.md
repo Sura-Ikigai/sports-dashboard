@@ -1376,8 +1376,9 @@ skip must be justified in the task's outcome rather than discovered later.
     baseline; color must not be the only channel carrying sign.
   - **built:** `app/games/[gameId]/` (page + segment layout), `components/prediction/`
     (`GameDetail`, `ProbabilityHeadline`, `ContributionWaterfall`, `WhatIfPanel`,
-    `PredictionHistory`), `lib/api/predictions.ts`, `lib/scoring/presentation.ts`. **+42 frontend
-    tests (76 total)**; 719 backend tests unchanged; `tsc --noEmit`, eslint and ruff clean.
+    `PredictionHistory`, `UpcomingList`), `app/games/page.tsx` (the index), `lib/api/predictions.ts`,
+    `lib/scoring/presentation.ts`. **+48 frontend tests (82 total)**; 719 backend tests unchanged;
+    `tsc --noEmit`, eslint and ruff clean.
   - **verified against the real 2027 data** through a live backend on `ingest_smoke`: the real
     prediction, its real decomposition and its real snapshot render; swinging Elo to −260 and putting
     the home team on a back-to-back takes the hypothetical from **56.8% to 18.6%** while the real
@@ -1454,6 +1455,29 @@ skip must be justified in the task's outcome rather than discovered later.
   wrote first and checked after. It happened to be fine — `use(params)` in a client page and
   `export const metadata` in a segment layout are both exactly what the shipped docs prescribe for
   16.2 — but the checking should have come first, and next time it will.
+
+  ### The index, added after the surface was shown
+
+  The route was reachable only by game id. `/predictions/upcoming` had existed since T-032 with
+  nothing consuming it, so `/games` now lists what is coming, grouped by UTC day.
+
+  Building it the obvious way would have shown **nothing for 44 days**: the API's horizon caps at 30
+  (bounded because D-047 leaves it unauthenticated, so an open horizon is an open read), today is
+  2026-09-06 and the opener is 2026-10-20. A page that could only ask about *now* would be empty
+  until October with no way to tell that from the job having died. So it carries a **from** date and
+  a horizon — which is also the control anyone wants mid-season — and its empty state **names the
+  window it just asked about**, which is the whole difference between "nothing is on" and "something
+  is broken".
+
+  Every probability on it is the **home** team's and says so, with the favoured side named beside it:
+  a column where some percentages mean home and others mean away reads fine until somebody acts on
+  it. Games past the job's horizon are listed saying "not scored yet" rather than hidden, for the
+  same reason the API lists them.
+
+  Two more gaps the browser showed that the tests had not: JSX had eaten a space (&ldquo;the
+  hometeam&rsquo;s&rdquo;), and the detail page was a **dead end** — no way back to the list except
+  the browser's back button, which is the kind of gap that survives because whoever built it always
+  arrived by typing the URL.
 
   ### Known limits, recorded rather than absorbed
 

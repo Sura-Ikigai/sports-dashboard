@@ -98,4 +98,18 @@ export const gameDetailUrl = (gameId: string) =>
 
 export const frozenModelUrl = () => `${API_URL}/predictions/model`;
 
+/**
+ * Upcoming games with the model's latest word on each.
+ *
+ * `from` is the moment to look forward from. It is a parameter rather than "now" because the page
+ * needs to be usable in the offseason: today plus the API's 30-day maximum still lands two weeks
+ * short of opening night, so a page that could only ask about now would be empty for a month and a
+ * half and give a reader no way to tell that from an outage.
+ */
+export const upcomingUrl = (from: string, horizonDays: number) =>
+  `${API_URL}/predictions/upcoming?as_of=${encodeURIComponent(from)}&horizon_days=${horizonDays}`;
+
+/** The API's own cap (`track_record.MAX_HORIZON_DAYS`), mirrored so the UI cannot ask for a 422. */
+export const MAX_HORIZON_DAYS = 30;
+
 export const teamsUrl = () => `${API_URL}/nba/teams`;

@@ -170,6 +170,19 @@ describe("degrading without the optional calls", () => {
   });
 });
 
+describe("navigation", () => {
+  it("offers a way back to the index rather than being a dead end", () => {
+    // The detail page is reachable by link from the index and by URL. Without this it is only
+    // leavable by the back button, which is the kind of gap that survives because whoever built it
+    // always arrived by typing the URL.
+    render(<GameDetailView detail={DETAIL} model={MODEL} teams={TEAMS} />);
+    expect(screen.getByRole("link", { name: /all upcoming predictions/i })).toHaveAttribute(
+      "href",
+      "/games",
+    );
+  });
+});
+
 describe("teamNamer", () => {
   it("maps known ids and falls back for unknown ones", () => {
     const name = teamNamer(TEAMS);

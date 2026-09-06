@@ -10,6 +10,18 @@ export type {
   TeamSummary,
 } from "@/lib/api/predictions";
 
+export interface UpcomingResponse {
+  readonly as_of: string;
+  readonly horizon_days: number;
+  readonly model_version: string | null;
+  readonly games: number;
+  readonly predicted: number;
+  readonly items: readonly {
+    readonly game: import("@/lib/api/predictions").ScheduledGame;
+    readonly prediction: import("@/lib/api/predictions").Prediction | null;
+  }[];
+}
+
 /** `GET /predictions/model`, in the shape `lib/scoring/score.ts` consumes. */
 export interface LinearModelResponse {
   readonly model_version: string;

@@ -7,6 +7,8 @@
  * fetches. The route does the fetching; this does the showing, and nothing here knows a URL.
  */
 
+import Link from "next/link";
+
 import type { GameDetail as GameDetailData, LinearModelResponse, TeamSummary } from "./types";
 import { ContributionWaterfall } from "./ContributionWaterfall";
 import { PredictionHistory } from "./PredictionHistory";
@@ -40,6 +42,13 @@ export function GameDetailView({
 
   return (
     <main className="mx-auto w-full max-w-4xl space-y-8 p-4 sm:p-8">
+      <Link
+        href="/games"
+        className="inline-block text-sm underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 dark:focus-visible:outline-sky-400"
+      >
+        &larr; All upcoming predictions
+      </Link>
+
       <ProbabilityHeadline
         game={detail.game}
         prediction={latest.prediction}
