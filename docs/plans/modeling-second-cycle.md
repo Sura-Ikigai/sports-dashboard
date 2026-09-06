@@ -1490,7 +1490,8 @@ skip must be justified in the task's outcome rather than discovered later.
     pattern. A server component would paint sooner and put the accessible table in the initial HTML;
     worth doing the day this surface has a reader who is not the owner.
 
-- [ ] **T-035** Amend §6 and write the v2 analysis — owner: `human`
+- [x] **T-035** Amend §6 and write the v2 analysis — owner: `human` — **DRAFTED 2026-09-06, awaiting
+  owner sign-off**
   - acceptance: `PHASE-1-RESULT.md` §6's reproducibility claim amended to state the Postgres
     dependency (D-043); a new analysis records which features carried signal, where the model failed,
     whether probabilities remain calibrated, and the honest delta against Phase 1 — including a null
@@ -1498,9 +1499,105 @@ skip must be justified in the task's outcome rather than discovered later.
   - security note: publish nothing that cannot be reproduced from committed code and a verified
     ingest. Hold this document to T-010's standard — every numeric claim re-derived from a fresh run
     and string-matched against the prose.
+  - **built:** `docs/analysis/MODELING-V2-RESULT.md`, `backend/model/report_v2.py` (the figures
+    generator), `docs/results/t035-figures.json` (its committed output),
+    `backend/tests/test_analysis_figures.py` (+10). `PHASE-1-RESULT.md` §6 amended. **729 backend
+    tests**, ruff clean.
+  - **owner: `human`** — this is a draft for sign-off, not a merge-and-forget. The numbers are
+    machine-checked; the *readings* in §6 and §8 are judgement calls and belong to the owner.
+
+  ### The findings, in one paragraph each
+
+  **It is still a one-feature model.** Leave-one-out on the dev folds: dropping `elo_diff` costs
+  **.1268 AUC**, dropping the next-best costs **.0057**. Forty-three times. D-031's uncomfortable
+  Phase 1 conclusion survives the rewrite — what changed is *which* feature and that the companions
+  are no longer inert (.0029–.0057 each, against ~0 before).
+
+  **The rewrite did not improve the sealed number.** +.0038 accuracy, −.0015 log loss, and AUC
+  **down** .0004. On the one season neither model saw, v2 and Phase 1 are the same model to three
+  decimals. What improved is **stability**: fold-to-fold accuracy stdev fell from .0169 to .0070, to
+  41% of what it was, and the dev folds gained +.0220 and +.0204. The document states both readings
+  of that pattern — that 2026 understates v2, or that the dev gains are residue from a cycle spent
+  looking at those seasons — and says the sealed season is the one designed to be believed.
+
+  **Calibration is good, and errs the safe way.** Largest gap in a well-populated bin is +.043, and
+  every band above a toss-up wins *more* often than it claims (Lean .5994 claimed / .6288 observed;
+  Strong .8166 / .8333). The toss-up band is almost exactly honest at .5264 / .5256 — which is the
+  band where being wrong would matter most.
+
+  **F-141 is a null result and is reported as one.** If reading availability across the offseason
+  cost anything measurable, it would show as an early-season accuracy gap. It does not: **.6743 on
+  218 games against .6812 on the other 1104**, a gap of .0068 against roughly ±3.2 points of noise.
+  The honest reading is not "harmless" but "bounded by the feature's own smallness" — `avail_diff` is
+  worth .0031 AUC in total, so there is very little room for its degradation to show up at all.
+
+  ### §6 was wrong in two ways, not one
+
+  The task named the Postgres dependency. Amending it turned up a second, larger problem in the same
+  sentence: §6 said `python -m model.run_evaluation` regenerates §1–§4, and **at HEAD it does not
+  reproduce those figures at all** — D-032/D-033 replaced the feature set, so the command now
+  produces cycle 2's numbers. Reproducing Phase 1's requires checking out `30871d8`.
+
+  The superseded sentence is **quoted** in the amendment rather than deleted. A reader who saw the
+  old claim needs to be able to find out what happened to it, and a test asserts the quote is still
+  there.
+
+  ### The document is checked against its own arithmetic
+
+  `report_v2.py` re-derives every figure into a committed JSON; `test_analysis_figures.py` checks the
+  prose against it in CI. The split is D-043 made concrete: re-deriving needs Postgres and a verified
+  ingest, which CI does not have, so the data half runs locally and the prose half — the one that can
+  be automated — is.
+
+  It caught two real errors immediately. **`.0069` should have been `.0068`**: I had computed the
+  early-season gap by subtracting two already-rounded numbers instead of the underlying values, which
+  is exactly the failure T-010's standard exists to prevent. And the reverse check found three
+  numbers stated in the prose that no figure explained.
+
+  Sabotage then found a hole in the check itself. Swapping a genuine figure for **another genuine
+  figure** from elsewhere in the document passed both directions — the forward check found the
+  original somewhere, the reverse found the substitute accounted for. Closed by checking each fold's
+  table row as a unit, anchored on its unique `model_version`. Four checks now, each with a control
+  that proves it fires.
+
+  ### What it does not license
+
+  Stated in §8, and the third is the one to carry forward: **expecting the trial to match these
+  numbers.** Every fold here is a backtest, 2026-27 is the first evaluation the model cannot have
+  been shaped by, and it will run with F-141 as a known defect. Three cycles of re-encoding have
+  converged on ~.73 AUC; the remaining headroom is in information the corpus does not contain.
 
 ## Final review (filled at §5.4 — outcome write-back)
 
-- Built: —
-- Changed vs. plan: —
-- Future hardening: —
+**Built.** T-021…T-035, fifteen tasks over fifteen branches and fifteen PRs. A verified Postgres
+corpus (D-038/D-046), a re-encoded feature set frozen at four features, a walk-forward evaluation
+with one sealed season, a prediction service and a daily job, a read-only predictions API, a
+contract-gated browser scorer, a game-detail surface with a fenced what-if panel, and the analysis
+above.
+
+**Changed vs. plan.** Four departures, all recorded where they happened:
+
+1. **D-048 was added** (T-031). The plan assumed D-046's content-pinning covered every source; the
+   live schedule file is mutable and needed structure-and-continuity verification instead. A separate
+   decision, table and module — D-046 untouched.
+2. **`GET /predictions/model` was added** beyond T-032's stated acceptance, because T-033's scorer
+   and T-034's what-if run in the browser and `/models/` is gitignored.
+3. **An index at `/games` was added** to T-034 after the surface was first shown. The route was
+   reachable only by id, which made the deliverable technically complete and practically unusable.
+4. **D-050 was filed as a new decision when D-041 already covered it**, and had since plan time. It
+   was rewritten as D-041's implementation record. The lesson is in the ledger: grep by topic before
+   adding a decision, because the plan-time block covers work that had not been built yet.
+
+**Future hardening.** In the order they will bite:
+
+- **The job is not scheduled anywhere.** It runs on demand. Before 2026-10-20 it needs a cron or a
+  supervised runner, and the existing in-process APScheduler is the wrong home for it — the plan
+  already names the double-fire hazard, which `truncate_to_hour` makes safe rather than impossible.
+- **F-142** — the accuracy record is a full season scan per request (59 ms at end-of-season volume,
+  measured). Fine now; the cost grows with the season and nothing watches it.
+- **F-141** — availability reads across the offseason. Accepted for the trial, measured, carried to
+  D-017's retrain.
+- **The injury-snapshot collector remains out of scope and its window is closing.** A season of
+  archived injury reports is what would make a live-injury feature trainable next cycle, and it
+  cannot be collected retroactively. Raised twice; still undecided.
+- **`docker-compose.prod.yaml` is a 0-byte file** (F-006), carried from Phase 1 and still open.

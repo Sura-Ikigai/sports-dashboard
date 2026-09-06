@@ -198,10 +198,32 @@ model artifact can be JSON rather than a pickle — Phase 2 loads it inside the 
 has no deserialization step that can execute code (D-030). Because the fit is ours, it is verified
 against scikit-learn 1.9.0: **maximum coefficient difference 2.1×10⁻⁸**.
 
-**Every number here is reproducible.** `PYTHONPATH=backend python -m model.run_evaluation` regenerates
-§1–§4 from committed code and the content-pinned data release. Artifacts are versioned by content
-hash, so the same data and configuration always produce the same `model_version`, and an edited
-artifact is refused on load. Sealed-fold model: `972d33a83ad9`.
+**Every number here is reproducible — with two conditions this document originally omitted.**
+Artifacts are versioned by content hash, so the same data and configuration always produce the same
+`model_version`, and an edited artifact is refused on load. Sealed-fold model: `972d33a83ad9`.
+
+> **Amended 2026-09-06 (T-035).** The sentence this replaces read: *"`PYTHONPATH=backend python -m
+> model.run_evaluation` regenerates §1–§4 from committed code and the content-pinned data release."*
+> As written it is now false in two separate ways, and both are worth stating rather than quietly
+> fixing.
+>
+> **1. It needs a running Postgres (D-043).** D-038 moved the bulk historical corpus into the
+> application database, so "committed code and the content-pinned data release" is no longer
+> sufficient input — `run_evaluation` takes a database URL and reads `corpus_*` tables that
+> `python -m model.ingest` must have populated first. The integrity guarantee did not weaken; it
+> moved to the ingest boundary, where source bytes are still verified against SHA-256 hashes before
+> parsing, per-season counts are still pinned, and `corpus.assert_curated` re-runs on every read
+> (D-046). What changed is the *setup* a reader needs, and a reproducibility claim that understates
+> its own prerequisites is not one.
+>
+> **2. `run_evaluation` at HEAD no longer produces these figures at all.** D-032 and D-033 replaced
+> the feature set: `point_diff_diff`, `form_diff` and `home_advantage` were removed in favour of
+> margin-of-victory Elo, split back-to-back indicators and lagged availability. Running the command
+> today reproduces **cycle 2's** numbers, not §1–§4's. Reproducing *these* requires checking out
+> `30871d8`, the commit this document was published at, and supplying the data release it expected.
+>
+> §1–§4 are unchanged and were correct when measured. What was wrong was the instruction for
+> checking them. The cycle-2 result is in `MODELING-V2-RESULT.md`.
 
 ---
 
