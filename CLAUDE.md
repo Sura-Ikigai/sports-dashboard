@@ -11,7 +11,7 @@ are global, in `~/.claude/`.
   - `modeling-second-cycle.md` — **ACTIVE** (T-021…T-035). This is the one to read before acting.
   - `phase-1-analytical-core.md` — **MERGED** 2026-08-25 (PR #3). History, plus 12 carried findings
     that are still open — each names the cycle-2 task that absorbs it.
-- **`docs/archive/`** — history only, do not read by default. `decisions.md` (D-001…D-049),
+- **`docs/archive/`** — history only, do not read by default. `decisions.md` (D-001…D-050),
   `findings.md` (F-001…F-142, full evidence), `log.md`, the old tracker, superseded plans.
   **Grep it, never read it end to end:** `grep -n 'D-0NN' docs/archive/decisions.md`.
 - `docs/superpowers/` — Stage 3 was built with a different workflow; historical record only.
