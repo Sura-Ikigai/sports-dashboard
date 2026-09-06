@@ -11,8 +11,8 @@ are global, in `~/.claude/`.
   - `modeling-second-cycle.md` — **ACTIVE** (T-021…T-035). This is the one to read before acting.
   - `phase-1-analytical-core.md` — **MERGED** 2026-08-25 (PR #3). History, plus 12 carried findings
     that are still open — each names the cycle-2 task that absorbs it.
-- **`docs/archive/`** — history only, do not read by default. `decisions.md` (D-001…D-047),
-  `findings.md` (F-001…F-140, full evidence), `log.md`, the old tracker, superseded plans.
+- **`docs/archive/`** — history only, do not read by default. `decisions.md` (D-001…D-049),
+  `findings.md` (F-001…F-142, full evidence), `log.md`, the old tracker, superseded plans.
   **Grep it, never read it end to end:** `grep -n 'D-0NN' docs/archive/decisions.md`.
 - `docs/superpowers/` — Stage 3 was built with a different workflow; historical record only.
 
@@ -42,7 +42,11 @@ Invariants and domain notes are below — there is no separate stack overlay fil
   - **Migrations own schema; `model.ingest` owns data** (D-045). No migration inserts corpus rows.
   - **No query carries an as-of predicate** (D-039). SQL narrows by season or team; the as-of filter
     stays inside `features.py`, where T-006's property test proves it. Writing `WHERE date < :as_of`
-    anywhere moves an integrity control into call sites and voids that proof.
+    anywhere moves an integrity control into call sites and voids that proof. Enforced by an AST
+    check over `store.py` that refuses the string `as_of` outright — **no exceptions, ever**;
+    `load_upcoming` complied by moving its window into Python rather than arguing its case was
+    different. `track_record.py` reads a table that *has* an `as_of` column, so it cannot satisfy
+    that rule and carries its own: naming the column is allowed, comparing it in SQL is not.
   - **Integrity is verified at the ingest boundary** (D-046) — content hashes over source bytes
     before parsing, pinned counts, and `corpus.assert_curated` re-run on read.
 - Consequences, recorded not absorbed: reproducing reported numbers needs a running Postgres (D-043),

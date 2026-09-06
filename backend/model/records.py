@@ -178,3 +178,23 @@ class Game:
             away_id=self.away_id,
             neutral_site=self.neutral_site,
         )
+
+
+# ── schedule statuses ─────────────────────────────────────────────────────────
+#
+# These live here rather than in `schedule.py`, which is where they were first written, because
+# `schedule.py` imports pandas and `track_record.py` needs them. `track_record` is imported by the
+# FastAPI service, and D-016/D-021 keep the served path standard-library-only -- so a constant
+# reached from the API cannot live in a module that pulls a training dependency in behind it.
+# `schedule.py` re-exports both names, so nothing that already imported them from there changed.
+
+#: Statuses the schedule feed may carry. Anything else is refused rather than guessed at.
+KNOWN_STATUSES: frozenset[str] = frozenset(
+    {"STATUS_SCHEDULED", "STATUS_POSTPONED", "STATUS_FINAL", "STATUS_IN_PROGRESS", "STATUS_CANCELED"}
+)
+
+#: Statuses a game can carry and still be worth predicting.
+PREDICTABLE_STATUSES: frozenset[str] = frozenset({"STATUS_SCHEDULED"})
+
+#: Statuses that carry a result the model can be scored against.
+SCOREABLE_STATUSES: frozenset[str] = frozenset({"STATUS_FINAL"})

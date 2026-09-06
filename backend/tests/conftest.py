@@ -17,6 +17,7 @@ without a project-specific flag anyone has to remember to set.
 
 from __future__ import annotations
 
+import ast
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -104,3 +105,49 @@ def alembic_config(url: str):
     config.set_main_option("sqlalchemy.url", url)
     os.environ["DATABASE_URL"] = url
     return config
+
+
+# ── shared AST support for the SQL-shape checks ───────────────────────────────
+#
+# Two modules are checked for date predicates in the SQL they build: `store.py` under D-039's
+# absolute rule (the string `as_of` may not appear at all) and `track_record.py` under a narrower
+# one (the `as_of` column must be selected, so only a *comparison* is refused). The patterns differ;
+# the "what counts as an executable string" part is the same and lives here once.
+
+
+def docstring_nodes(tree: ast.AST) -> set[int]:
+    """Ids of the Constant nodes that are docstrings, so prose may discuss what code may not do.
+
+    Both checked modules name the forbidden shape in their own docstrings. Explaining a hazard has
+    to stay possible or the explanation gets deleted to appease the checker.
+    """
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            body = getattr(node, "body", None)
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                ids.add(id(body[0].value))
+    return ids
+
+
+def executable_strings(source: str) -> list[str]:
+    """Every string literal in a module except docstrings.
+
+    Deliberately not just `sa.text(...)` arguments: both modules build WHERE clauses by appending
+    fragments to a list and joining them, so a predicate can enter the SQL without ever appearing
+    inside a `text()` call. Scanning every non-docstring literal is what closes that.
+    """
+    tree = ast.parse(source)
+    skip = docstring_nodes(tree)
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in skip
+    ]

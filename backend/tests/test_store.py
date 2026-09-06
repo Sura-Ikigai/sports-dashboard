@@ -14,7 +14,6 @@ used for argument forwarding.
 
 from __future__ import annotations
 
-import ast
 import re
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -23,7 +22,7 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 
-from conftest import alembic_config, make_scratch_database
+from conftest import alembic_config, executable_strings, make_scratch_database
 from model import corpus, store
 from model.features import (
     FEATURE_NAMES,
@@ -63,44 +62,6 @@ _AS_OF_PATTERNS: tuple[re.Pattern, ...] = (
 )
 
 
-def _docstring_nodes(tree: ast.AST) -> set[int]:
-    """Ids of the Constant nodes that are docstrings, so prose may discuss what code may not do.
-
-    This module's own docstring names `WHERE game_date < :as_of` as the thing to avoid. Explaining a
-    hazard has to stay possible or the explanation gets deleted to appease the checker.
-    """
-    ids: set[int] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
-            body = getattr(node, "body", None)
-            if (
-                body
-                and isinstance(body[0], ast.Expr)
-                and isinstance(body[0].value, ast.Constant)
-                and isinstance(body[0].value.value, str)
-            ):
-                ids.add(id(body[0].value))
-    return ids
-
-
-def _executable_strings(source: str) -> list[str]:
-    """Every string literal in the module except docstrings.
-
-    Deliberately not just `sa.text(...)` arguments: this module builds its WHERE clauses by
-    appending fragments to a list and joining them, so a predicate can enter the SQL without ever
-    appearing inside a `text()` call. Scanning every non-docstring literal is what closes that.
-    """
-    tree = ast.parse(source)
-    skip = _docstring_nodes(tree)
-    return [
-        node.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and id(node) not in skip
-    ]
-
-
 def _as_of_violations(strings: list[str]) -> list[tuple[str, str]]:
     return [
         (pattern.pattern, text)
@@ -117,7 +78,7 @@ def test_no_as_of_predicate_appears_anywhere_in_store() -> None:
     `features.py` behind T-006's property test; a read layer that can express "before this moment"
     is a read layer that can express it *wrongly*, and the wrongness has no symptom.
     """
-    violations = _as_of_violations(_executable_strings(STORE_PATH.read_text()))
+    violations = _as_of_violations(executable_strings(STORE_PATH.read_text()))
     assert violations == [], (
         "store.py contains an as-of-shaped predicate, which D-039 forbids anywhere in SQL: "
         f"{violations}"
