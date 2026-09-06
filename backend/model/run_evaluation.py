@@ -17,9 +17,15 @@ someone chose.
 
 **A second run is not prevented, because it cannot be.** Anyone can pass the flag again, or check out
 an older commit, or fit a model by hand. What is enforced is that it cannot happen *silently*: every
-sealed run appends to `docs/results/t030-sealed-runs.jsonl`, so a second look leaves a second line,
-in git, next to the first. The plan says a second look "must be recorded if it happens" -- this is
-that sentence made mechanical rather than remembered.
+evaluation of the sealed fold appends to `docs/results/t030-sealed-runs.jsonl`, so a second look
+leaves a second line, in git, next to the first. The plan says a second look "must be recorded if it
+happens" -- this is that sentence made mechanical rather than remembered.
+
+The append lives in `evaluate_fold`, not in `main`, and that placement was earned: with it in `main`,
+re-deriving the results table by calling `evaluate_fold` directly evaluated 2026 again and logged
+nothing. `model_version` is a content hash, so **two lines with the same version are a re-derivation
+and two with different versions are a second attempt** -- a distinction the file makes visible
+without anyone having to remember which run was which.
 
 ## What it evaluates
 
@@ -78,7 +84,21 @@ def _rows(context: Context, games) -> tuple[list, list]:
 
 
 def evaluate_fold(context: Context, games, fold: Fold) -> tuple[dict, str]:
-    """Fit on the fold's training seasons, evaluate on its test season, emit a versioned artifact."""
+    """Fit on the fold's training seasons, evaluate on its test season, emit a versioned artifact.
+
+    **Recording a sealed evaluation happens here, not in `main`.** It was in `main` first, and the
+    hole showed up within minutes of the control existing: re-deriving the three-fold table for
+    `docs/results/` called this function directly, evaluated 2026 a second time, and logged nothing.
+    The numbers were bit-identical -- `model_version` is a content hash, so an identical hash *is* the
+    evidence that no new information was obtained -- but "it happened to be harmless" is not the
+    property being claimed. The claim is that a sealed evaluation cannot happen silently, and a claim
+    that only holds through one entry point does not hold.
+
+    So the log follows the *evaluation*, and the `--spend-the-sealed-fold` flag follows *reaching*
+    it. Two mechanisms, two jobs: the flag makes spending the fold deliberate, this makes it visible.
+    Two lines carrying the same `model_version` are a re-derivation; two carrying different ones are
+    a second attempt, and the difference is legible to anyone reading the file.
+    """
     train_games, test_games = split_games(games, fold)
     train_x, train_y = _rows(context, train_games)
     test_x, test_y = _rows(context, test_games)
@@ -96,7 +116,7 @@ def evaluate_fold(context: Context, games, fold: Fold) -> tuple[dict, str]:
             "feature_names": list(FEATURE_NAMES),
         },
     )
-    return {
+    row = {
         "fold": str(fold),
         "test_season": fold.test_season,
         "model_version": version,
@@ -121,7 +141,20 @@ def evaluate_fold(context: Context, games, fold: Fold) -> tuple[dict, str]:
             for b in result.calibration
             if b.count
         ],
-    }, version
+    }
+    if fold == SEALED_FOLD:
+        _record_sealed_run({
+            "ran_at": datetime.now(UTC).isoformat(),
+            "fold": row["fold"],
+            "model_version": version,
+            "feature_names": list(FEATURE_NAMES),
+            "accuracy": row["accuracy"],
+            "log_loss": row["log_loss"],
+            "roc_auc": row["roc_auc"],
+            "constant_log_loss": row["constant_log_loss"],
+            "meets_ship_criterion": row["meets_ship_criterion"],
+        })
+    return row, version
 
 
 def folds_to_evaluate(*, spend_the_sealed_fold: bool) -> tuple[Fold, ...]:
@@ -195,18 +228,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     sealed = next(r for r in rows if r["test_season"] == SEALED_FOLD.test_season)
-    _record_sealed_run({
-        "ran_at": datetime.now(UTC).isoformat(),
-        "fold": sealed["fold"],
-        "model_version": sealed["model_version"],
-        "feature_names": list(FEATURE_NAMES),
-        "accuracy": sealed["accuracy"],
-        "log_loss": sealed["log_loss"],
-        "roc_auc": sealed["roc_auc"],
-        "constant_log_loss": sealed["constant_log_loss"],
-        "meets_ship_criterion": sealed["meets_ship_criterion"],
-    })
-
     print(f"══ HEADLINE — the sealed fold ({sealed['fold']}), model {sealed['model_version']} ══")
     print(f"   accuracy   {sealed['accuracy']:.4f}   (target >= {ACCURACY_TARGET})")
     print(f"   log loss   {sealed['log_loss']:.4f}   vs constant {sealed['constant_log_loss']:.4f}")

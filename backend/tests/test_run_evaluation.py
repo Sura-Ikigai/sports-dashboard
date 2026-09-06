@@ -79,3 +79,45 @@ def test_the_frozen_features_are_the_ones_the_run_reports(name):
     must be the same list -- a mismatch would relabel every coefficient in the headline table."""
     assert name in FEATURE_NAMES
     assert len(FEATURE_NAMES) == len(set(FEATURE_NAMES))
+
+
+def test_evaluating_the_sealed_fold_records_it_whatever_the_entry_point(tmp_path, monkeypatch):
+    """The hole this control had for about ten minutes.
+
+    With the append in `main`, re-deriving the results table by calling `evaluate_fold` directly
+    evaluated the sealed season a second time and logged nothing. The numbers happened to be
+    bit-identical, but "it happened to be harmless" is not the property claimed — the claim is that a
+    sealed evaluation cannot happen silently, and a claim that holds through only one entry point does
+    not hold. This asserts the recording follows the *evaluation*, not the command line.
+    """
+    log = tmp_path / "sealed.jsonl"
+    monkeypatch.setattr(run_evaluation, "SEALED_LOG", log)
+
+    recorded = []
+    monkeypatch.setattr(run_evaluation, "_record_sealed_run", recorded.append)
+    monkeypatch.setattr(run_evaluation, "fit", lambda *a, **k: _StubModel())
+    monkeypatch.setattr(run_evaluation, "save_artifact", lambda *a, **k: "stub00000000")
+    monkeypatch.setattr(run_evaluation, "split_games", lambda games, fold: (games, games))
+    # Both classes present: `evaluate` refuses a single-class test set rather than returning .5,
+    # which is the right behaviour and one this stub has to respect.
+    monkeypatch.setattr(
+        run_evaluation, "_rows", lambda ctx, games: ([(0.0,) * 4, (0.0,) * 4], [True, False])
+    )
+
+    run_evaluation.evaluate_fold(None, [], walk_forward_folds()[0])
+    assert recorded == [], "a dev fold must not touch the sealed log"
+
+    run_evaluation.evaluate_fold(None, [], SEALED_FOLD)
+    assert len(recorded) == 1
+    assert recorded[0]["fold"] == str(SEALED_FOLD)
+    assert recorded[0]["model_version"] == "stub00000000"
+
+
+class _StubModel:
+    """Just enough model to let `evaluate_fold` run without fitting anything."""
+
+    coefficients = (0.0, 0.0, 0.0, 0.0)
+    intercept = 0.0
+
+    def predict_proba(self, rows):
+        return [0.5 for _ in rows]
