@@ -246,18 +246,18 @@ def context_from_frames(
 
     `games` is passed separately rather than re-derived from `schedule` because curation is a
     decision (F-042/F-092), and the two callers of this function want different answers: an
-    evaluation wants the curated corpus, an audit wants the raw one. The frames supply venues and
-    participation for whatever set of games it is given.
+    evaluation wants the curated corpus, an audit wants the raw one.
+
+    `schedule` is still required, and still only for its dates -- the game ids in `games` must all
+    appear in it, which is the check that a caller has not paired a curated corpus with the wrong
+    frame. T-030 removed the venue join; `game_cities_from_frame` remains for callers that want to
+    *display* travel or elevation, but no feature reads one.
     """
     dates = {game.game_id: game.date for game in games}
-    cities = game_cities_from_frame(schedule)
-    unlocated = [game.game_id for game in games if game.game_id not in cities]
-    if unlocated:
+    known = set(schedule["game_id"].astype(str))
+    absent = [game_id for game_id in dates if game_id not in known]
+    if absent:
         raise ValueError(
-            f"{len(unlocated)} game(s) are not in the schedule frame (first few: {unlocated[:5]})"
+            f"{len(absent)} game(s) are not in the schedule frame (first few: {absent[:5]})"
         )
-    return Context(
-        list(games),
-        appearances_from_box_frame(box, dates),
-        {game_id: cities[game_id] for game_id in dates},
-    )
+    return Context(list(games), appearances_from_box_frame(box, dates))

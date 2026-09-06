@@ -1,0 +1,187 @@
+{
+  "dev_seasons": [
+    2024,
+    2025
+  ],
+  "folds": [
+    "train 2022-2023 \u2192 test 2024",
+    "train 2022-2023-2024 \u2192 test 2025"
+  ],
+  "n_train": {
+    "2024": 2643,
+    "2025": 3962
+  },
+  "n_test": {
+    "2024": 1319,
+    "2025": 1321
+  },
+  "threshold": 0.002,
+  "drop_candidates": [
+    "travel_diff",
+    "altitude"
+  ],
+  "candidates": [
+    {
+      "name": "full",
+      "features": [
+        "elo_diff",
+        "home_b2b",
+        "away_b2b",
+        "rest_edge",
+        "avail_diff"
+      ],
+      "mean_auc": 0.7261202710616919,
+      "mean_log_loss": 0.6074063299377579,
+      "mean_accuracy": 0.6651507490534602,
+      "delta_auc_vs_full": 0.0,
+      "per_fold_auc": {
+        "2024": 0.7251052121178375,
+        "2025": 0.7271353300055463
+      }
+    },
+    {
+      "name": "without elo_diff",
+      "features": [
+        "home_b2b",
+        "away_b2b",
+        "rest_edge",
+        "avail_diff"
+      ],
+      "mean_auc": 0.60149746700495,
+      "mean_log_loss": 0.6745839779757787,
+      "mean_accuracy": 0.5795389001026745,
+      "delta_auc_vs_full": -0.12462280405674186,
+      "per_fold_auc": {
+        "2024": 0.5889488996227675,
+        "2025": 0.6140460343871326
+      }
+    },
+    {
+      "name": "without home_b2b",
+      "features": [
+        "elo_diff",
+        "away_b2b",
+        "rest_edge",
+        "avail_diff"
+      ],
+      "mean_auc": 0.7238156273018996,
+      "mean_log_loss": 0.6084926683921051,
+      "mean_accuracy": 0.6587122123003973,
+      "delta_auc_vs_full": -0.0023046437597922242,
+      "per_fold_auc": {
+        "2024": 0.7218247284436958,
+        "2025": 0.7258065261601035
+      }
+    },
+    {
+      "name": "without away_b2b",
+      "features": [
+        "elo_diff",
+        "home_b2b",
+        "rest_edge",
+        "avail_diff"
+      ],
+      "mean_auc": 0.7250147627053861,
+      "mean_log_loss": 0.6081086430572009,
+      "mean_accuracy": 0.6640129499615186,
+      "delta_auc_vs_full": -0.00110550835630574,
+      "per_fold_auc": {
+        "2024": 0.7228803296259692,
+        "2025": 0.7271491957848031
+      }
+    },
+    {
+      "name": "without rest_edge",
+      "features": [
+        "elo_diff",
+        "home_b2b",
+        "away_b2b",
+        "avail_diff"
+      ],
+      "mean_auc": 0.7259764821774093,
+      "mean_log_loss": 0.6075398632930007,
+      "mean_accuracy": 0.6685589810370645,
+      "delta_auc_vs_full": -0.00014378888428256964,
+      "per_fold_auc": {
+        "2024": 0.7254369724894092,
+        "2025": 0.7265159918654095
+      }
+    },
+    {
+      "name": "without avail_diff",
+      "features": [
+        "elo_diff",
+        "home_b2b",
+        "away_b2b",
+        "rest_edge"
+      ],
+      "mean_auc": 0.7229141951819241,
+      "mean_log_loss": 0.6099114695245449,
+      "mean_accuracy": 0.6621238878121487,
+      "delta_auc_vs_full": -0.0032060758797677336,
+      "per_fold_auc": {
+        "2024": 0.7241168910109179,
+        "2025": 0.7217114993529303
+      }
+    },
+    {
+      "name": "without the rest block",
+      "features": [
+        "elo_diff",
+        "avail_diff"
+      ],
+      "mean_auc": 0.7180487761586116,
+      "mean_log_loss": 0.6118357428701521,
+      "mean_accuracy": 0.6537865322466323,
+      "delta_auc_vs_full": -0.008071494903080234,
+      "per_fold_auc": {
+        "2024": 0.7147881605627399,
+        "2025": 0.7213093917544833
+      }
+    },
+    {
+      "name": "without the drop candidates",
+      "features": [
+        "elo_diff",
+        "home_b2b",
+        "away_b2b",
+        "rest_edge",
+        "avail_diff"
+      ],
+      "mean_auc": 0.7261202710616919,
+      "mean_log_loss": 0.6074063299377579,
+      "mean_accuracy": 0.6651507490534602,
+      "delta_auc_vs_full": 0.0,
+      "per_fold_auc": {
+        "2024": 0.7251052121178375,
+        "2025": 0.7271353300055463
+      }
+    },
+    {
+      "name": "elo_diff alone",
+      "features": [
+        "elo_diff"
+      ],
+      "mean_auc": 0.714602598088687,
+      "mean_log_loss": 0.6144225427965093,
+      "mean_accuracy": 0.6549226095745004,
+      "delta_auc_vs_full": -0.011517672973004878,
+      "per_fold_auc": {
+        "2024": 0.7133288789283444,
+        "2025": 0.7158763172490294
+      }
+    }
+  ],
+  "decision": {
+    "cost_of_dropping_candidates": 0.0,
+    "threshold": 0.002,
+    "drop": true,
+    "frozen_features": [
+      "elo_diff",
+      "home_b2b",
+      "away_b2b",
+      "rest_edge",
+      "avail_diff"
+    ]
+  }
+}

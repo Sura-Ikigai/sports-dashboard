@@ -74,8 +74,15 @@ def test_the_decision_rule_is_the_one_that_was_written_down():
     assert selection.MATERIALITY_THRESHOLD == 0.0020
 
 
-def test_the_drop_candidates_are_real_features():
-    assert set(selection.DROP_CANDIDATES) <= set(FEATURE_NAMES)
+def test_the_freeze_actually_removed_the_drop_candidates():
+    """This assertion **inverted** when the freeze landed, and that is the point of it.
+
+    Before the ablation ran it said the candidates were features of the set being measured. Now it
+    says they are gone, which is the claim the frozen artifact depends on: a coefficient table, a
+    persisted feature vector and T-033's TypeScript scorer all key off `FEATURE_NAMES`, so a feature
+    quietly returning to it after the freeze would silently invalidate every one of them.
+    """
+    assert not set(selection.DROP_CANDIDATES) & set(FEATURE_NAMES)
 
 
 def test_removal_is_the_prior_when_the_cost_is_below_the_threshold():
