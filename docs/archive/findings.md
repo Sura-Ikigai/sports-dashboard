@@ -1364,4 +1364,33 @@ re-opening the freeze.
 there will be no current-season participation data at all — the 2027 box-score assets do not exist
 upstream yet (verified 404 on 2026-09-06; they are published once the season is under way).
 
-**Status: OPEN**, owner's decision pending. `revisit-when: before-D-017-retrain`.
+### The fix, measured on the dev seasons — 2026-09-06
+
+The owner chose: **ship as frozen, measure the fix where selection is permitted, carry it into
+D-017's retrain.** That respects the protocol exactly — the sealed fold is not re-spent, what ships
+is what was evaluated, and the information is obtained anyway.
+
+Measured by substituting a season-scoped `avail_diff` into the feature vector and refitting on folds
+1 and 2. The frozen model was not touched and could not have been: the substitution happens in a
+scratch script, not in `model/`.
+
+| variant | mean dev AUC | log loss | accuracy |
+|---|---|---|---|
+| as frozen (lookback crosses seasons) | .7260 | .6075 | .6686 |
+| season-scoped availability | **.7269** | **.6069** | **.6701** |
+| **delta** | **+.0009** | **-.0006** | **+.0015** |
+
+Small, and consistent in all three directions at once, which is more than can be said for the two
+features T-030 dropped. The change is also **surgical**: `|Δ avail_diff|` averages **.0579 over the
+523 dev games** in a team's first fifteen and **exactly .0000 over the other 2,117**. It moves what
+it should and nothing else.
+
+Worth having, not worth re-freezing for — which is what the owner decided, and the numbers support
+that reading rather than contradict it. +.0009 AUC is the same order as `travel_diff` and `altitude`,
+which were dropped as indistinguishable from noise. The difference is that this one is *principled*
+(it measures the roster that exists) rather than a fitted gain, so it should be carried on those
+grounds and not on its size.
+
+**Status: ACCEPTED for the 2026-27 trial, fix carried forward.** `revisit-when: D-017-retrain`.
+The shipped model runs with the defect, as evaluated. For roughly each team's first fifteen games of
+2026-27, `avail_diff` is computed from the previous season's roster.
