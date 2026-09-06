@@ -48,12 +48,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 import sqlalchemy as sa
 
 from . import corpus
 from .availability import Appearance
-from .features import Context, Coverage, Game, GameHistory
+from .features import Context, Coverage, Game, GameHistory, Matchup
 from .venues import City, city_for
 
 
@@ -517,3 +518,126 @@ def load_context(conn: sa.Connection, *, teams: Iterable[str] | None = None) -> 
     # more, and a Context that required a venue would make an unresolvable city (T-031's Manchester
     # fixture, its five NBA Cup placeholder rows) fatal to a prediction that does not depend on it.
     return Context(history, load_appearances(conn))
+
+
+def load_live_games(conn: sa.Connection, *, seasons: Iterable[int] | None = None) -> list[Game]:
+    """Completed games from the **live** feed, as `Game` records.
+
+    These are results the corpus cannot hold. `model.ingest` verifies against
+    `loader.EXPECTED_COMPLETED_COUNTS`, and a season in progress has no pinnable count, so
+    `load_season` refuses it by design (D-046). Without this reader, Elo would freeze at the end of
+    the last pinned season while the current one played out -- every prediction after opening night
+    built on ratings months out of date.
+
+    This is the D-046/D-048 split doing what it was drawn for: the model is **fitted** only on the
+    verified corpus, and its **inference state** may also read live results. Two guarantees for two
+    jobs, and the table a row came from says which one it carries.
+
+    Only `STATUS_FINAL` rows with both scores are returned. A tied score is refused by `Game` itself
+    (F-049), which is the correct treatment for a source that reports 0/0 for an unplayed game.
+    """
+    seasons = _as_tuple(seasons)
+    where = " AND season = ANY(:seasons)" if seasons is not None else ""
+    params = {"seasons": list(seasons)} if seasons is not None else {}
+    rows = conn.execute(
+        sa.text(
+            "SELECT game_id, game_date, season, home_id, away_id, home_score, away_score,"
+            "       neutral_site"
+            "  FROM scheduled_games"
+            " WHERE status = 'STATUS_FINAL'"
+            "   AND home_score IS NOT NULL AND away_score IS NOT NULL"
+            f"{where}"
+            " ORDER BY game_date, game_id"
+        ),
+        params,
+    ).all()
+    return [
+        Game(
+            game_id=r.game_id,
+            date=r.game_date,
+            season=r.season,
+            home_id=r.home_id,
+            away_id=r.away_id,
+            home_score=r.home_score,
+            away_score=r.away_score,
+            neutral_site=r.neutral_site,
+        )
+        for r in rows
+    ]
+
+
+def load_upcoming(
+    conn: sa.Connection, *, as_of: datetime, horizon_days: int = 7
+) -> list[Matchup]:
+    """Games tipping off in `(as_of, as_of + horizon_days]`, as `Matchup` records.
+
+    `Matchup`, never `Game`: an unplayed game has no scores, and the type that carries none is the
+    one that cannot accidentally be given some. This is the same one-way door `Game.matchup` opens
+    from the other side.
+
+    **Strictly after `as_of`.** A game already tipped off cannot be predicted -- `compute_features`
+    refuses an as-of past tip-off (D-010) -- so returning one would hand the job a row it can only
+    fail on. Only `STATUS_SCHEDULED` games are returned; a postponed game is not upcoming, and its
+    prediction is retained and marked void by the join in the accuracy record, never by a new row.
+
+    ## The date window is applied in Python, and that is not an oversight
+
+    The obvious query carries `WHERE game_date > :as_of AND game_date <= :until`, and
+    `test_no_as_of_predicate_appears_anywhere_in_store` refuses it. The check is right to, even
+    though *this* predicate is harmless: it selects **targets**, not history, and the Context the
+    features read is built by `load_serving_context`, which carries no date filter at all.
+
+    The point is that the check has no exceptions. A mechanical rule survives exactly as long as
+    nobody is allowed to argue their case is different, and everybody's case is different. The cost
+    of complying is fetching a season of rows instead of a week of them -- about 1,200 rows, which is
+    nothing -- and the benefit is that the one control standing between this codebase and a silent
+    as-of leak stays absolute. That is a trade worth making every time.
+    """
+    until = as_of + timedelta(days=horizon_days)
+    rows = [
+        row
+        for row in conn.execute(
+            sa.text(
+                "SELECT game_id, game_date, season, home_id, away_id, neutral_site"
+                "  FROM scheduled_games"
+                " WHERE status = 'STATUS_SCHEDULED'"
+                " ORDER BY game_date, game_id"
+            )
+        ).all()
+        if as_of < row.game_date <= until
+    ]
+    return [
+        Matchup(
+            game_id=r.game_id,
+            date=r.game_date,
+            season=r.season,
+            home_id=r.home_id,
+            away_id=r.away_id,
+            neutral_site=r.neutral_site,
+        )
+        for r in rows
+    ]
+
+
+def load_serving_context(conn: sa.Connection) -> Context:
+    """The `Context` the prediction job scores against: corpus **plus** live results.
+
+    `load_context` is the training-side view and reads the verified corpus alone. This one adds
+    completed games from the live feed, because a prediction made in February needs February's
+    ratings, and the corpus stops at the last pinned season.
+
+    Participation is **not** extended the same way, and that is a known limitation rather than an
+    oversight: the box-score assets for a season in progress are published upstream only once it is
+    under way (verified 404 for 2027 on 2026-09-06), so there is nothing to read. The consequence is
+    F-141's -- for roughly each team's first fifteen games, `avail_diff` is computed from the
+    previous season's roster. That is the behaviour the model was evaluated with, which is the one
+    thing that makes shipping it defensible; the fix is measured and carried to D-017's retrain.
+    """
+    corpus_games = load_games(conn)
+    live = load_live_games(conn)
+    known = {game.game_id for game in corpus_games}
+    # A game that has reached the corpus wins: it has been through the verified ingest, and the live
+    # feed's copy of it carries the weaker guarantee. They should agree; if they ever do not, the
+    # verified one is the one to trust.
+    merged = corpus_games + [game for game in live if game.game_id not in known]
+    return Context(merged, load_appearances(conn))

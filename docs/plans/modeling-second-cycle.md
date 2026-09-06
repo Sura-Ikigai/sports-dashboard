@@ -1074,13 +1074,100 @@ skip must be justified in the task's outcome rather than discovered later.
     lines with the same version are a re-derivation while two with different versions are a second
     attempt. The file makes that distinction without anyone having to remember which run was which.
 
-- [ ] **T-031** `prediction` service, persistence, and the scheduled job — owner: `backend-engineer`
+- [x] **T-031** `prediction` service, persistence, and the scheduled job — owner: `backend-engineer` — **DONE 2026-09-06**
   - acceptance: one interface returning probability, feature vector, per-feature logit contributions
     and model version; used by both the job and the API; predictions appended (never updated) keyed
     by game, model version and as-of; daily append over a seven-day horizon
   - security note: the job writes; the API reads. Do not let the API path acquire a write. Also note
     the existing hazard in *Future hardening* — an in-process scheduler double-syncs under a second
     replica.
+  - **built:** `backend/model/prediction.py`, `schedule.py`, `job.py`, migration
+    `83f0a22a10b5`, plus live readers in `store.py` and a live path in `loader.py`.
+    `backend/tests/test_prediction.py`, `test_schedule.py`, `test_job.py` (+58 tests).
+    **613 backend tests pass with zero skips**, ruff clean.
+  - **verified end to end against the real 2027 schedule**: 1,206 upstream rows → 1,200 stored (6 NBA
+    Cup placeholders excluded), 30 franchises identified, **43 predictions written for opening week**,
+    a second run in the same hour writing **0**, and every row carrying its feature vector, its
+    contribution decomposition and the snapshot that produced it.
+
+  ### The decomposition is exact, which is what D-040 rests on
+
+  A logistic model's log-odds are additive by construction, so each feature's contribution is its own
+  term and the terms sum to the logit with **no residual**. That is why the waterfall can be a
+  *decomposition* rather than an attribution, and why D-023 kept the model class linear — a
+  gradient-boosted model would need SHAP to estimate what this gives by arithmetic. Asserted as an
+  identity (`==`, not `approx`): the same arithmetic produces both sides, so a residual means a term
+  went missing. Verified by sabotage — dropping the intercept and computing contributions without
+  standardization each turn the suite red, the second caught by the cross-check against
+  `LogisticModel.predict_proba` rather than against itself.
+
+  ### The thing that would have broken in October
+
+  **The corpus cannot absorb a season in progress.** `model.ingest` verifies against
+  `loader.EXPECTED_COMPLETED_COUNTS`, a live season has no pinnable count, and `load_season(2027)` is
+  refused by design. So without live results, Elo would have frozen at the end of 2026 while 2027
+  played out — every prediction after opening night built on ratings months out of date, with no
+  symptom beyond slowly worsening accuracy.
+
+  `scheduled_games` therefore carries scores for `STATUS_FINAL` rows, and `store.load_serving_context`
+  merges corpus + live. This is the D-046/D-048 split doing exactly what it was drawn for: the model
+  is **fitted** only on the verified corpus, and its **inference state** may also read live results.
+  Two guarantees for two jobs, and the table a row lives in says which one it carries. Where the two
+  disagree the corpus wins — it has been through the verified ingest.
+
+  Participation is deliberately **not** extended the same way: the box-score assets for a season in
+  progress are published upstream only once it is under way (verified 404 for 2027 on 2026-09-06), so
+  there is nothing to read. The consequence is F-141's, accepted by the owner for the trial.
+
+  ### Idempotent against the double-fire the plan already named
+
+  `as_of` is truncated to the hour, so two runs in the same hour produce the same key, collide on the
+  unique constraint, and the second writes nothing. Truncating to the **day** was the obvious
+  alternative and is wrong: features would be computed at midnight UTC, which is *before* the previous
+  evening's US games have finished, so every prediction would ignore last night's results.
+
+  `ON CONFLICT DO NOTHING` is also the strongest conflict clause `sports_job`'s grant permits —
+  `DO UPDATE` requires UPDATE, which it deliberately does not hold. The append-only guarantee is a
+  grant, not a convention, and the job could not overwrite a row if it tried.
+
+  ### The security note, made mechanical
+
+  A test parses every module in `model/` and fails the build if any but `job.py` contains an
+  `INSERT INTO predictions`. The note said the job writes and the API reads; a note is not a control.
+  Paired with a control proving the matcher actually matches an INSERT it is shown.
+
+  ### D-039's checker fired, and was obeyed rather than exempted
+
+  `load_upcoming`'s natural query carries `WHERE game_date > :as_of`, and
+  `test_no_as_of_predicate_appears_anywhere_in_store` refused it. The predicate was **harmless** — it
+  selects *targets*, not history, and the Context the features read carries no date filter at all.
+
+  It was moved into Python anyway. A mechanical rule survives exactly as long as nobody is allowed to
+  argue their case is different, and everybody's case is different. The cost was fetching 1,200 rows
+  instead of 43; the benefit is that the one control standing between this codebase and a silent
+  as-of leak stays absolute.
+
+  ### Two bugs worth recording
+
+  - **`SELECT home_id AS t` collides with a SQLAlchemy `Row` attribute**, so the accessor returned
+    the Row itself rather than the team id. The resulting set held tuples and every membership test
+    failed. It failed *loudly* only because the check it fed refuses on mismatch — a check that
+    merely warned would have passed vacuously forever.
+  - **The job tests were order-dependent.** A module-scoped database makes the `predictions` table
+    shared, so a test asserting "the table contains exactly these rows" passed or failed on the order
+    pytest happened to choose. Ordering dependence is a bug that reports itself as a different bug;
+    fixed with a per-test truncation and verified under a fixed order.
+
+  ### Also found here, and filed rather than fixed
+
+  **F-141** — `availability` reads across the offseason and measures a departed roster. Found while
+  chasing the corpus-cannot-update problem. At a season opener only **54% of the computed rotation is
+  still playing for that team** (under 70% in 71 of 120 openers; 0% at worst), so the feature measures
+  a different set of players for roughly each team's first fifteen games. Present throughout T-030's
+  evaluation, which is what makes it bounded: the sealed number was measured on the model as it will
+  run. Season-scoping is worth **+.0009 dev AUC / -.0006 log loss / +.0015 accuracy** and changes the
+  feature by .0579 on the 523 affected dev games and **exactly .0000 on the other 2,117**. Accepted
+  for the trial, carried to D-017's retrain.
 
 - [ ] **T-032** Predictions API — owner: `backend-engineer`
   - acceptance: a prediction with its decomposition for a given game; upcoming predictions; the

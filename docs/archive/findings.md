@@ -1316,3 +1316,81 @@ matching content hash "the strongest available evidence" the fitted model is bit
 was computed. The hash is **confirmatory, not independent proof**. Recorded rather than quietly
 softened, because overstating evidence in a findings file is the same failure as overstating it in a
 report.
+
+---
+
+## Round: T-031 build-time finding @ `2efc9a3` — 2026-09-06
+
+Filed by the main thread while building T-031, not by a review pass. It is here rather than in the
+plan because it is a defect in shipped, frozen code, and the findings ledger is where those live
+regardless of what is decided about them.
+
+### F-141 — `availability` reads across the offseason and measures a roster that no longer exists
+
+**Severity: real, bounded, and already priced into the reported number.**
+
+`availability.team_availability` takes a team's last `rotation_games` (15) games with no season
+boundary. That is deliberate for `_rest_days` — a months-long gap honestly reads as "well rested" —
+and it was carried into availability without the question being asked separately. It should have
+been: a rotation is a *roster*, and rosters turn over in the offseason.
+
+Measured over the ingested corpus, 120 season openers where both windows are full:
+
+| | |
+|---|---|
+| share of the computed "rotation" still playing for that team in the new season | **mean .542**, median .667 |
+| openers where **under 70%** of the "rotation" has departed or does not play | **71 of 120** |
+| worst case | **0.000** — the entire computed rotation gone |
+
+So at a season opener the feature is not noisy around a true value; it is measuring the health of a
+different set of players. The window closes as the new season's games accumulate, so the affected
+region is roughly each team's first fifteen games — about **a third of a season**.
+
+**This was present throughout T-030's evaluation**, which is the one thing that makes it bounded
+rather than alarming: the sealed .6800 / .6005 / .7319 was measured on the model *as it will run*,
+defect included. The reported number is honest. What is not yet known is whether fixing it would
+improve anything — `avail_diff` still measured a leave-one-out contribution of -.0031 mean dev AUC
+*with* the defect present.
+
+**Why it is not being fixed on the spot.** The fix changes a feature value, which changes the model,
+which would require re-freezing and a second sealed evaluation — spending a fold the protocol spends
+once. And it cannot be fixed at serving time only: that is precisely the train/serve skew D-011
+exists to prevent. So the choice is the owner's, and the recommended shape is to measure the fix on
+the dev seasons (where selection is permitted) and carry the result into D-017's retrain rather than
+re-opening the freeze.
+
+**Consequence for the live trial, stated plainly:** for roughly each team's first fifteen games of
+2026-27, `avail_diff` will be computed from the previous season's roster. At the opener specifically
+there will be no current-season participation data at all — the 2027 box-score assets do not exist
+upstream yet (verified 404 on 2026-09-06; they are published once the season is under way).
+
+### The fix, measured on the dev seasons — 2026-09-06
+
+The owner chose: **ship as frozen, measure the fix where selection is permitted, carry it into
+D-017's retrain.** That respects the protocol exactly — the sealed fold is not re-spent, what ships
+is what was evaluated, and the information is obtained anyway.
+
+Measured by substituting a season-scoped `avail_diff` into the feature vector and refitting on folds
+1 and 2. The frozen model was not touched and could not have been: the substitution happens in a
+scratch script, not in `model/`.
+
+| variant | mean dev AUC | log loss | accuracy |
+|---|---|---|---|
+| as frozen (lookback crosses seasons) | .7260 | .6075 | .6686 |
+| season-scoped availability | **.7269** | **.6069** | **.6701** |
+| **delta** | **+.0009** | **-.0006** | **+.0015** |
+
+Small, and consistent in all three directions at once, which is more than can be said for the two
+features T-030 dropped. The change is also **surgical**: `|Δ avail_diff|` averages **.0579 over the
+523 dev games** in a team's first fifteen and **exactly .0000 over the other 2,117**. It moves what
+it should and nothing else.
+
+Worth having, not worth re-freezing for — which is what the owner decided, and the numbers support
+that reading rather than contradict it. +.0009 AUC is the same order as `travel_diff` and `altitude`,
+which were dropped as indistinguishable from noise. The difference is that this one is *principled*
+(it measures the roster that exists) rather than a fitted gain, so it should be carried on those
+grounds and not on its size.
+
+**Status: ACCEPTED for the 2026-27 trial, fix carried forward.** `revisit-when: D-017-retrain`.
+The shipped model runs with the defect, as evaluated. For roughly each team's first fifteen games of
+2026-27, `avail_diff` is computed from the previous season's roster.
