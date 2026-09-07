@@ -1,0 +1,872 @@
+<title>How the Prediction Model Works</title>
+<style>
+  /* ── tokens ────────────────────────────────────────────────────────────────
+     Inherited from PHASE-1-RESULT.html so the two documents in this folder read
+     as one set. Added here: --home / --away, the domain's own semantic pair,
+     matching the colours the dashboard already uses for direction. */
+  :root {
+    color-scheme: light;
+    --paper:      #f4f6f8;
+    --surface:    #fbfcfd;
+    --surface-2:  #eef1f5;
+    --ink:        #0d1117;
+    --ink-2:      #4c545e;
+    --ink-3:      #8a929c;
+    --rule:       #e3e7ec;
+    --rule-2:     #cfd6de;
+    --accent:     #2a78d6;
+    --accent-dim: #dbe8f8;
+    --home:       #1c6ea8;
+    --home-dim:   #dcebf6;
+    --away:       #a15c0d;
+    --away-dim:   #f7e9d5;
+    --good:       #0ca30c;
+    --shadow:     0 1px 2px rgba(13,17,23,.05), 0 8px 24px -16px rgba(13,17,23,.18);
+
+    --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --mono:  ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    --col: 66ch;
+    --wide: 84ch;
+    --step--1: clamp(.78rem, .76rem + .1vw, .84rem);
+    --step-0:  clamp(1rem, .97rem + .16vw, 1.09rem);
+    --step-1:  clamp(1.2rem, 1.14rem + .3vw, 1.4rem);
+    --step-2:  clamp(1.55rem, 1.42rem + .62vw, 2rem);
+    --step-3:  clamp(2.1rem, 1.75rem + 1.7vw, 3.2rem);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --paper:      #0e1013;
+      --surface:    #191c20;
+      --surface-2:  #22262c;
+      --ink:        #f2f4f7;
+      --ink-2:      #b6bcc5;
+      --ink-3:      #7d858f;
+      --rule:       #262b31;
+      --rule-2:     #333a42;
+      --accent:     #3987e5;
+      --accent-dim: #16324f;
+      --home:       #56aee6;
+      --home-dim:   #12293c;
+      --away:       #e0a047;
+      --away-dim:   #3a2a12;
+      --good:       #35b535;
+      --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper:      #0e1013;
+    --surface:    #191c20;
+    --surface-2:  #22262c;
+    --ink:        #f2f4f7;
+    --ink-2:      #b6bcc5;
+    --ink-3:      #7d858f;
+    --rule:       #262b31;
+    --rule-2:     #333a42;
+    --accent:     #3987e5;
+    --accent-dim: #16324f;
+    --home:       #56aee6;
+    --home-dim:   #12293c;
+    --away:       #e0a047;
+    --away-dim:   #3a2a12;
+    --good:       #35b535;
+    --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: var(--step-0);
+    line-height: 1.68;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: var(--wide); margin: 0 auto; padding: clamp(2rem, 5vw, 5rem) clamp(1.1rem, 4vw, 2.5rem) 6rem; }
+  .col { max-width: var(--col); }
+
+  h1, h2, h3 { text-wrap: balance; margin: 0; font-weight: 600; letter-spacing: -.015em; }
+  h1 { font-size: var(--step-3); line-height: 1.05; letter-spacing: -.03em; }
+  h2 { font-size: var(--step-2); line-height: 1.15; }
+  h3 { font-size: var(--step-1); line-height: 1.25; }
+  p  { margin: 0; }
+  a  { color: var(--accent); }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: var(--step--1); letter-spacing: .13em;
+    text-transform: uppercase; color: var(--ink-3); margin: 0;
+  }
+  .lede { font-size: var(--step-1); line-height: 1.5; color: var(--ink-2); }
+  .muted { color: var(--ink-2); }
+  .small { font-size: var(--step--1); color: var(--ink-2); line-height: 1.55; }
+  code, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  code { font-size: .88em; background: var(--surface-2); padding: .1em .35em; border-radius: 3px; }
+  strong { font-weight: 650; }
+
+  /* stacks — layout owns the spacing, never per-element margins */
+  .stack   { display: flex; flex-direction: column; gap: 1.1rem; }
+  .stack-s { display: flex; flex-direction: column; gap: .6rem; }
+  .stack-l { display: flex; flex-direction: column; gap: 2.6rem; }
+  section  { display: flex; flex-direction: column; gap: 1.2rem; }
+
+  header.masthead { display: flex; flex-direction: column; gap: 1.3rem; padding-bottom: 2.4rem; border-bottom: 2px solid var(--ink); }
+
+  .sec-head { display: flex; align-items: baseline; gap: .9rem; border-top: 1px solid var(--rule-2); padding-top: 1.4rem; }
+  .sec-num {
+    font-family: var(--mono); font-size: var(--step--1); color: var(--accent);
+    letter-spacing: .08em; padding-top: .35em; flex: none;
+  }
+
+  /* ── the pipeline: a real sequence, so it is numbered and connected ─────── */
+  .flow { display: flex; flex-direction: column; gap: 0; margin: .4rem 0; }
+  .stage {
+    display: grid; grid-template-columns: 2.6rem 1fr; gap: 1rem;
+    padding: 1rem 0; border-top: 1px solid var(--rule);
+  }
+  .stage:last-child { border-bottom: 1px solid var(--rule); }
+  .stage-mark {
+    font-family: var(--mono); font-size: var(--step--1); color: var(--ink-3);
+    padding-top: .25em; letter-spacing: .06em;
+  }
+  .stage-body { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+  .stage-title { font-weight: 650; }
+  .stage-mods { font-family: var(--mono); font-size: var(--step--1); color: var(--accent); word-break: break-word; }
+  .stage-out {
+    font-size: var(--step--1); color: var(--ink-2);
+    border-left: 2px solid var(--rule-2); padding-left: .7rem; margin-top: .2rem;
+  }
+
+  /* ── season timeline ───────────────────────────────────────────────────── */
+  .timeline { display: flex; flex-direction: column; gap: .5rem; overflow-x: auto; }
+  .tl-row { display: flex; gap: 3px; min-width: 34rem; }
+  .tl-cell {
+    flex: 1; padding: .55rem .3rem; text-align: center; border-radius: 3px;
+    font-family: var(--mono); font-size: var(--step--1); line-height: 1.25;
+    border: 1px solid transparent;
+  }
+  .tl-warm    { background: var(--surface-2); color: var(--ink-2); }
+  .tl-gone    { background: transparent; color: var(--ink-3); border: 1px dashed var(--rule-2); }
+  .tl-train   { background: var(--home-dim); color: var(--home); border-color: var(--home); }
+  .tl-sealed  { background: var(--away-dim); color: var(--away); border-color: var(--away); font-weight: 700; }
+  .tl-live    { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
+  .tl-key { display: flex; flex-wrap: wrap; gap: .4rem 1.3rem; }
+  .tl-key span { display: inline-flex; align-items: center; gap: .45rem; font-size: var(--step--1); color: var(--ink-2); }
+  .dot { width: .7rem; height: .7rem; border-radius: 2px; flex: none; border: 1px solid var(--rule-2); }
+
+  /* ── feature cards: one object, repeated ───────────────────────────────── */
+  .features { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+  @media (min-width: 46rem) { .features { grid-template-columns: 1fr 1fr; } }
+  .feat { background: var(--surface); padding: 1.1rem 1.2rem; display: flex; flex-direction: column; gap: .55rem; }
+  .feat-name { font-family: var(--mono); font-size: var(--step--1); color: var(--ink); font-weight: 700; }
+  .feat-plain { font-weight: 650; line-height: 1.4; }
+  .feat-body { font-size: var(--step--1); color: var(--ink-2); line-height: 1.55; }
+  .feat-stats { display: flex; gap: 1.4rem; margin-top: auto; padding-top: .5rem; border-top: 1px solid var(--rule); }
+  .feat-stat { display: flex; flex-direction: column; gap: .1rem; }
+  .feat-stat b { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: var(--step-0); font-weight: 650; }
+  .feat-stat span { font-size: .74rem; text-transform: uppercase; letter-spacing: .09em; color: var(--ink-3); font-family: var(--mono); }
+  .toward-home { color: var(--home); }
+  .toward-away { color: var(--away); }
+
+  /* ── the worked example ledger ─────────────────────────────────────────── */
+  .ledger { border: 1px solid var(--rule-2); border-radius: 6px; overflow: hidden; background: var(--surface); }
+  .ledger-head { padding: .9rem 1.1rem; background: var(--surface-2); border-bottom: 1px solid var(--rule-2); display: flex; flex-direction: column; gap: .2rem; }
+  .ledger-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+  th, td { text-align: left; padding: .55rem .8rem; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--mono); font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); font-weight: 500; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.total td { border-top: 2px solid var(--rule-2); border-bottom: none; font-weight: 650; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--accent-dim);
+    padding: .95rem 1.15rem; border-radius: 0 4px 4px 0;
+    display: flex; flex-direction: column; gap: .45rem;
+  }
+  .callout.warn { border-left-color: var(--away); background: var(--away-dim); }
+  .callout p { font-size: var(--step--1); line-height: 1.6; }
+  .callout .eyebrow { color: var(--ink-2); }
+
+  .steps { display: flex; flex-direction: column; gap: .8rem; counter-reset: s; padding: 0; margin: 0; list-style: none; }
+  .steps li { display: grid; grid-template-columns: 1.6rem 1fr; gap: .8rem; align-items: start; }
+  .steps li::before {
+    counter-increment: s; content: counter(s);
+    font-family: var(--mono); font-size: var(--step--1); color: var(--accent);
+    padding-top: .2em;
+  }
+
+  .collect { display: flex; flex-direction: column; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+  .collect-item { background: var(--surface); padding: .95rem 1.15rem; display: flex; flex-direction: column; gap: .3rem; }
+  .collect-item.expiring { background: var(--away-dim); }
+  .collect-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: .6rem; }
+  .tag {
+    font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .09em;
+    padding: .12rem .45rem; border-radius: 3px; border: 1px solid currentColor; flex: none;
+  }
+  .tag.auto { color: var(--good); }
+  .tag.todo { color: var(--accent); }
+  .tag.gone { color: var(--away); }
+
+  footer { border-top: 1px solid var(--rule-2); padding-top: 1.4rem; }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<div class="page stack-l">
+
+  <header class="masthead">
+    <p class="eyebrow">Sports Dashboard · written for a first read, 2026-09-06</p>
+    <h1>How the prediction model works</h1>
+    <p class="lede col">
+      A walk through everything between “ESPN publishes a box score” and “the page says Detroit has a
+      56.8% chance”. No prior machine-learning knowledge assumed — the only maths below is
+      multiplication, addition, and one curve, all of it worked through on a real game.
+    </p>
+    <p class="small col">
+      Companion to <code>MODELING-V2-RESULT.md</code>, which reports what the model scored. This one
+      explains what it <em>is</em>. Every number here comes from the frozen model
+      <code>c97a9b14ddd5</code>, the one that will run the 2026-27 season.
+    </p>
+  </header>
+
+  <!-- ───────────────────────────── 0 ───────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="sec-num">00</span><h2>The one-sentence version</h2></div>
+    <div class="col stack">
+      <p>
+        The model looks at four things that are knowable <em>before</em> a game starts, weighs each
+        one, adds them up, and turns the total into a percentage. That is genuinely all it does. It
+        is closer to a well-audited spreadsheet than to anything you would call artificial
+        intelligence, and that is a deliberate choice rather than a limitation we settled for —
+        every number it produces can be taken apart and explained, which is the point of the whole
+        product.
+      </p>
+      <p>
+        What makes it hard is not the arithmetic. It is making sure the four numbers going in were
+        computed from information that actually existed before tip-off, and that the score it gets
+        on a season was not quietly achieved by peeking at that season first.
+      </p>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────── 1 ───────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>The data flow, end to end</h2></div>
+    <p class="col">
+      Six stages. Each hands the next a narrower, more trustworthy thing. The module names are real —
+      you can open any of them.
+    </p>
+
+    <div class="flow">
+      <div class="stage">
+        <span class="stage-mark">01</span>
+        <div class="stage-body">
+          <span class="stage-title">Fetch</span>
+          <span class="stage-mods">model/loader.py</span>
+          <p class="small">
+            Downloads each season’s schedule and box scores from the upstream ESPN feed. Before
+            anything is parsed, the raw bytes are hashed with SHA-256 and compared against a hash
+            pinned in the code. If a byte changed, the download is refused — not warned about,
+            refused.
+          </p>
+          <p class="stage-out">Out: raw season files, byte-for-byte the ones we recorded.</p>
+        </div>
+      </div>
+
+      <div class="stage">
+        <span class="stage-mark">02</span>
+        <div class="stage-body">
+          <span class="stage-title">Clean and curate</span>
+          <span class="stage-mods">model/corpus.py</span>
+          <p class="small">
+            The feed mixes in games that are not games. All-Star exhibitions sit in the regular-season
+            file under invented team ids. They are found by <em>how few games those ids play</em>
+            rather than by a hardcoded list — next year’s All-Star game will carry fresh invented ids,
+            and a hardcoded list would let them straight through. Two checks then have to pass: every
+            season must retain exactly <strong>30</strong> franchises, and must shed exactly the
+            number of exhibitions we pinned for it.
+          </p>
+          <p class="stage-out">Out: 11,854 real games across 9 seasons.</p>
+        </div>
+      </div>
+
+      <div class="stage">
+        <span class="stage-mark">03</span>
+        <div class="stage-body">
+          <span class="stage-title">Store</span>
+          <span class="stage-mods">model/ingest.py → Postgres → model/store.py</span>
+          <p class="small">
+            Verified rows land in the database. Migrations own the table shapes; the ingest command
+            owns the data — no migration ever inserts a game. On the way <em>out</em>, the curation
+            checks run again, so a row edited directly in the database is caught at read time rather
+            than trusted because it once passed.
+          </p>
+          <p class="stage-out">Out: <code>corpus_games</code>, <code>corpus_player_box</code>, <code>corpus_team_box</code>, <code>corpus_venues</code>.</p>
+        </div>
+      </div>
+
+      <div class="stage">
+        <span class="stage-mark">04</span>
+        <div class="stage-body">
+          <span class="stage-title">Turn history into four numbers</span>
+          <span class="stage-mods">model/features.py · elo.py · availability.py</span>
+          <p class="small">
+            For any game, compute the four features from games that finished <em>strictly before</em>
+            tip-off. This is the single most important boundary in the project, and §3 explains why.
+          </p>
+          <p class="stage-out">Out: <code>[elo_diff, home_b2b, away_b2b, avail_diff]</code> for each game.</p>
+        </div>
+      </div>
+
+      <div class="stage">
+        <span class="stage-mark">05</span>
+        <div class="stage-body">
+          <span class="stage-title">Fit and check</span>
+          <span class="stage-mods">model/splits.py · estimator.py · evaluate.py</span>
+          <p class="small">
+            Split the seasons in time, fit the weights on the earlier ones, score on a later one it
+            has never seen. The fitted model is saved as plain JSON named by a hash of its own
+            contents — so an edited model file is refused when loaded, and the same data always
+            produces the same name.
+          </p>
+          <p class="stage-out">Out: <code>models/logistic-2026.json</code> → version <code>c97a9b14ddd5</code>.</p>
+        </div>
+      </div>
+
+      <div class="stage">
+        <span class="stage-mark">06</span>
+        <div class="stage-body">
+          <span class="stage-title">Serve</span>
+          <span class="stage-mods">model/schedule.py · job.py · routers/predictions.py</span>
+          <p class="small">
+            Once a day: refresh the live schedule, score every game tipping off in the next seven
+            days, and <em>append</em> a prediction row for each. Never update one — see §6. The API
+            reads those rows; the browser renders them.
+          </p>
+          <p class="stage-out">Out: rows in <code>predictions</code>, and the pages you clicked through.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────── 2 ───────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>Which seasons, and why some are missing</h2></div>
+    <div class="col stack">
+      <p>
+        Not every season plays the same role, and two are deliberately absent.
+      </p>
+    </div>
+
+    <div class="timeline">
+      <div class="tl-row">
+        <div class="tl-cell tl-warm">2016</div>
+        <div class="tl-cell tl-warm">2017</div>
+        <div class="tl-cell tl-warm">2018</div>
+        <div class="tl-cell tl-warm">2019</div>
+        <div class="tl-cell tl-gone">2020</div>
+        <div class="tl-cell tl-gone">2021</div>
+        <div class="tl-cell tl-train">2022</div>
+        <div class="tl-cell tl-train">2023</div>
+        <div class="tl-cell tl-train">2024</div>
+        <div class="tl-cell tl-train">2025</div>
+        <div class="tl-cell tl-sealed">2026</div>
+        <div class="tl-cell tl-live">2027</div>
+      </div>
+      <div class="tl-key">
+        <span><i class="dot" style="background: var(--surface-2)"></i> Warm-up — ratings only, never trained or scored on</span>
+        <span><i class="dot" style="background: transparent; border-style: dashed"></i> Excluded — COVID seasons</span>
+        <span><i class="dot" style="background: var(--home-dim); border-color: var(--home)"></i> Training</span>
+        <span><i class="dot" style="background: var(--away-dim); border-color: var(--away)"></i> Sealed test</span>
+        <span><i class="dot" style="background: transparent; border-color: var(--ink)"></i> The live trial</span>
+      </div>
+    </div>
+
+    <div class="col stack">
+      <p>
+        <strong>The warm-up seasons exist for one reason.</strong> Elo ratings start every team at the
+        same number and take a while to sort themselves out. If 2022 were the first season the ratings
+        ever saw, the model would spend its first training season learning from noise. So 2016–2019
+        are replayed to <em>build the ratings up</em>, and then their games are thrown away — they
+        never appear as a row the model trains on or is scored against. A test enforces that.
+      </p>
+      <p>
+        <strong>2020 and 2021 are excluded on purpose.</strong> Games played in empty arenas broke
+        home-court advantage: seasons before 2020 average 59.3% home wins, 2021 onward 55.2%. That is
+        a real, structural change, not noise — and the two seasons in the middle belong to neither
+        world. Including them would teach the model an average of two different sports.
+      </p>
+      <div class="callout">
+        <p class="eyebrow">Why this matters more than it sounds</p>
+        <p>
+          The widely quoted “home teams win 58% of the time” is an artifact of averaging across that
+          break. This project measures its own baseline instead — <strong class="num">.55534</strong>,
+          the home-win rate of the exact games it evaluates on — and every claim of improvement is
+          made against that.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────── 3 ───────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>The four features</h2></div>
+    <div class="col stack">
+      <p>
+        A “feature” is just a number describing the game before it is played. There are four. Every
+        one is a <em>home minus away</em> difference or a yes/no flag, so a positive value always
+        means “this favours the home team”.
+      </p>
+    </div>
+
+    <div class="features">
+      <article class="feat">
+        <span class="feat-name">elo_diff</span>
+        <span class="feat-plain">How much stronger the home team is</span>
+        <p class="feat-body">
+          Every team carries a rating. Beat someone, it goes up; the size of the move depends on the
+          margin and on who you beat — beating a strong team by 20 moves it more than beating a weak
+          one by 2. Ratings carry across seasons at 75% strength, so a good team starts the next year
+          good but not untouchably so. This feature is the home team’s rating minus the away team’s.
+        </p>
+        <div class="feat-stats">
+          <div class="feat-stat"><b class="toward-home">+0.7124</b><span>weight</span></div>
+          <div class="feat-stat"><b>−.1268</b><span>AUC if removed</span></div>
+        </div>
+      </article>
+
+      <article class="feat">
+        <span class="feat-name">home_b2b</span>
+        <span class="feat-plain">Did the home team play last night?</span>
+        <p class="feat-body">
+          1 if yes, 0 if no. A team on the second night of a back-to-back is tired, and it shows.
+          Note the weight is <em>negative</em>: playing last night makes the home team
+          <em>less</em> likely to win, which is the direction you would expect and a useful sanity
+          check that nothing is wired backwards.
+        </p>
+        <div class="feat-stats">
+          <div class="feat-stat"><b class="toward-away">−0.1510</b><span>weight</span></div>
+          <div class="feat-stat"><b>−.0057</b><span>AUC if removed</span></div>
+        </div>
+      </article>
+
+      <article class="feat">
+        <span class="feat-name">away_b2b</span>
+        <span class="feat-plain">Did the away team play last night?</span>
+        <p class="feat-body">
+          Same question, other team — and kept as a <em>separate</em> feature rather than folded into
+          one “rest difference”. That is deliberate: the two weights came out at
+          <span class="num">0.1510</span> and <span class="num">0.1334</span>, so a tired home team is
+          penalised more than a tired away team. One combined feature would have been forced to
+          average those into a number wrong for both.
+        </p>
+        <div class="feat-stats">
+          <div class="feat-stat"><b class="toward-home">+0.1334</b><span>weight</span></div>
+          <div class="feat-stat"><b>−.0029</b><span>AUC if removed</span></div>
+        </div>
+      </article>
+
+      <article class="feat">
+        <span class="feat-name">avail_diff</span>
+        <span class="feat-plain">Who has more of their usual team available</span>
+        <p class="feat-body">
+          We have no injury feed, so this is inferred: take each team’s last 15 games, work out who
+          its regular rotation is, then check what share of that rotation actually played most
+          recently. The difference between the two teams is the feature. It is a
+          <em>proxy</em> for health, not a measurement of it — see §7.
+        </p>
+        <div class="feat-stats">
+          <div class="feat-stat"><b class="toward-home">+0.1279</b><span>weight</span></div>
+          <div class="feat-stat"><b>−.0031</b><span>AUC if removed</span></div>
+        </div>
+      </article>
+    </div>
+
+    <div class="col stack">
+      <div class="callout warn">
+        <p class="eyebrow">The honest headline</p>
+        <p>
+          Removing <code>elo_diff</code> costs <strong class="num">.1268</strong> of ranking ability.
+          Removing the next-best costs <strong class="num">.0057</strong>. That is <strong>43
+          times</strong>. This is a one-feature model with three useful companions, and the analysis
+          document says so in those words rather than describing it as a four-feature model.
+        </p>
+      </div>
+      <h3>The rule that governs all four</h3>
+      <p>
+        A feature may only be computed from games that finished <strong>strictly before</strong> the
+        moment we are predicting from. Break that and the model looks brilliant and is worthless —
+        it is “predicting” a result it was quietly shown. The industry name for this is
+        <em>leakage</em>, and it is the failure that ends projects like this.
+      </p>
+      <p>
+        It is prevented structurally, not by care. The type that carries a game’s final score is a
+        <em>different type</em> from the one used to describe an upcoming game, so a score cannot
+        reach the feature code by accident. On top of that, a test adds games dated after the
+        prediction moment and asserts not a single feature value moves — paired with a control that
+        adds an <em>earlier</em> game and asserts values <em>do</em> move, so the test cannot pass by
+        doing nothing.
+      </p>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────── 4 ───────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>From four numbers to one percentage</h2></div>
+    <div class="col stack">
+      <p>
+        Here is the entire model, run on a real game — opening night 2026, Boston at Detroit. Follow
+        the four rows down and you have done everything the model does.
+      </p>
+    </div>
+
+    <div class="ledger">
+      <div class="ledger-head">
+        <strong>Boston Celtics at Detroit Pistons</strong>
+        <span class="small">2026-10-20 · predicted the day before · model <code>c97a9b14ddd5</code></span>
+      </div>
+      <div class="ledger-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th class="n">Value</th>
+              <th class="n">Typical</th>
+              <th class="n">Spread</th>
+              <th class="n">× weight</th>
+              <th class="n">Contribution</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>elo_diff</code></td>
+              <td class="n">+8.64</td><td class="n">+1.15</td><td class="n">145.44</td>
+              <td class="n">+0.7124</td>
+              <td class="n toward-home">+0.0367</td>
+            </tr>
+            <tr>
+              <td><code>home_b2b</code></td>
+              <td class="n">0</td><td class="n">0.144</td><td class="n">0.352</td>
+              <td class="n">−0.1510</td>
+              <td class="n toward-home">+0.0620</td>
+            </tr>
+            <tr>
+              <td><code>away_b2b</code></td>
+              <td class="n">0</td><td class="n">0.177</td><td class="n">0.381</td>
+              <td class="n">+0.1334</td>
+              <td class="n toward-away">−0.0618</td>
+            </tr>
+            <tr>
+              <td><code>avail_diff</code></td>
+              <td class="n">−0.0115</td><td class="n">−0.001</td><td class="n">0.089</td>
+              <td class="n">+0.1279</td>
+              <td class="n toward-away">−0.0148</td>
+            </tr>
+            <tr>
+              <td>Starting point <span class="small">(the average game)</span></td>
+              <td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td>
+              <td class="n toward-home">+0.2501</td>
+            </tr>
+            <tr class="total">
+              <td>Total</td>
+              <td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td>
+              <td class="n">+0.2723</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="col stack">
+      <h3>What each column is doing</h3>
+      <ol class="steps">
+        <li>
+          <div class="stack-s">
+            <strong>Value</strong>
+            <p class="small">The raw feature. Detroit’s rating is 8.64 points above Boston’s; neither
+            team played last night; Detroit has very slightly less of its rotation available.</p>
+          </div>
+        </li>
+        <li>
+          <div class="stack-s">
+            <strong>Typical and Spread → standardising</strong>
+            <p class="small">
+              An Elo gap runs to hundreds; <code>home_b2b</code> is 0 or 1. Compared raw, Elo would
+              dominate simply because its numbers are bigger. So each feature is re-expressed as
+              “how many typical spreads away from typical is this?” — subtract the typical value,
+              divide by the spread. After that, all four are on one scale and their weights are
+              directly comparable.
+            </p>
+          </div>
+        </li>
+        <li>
+          <div class="stack-s">
+            <strong>× weight → contribution</strong>
+            <p class="small">
+              The standardised value times the weight the fitting found. This is the number the
+              waterfall on the game page draws. Note the second row: <code>home_b2b</code> is 0, which
+              is <em>below</em> typical (0.144), and the weight is negative — two negatives make the
+              contribution positive. “Detroit did <em>not</em> play last night” is genuinely good news
+              for Detroit.
+            </p>
+          </div>
+        </li>
+        <li>
+          <div class="stack-s">
+            <strong>Starting point</strong>
+            <p class="small">
+              Where a game sits before any feature is read — home-court advantage and everything else
+              constant across all games. It is positive, which is why an evenly matched game still
+              favours the home team.
+            </p>
+          </div>
+        </li>
+        <li>
+          <div class="stack-s">
+            <strong>Total → percentage</strong>
+            <p class="small">
+              The total, <span class="num">+0.2723</span>, is in <em>log-odds</em> — a scale that runs
+              from minus infinity to plus infinity with 0 meaning “even”. One curve converts it to a
+              probability: <span class="num">1 / (1 + e<sup>−0.2723</sup>) = <strong>0.5677</strong></span>.
+              <strong>56.8%.</strong>
+            </p>
+          </div>
+        </li>
+      </ol>
+
+      <div class="callout">
+        <p class="eyebrow">Why log-odds, and why it matters to you</p>
+        <p>
+          Probabilities cannot be added — 40% plus 30% is not 70% of anything useful. Log-odds
+          <em>can</em>. That is what lets the game page show a waterfall where every bar sums exactly
+          to the total with nothing left over. It is not an approximation or an attribution method;
+          it is the same arithmetic, shown. Keeping the model simple enough for that to be true was a
+          deliberate trade — a fancier model would need a separate estimation technique to guess at
+          what this gives away for free, and the explanation is the product.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────── 5 ───────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>How the weights were found, and how we know they are real</h2></div>
+    <div class="col stack">
+      <h3>Fitting</h3>
+      <p>
+        Nobody chose <span class="num">+0.7124</span>. The fitting procedure starts with all weights
+        at zero and adjusts them until the probabilities it produces best match what actually
+        happened across 5,283 training games — “best” meaning it is rewarded for being confident and
+        right and punished hard for being confident and wrong. A small penalty on large weights keeps
+        any one feature from running away on a lucky streak.
+      </p>
+      <p>
+        It is about forty lines of standard-library Python. Two reasons: the model file can then be
+        plain JSON rather than a format whose loading step can execute code, and the arithmetic is
+        checkable — it is verified against the standard scikit-learn implementation to a maximum
+        coefficient difference of <span class="num">2.1×10⁻⁸</span>.
+      </p>
+
+      <h3>Testing on a season it has never seen</h3>
+      <p>
+        You cannot shuffle games at random and hold some back. Shuffling would let the model train on
+        March and be tested on November of the same season — it would already know how those teams
+        turned out. So the split is always <em>forward in time</em>: train on earlier seasons, test on
+        a later one. Three of them, because a single season carries roughly ±2.6 accuracy points of
+        luck, and a pass/fail decided on one season is substantially decided by chance.
+      </p>
+      <p>
+        <strong>The 2026 season was sealed.</strong> Nobody looked at it while choosing features or
+        settings. Which features to keep was decided on 2024 and 2025 only, with the rule for keeping
+        them written down and committed <em>before it ran</em> — a threshold chosen after seeing the
+        result is not a threshold. Every time the sealed season is scored, the run is appended to a
+        log file, so “we tried twenty things and reported the best” is not a story anyone can tell
+        without it being visible.
+      </p>
+
+      <h3>The four things measured, in plain terms</h3>
+      <div class="ledger">
+        <div class="ledger-scroll">
+          <table>
+            <thead><tr><th>Measure</th><th>What it asks</th><th class="n">This model</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Accuracy</strong></td><td>How often was the favourite right?</td><td class="n">.6800</td></tr>
+              <tr><td><strong>Log loss</strong></td><td>Were the <em>probabilities</em> good, not just the picks? Lower is better.</td><td class="n">.6005</td></tr>
+              <tr><td><strong>AUC</strong></td><td>Given one game the home team won and one it lost, how often does the model rate them in the right order? .5 is a coin flip.</td><td class="n">.7319</td></tr>
+              <tr><td><strong>Calibration</strong></td><td>When it says 70%, does it happen 70% of the time?</td><td class="n">good</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p class="small">
+        Accuracy alone is gameable — a model can be 65% accurate with meaningless probabilities. So
+        the bar was <em>paired</em>: it had to clear 62% accuracy <strong>and</strong> beat a
+        predictor that just says “.55534, always”. Both were met.
+      </p>
+      <p>
+        On calibration the model errs the useful way: every confidence band above a coin flip wins
+        <em>more</em> often than it claims. A “Lean” claims 59.9% and delivers 62.9%. Under-promising
+        is the error you want, because a visitor who trusts the number is not misled.
+      </p>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────── 6 ───────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>What runs every day, once the season starts</h2></div>
+    <div class="col stack">
+      <p>
+        The model is now frozen. Nothing about it changes during 2026-27 — that is what makes the
+        season a real test rather than another backtest. What runs daily is the job:
+      </p>
+      <ol class="steps">
+        <li><div class="stack-s"><strong>Refresh the schedule</strong><p class="small">Re-fetch the live schedule file. It changes nightly — scores fill in, games get postponed, and the NBA Cup placeholder rows resolve into real matchups under the same ids. It cannot be pinned by hash the way finished seasons are, so it is checked for <em>plausibility</em> instead: known teams, sane statuses, and a game count that may grow but never shrink.</p></div></li>
+        <li><div class="stack-s"><strong>Score the next seven days</strong><p class="small">Compute the four features as of now, run the arithmetic, get a probability.</p></div></li>
+        <li><div class="stack-s"><strong>Append — never update</strong><p class="small">A prediction made six days out and one made an hour before tip-off are <em>two different true statements</em>, not one stale and one fresh: the rest situation genuinely differs. Both are kept. The accuracy record scores the last one before tip-off.</p></div></li>
+      </ol>
+      <div class="callout">
+        <p class="eyebrow">A nice detail</p>
+        <p>
+          “Append, never update” is not a convention anyone has to remember — the database account the
+          job uses has permission to insert rows and no permission to change or delete them. It could
+          not overwrite its own history if it tried.
+        </p>
+      </div>
+      <div class="callout warn">
+        <p class="eyebrow">Not done yet</p>
+        <p>
+          <strong>Nothing currently runs the job on a schedule.</strong> It has to be triggered by a
+          cron or a supervised runner before 2026-10-20, with some way of noticing if it stops —
+          because the failure is silent: the site keeps working and simply shows nothing new.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────── 7 ───────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="sec-num">07</span><h2>What to collect this season</h2></div>
+    <div class="col stack">
+      <p>
+        Three of these already happen. The fourth is the one that matters, and it has a deadline.
+      </p>
+    </div>
+
+    <div class="collect">
+      <div class="collect-item">
+        <div class="collect-top"><strong>Daily predictions</strong> <span class="tag auto">automatic</span></div>
+        <p class="small">Every prediction, keyed by game, model version and the moment it was made. This is the track record — without it there is nothing to judge the season by.</p>
+      </div>
+      <div class="collect-item">
+        <div class="collect-top"><strong>Schedule snapshots</strong> <span class="tag auto">automatic</span></div>
+        <p class="small">Every accepted fetch of the schedule, with its hash and counts. Answers “what did we know when we predicted this?” — the question a prediction actually raises.</p>
+      </div>
+      <div class="collect-item">
+        <div class="collect-top"><strong>Results</strong> <span class="tag auto">automatic</span></div>
+        <p class="small">Final scores arrive on the live schedule feed and feed straight back into the ratings, so a prediction made in February uses February’s Elo rather than last June’s.</p>
+      </div>
+      <div class="collect-item expiring">
+        <div class="collect-top"><strong>Injury reports</strong> <span class="tag gone">decide before 2026-10-20</span></div>
+        <p class="small">
+          <strong>This is the only item that cannot be collected later.</strong> Today’s availability
+          feature is inferred from who recently played, because no historical archive of injury
+          reports exists to train a real one on. That is a chicken-and-egg, and it can be broken in
+          exactly one direction: start archiving now and the archive exists next cycle. By June,
+          2026-27’s reports are gone. The cost is a table and a nightly fetch; the alternative is
+          arriving at the next cycle with the same excuse.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────── 8 ───────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="sec-num">08</span><h2>What would actually make it better</h2></div>
+    <div class="col stack">
+      <p>
+        Worth saying first, because it shapes everything else: <strong>three cycles of re-encoding
+        features have converged on roughly .73 AUC.</strong> Phase 1 got there with a point-differential
+        model; this cycle rebuilt the feature set from scratch and landed in the same place on the
+        sealed season. What it did buy was consistency — the season-to-season swing more than halved.
+      </p>
+      <p>
+        The read is that the ceiling is not in the arithmetic. It is in the <em>information</em>. The
+        corpus knows who played and what the score was; it does not know who was hurt, who was
+        resting, or who is in the starting five tonight.
+      </p>
+    </div>
+
+    <div class="ledger">
+      <div class="ledger-scroll">
+        <table>
+          <thead><tr><th>Idea</th><th>What it needs</th><th>Why it might move the number</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>Real injury status</strong></td>
+              <td>The archive above, starting now</td>
+              <td>Replaces a proxy with the thing itself. The single largest gap between what the model sees and what a person betting on the game would look at.</td>
+            </tr>
+            <tr>
+              <td><strong>Starting-lineup continuity</strong></td>
+              <td>Nothing new — already ingested</td>
+              <td>Distinguishes “everyone is healthy” from “the same five who have played together all month”. Cheap to try.</td>
+            </tr>
+            <tr>
+              <td><strong>Rest beyond back-to-backs</strong></td>
+              <td>Nothing new</td>
+              <td>Today the model knows “played last night or not”. Three days off and one day off are treated identically, and they are not.</td>
+            </tr>
+            <tr>
+              <td><strong>Pace and efficiency</strong></td>
+              <td>Nothing new — already ingested</td>
+              <td>Elo compresses a team into one number. Two teams with equal ratings can be very different matchups.</td>
+            </tr>
+            <tr>
+              <td><strong>In-game state</strong></td>
+              <td>A live feed</td>
+              <td>Would predict far better and answers a different question — this model exists to say something <em>before</em> tip-off. Listed for completeness, not proposed.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="col stack">
+      <div class="callout warn">
+        <p class="eyebrow">The lesson from this cycle</p>
+        <p>
+          Cycle 2 added three new features and each is worth .003–.006 of AUC. More features are not
+          obviously the answer. Whatever gets tried next should be pre-registered the same way — the
+          rule for keeping it written down and committed <em>before</em> the measurement runs — or it
+          becomes very easy to find something that works on the seasons you happened to look at.
+        </p>
+      </div>
+      <h3>One thing not to do</h3>
+      <p>
+        Swapping in a more powerful model class — a gradient-boosted tree, say — is the obvious
+        suggestion and it is the wrong trade here. It would buy a fraction of a point and cost the
+        exact decomposition the game page is built on. The contribution waterfall would become an
+        estimate produced by a separate technique rather than the model’s own arithmetic shown
+        honestly, and the explanation is the product.
+      </p>
+    </div>
+  </section>
+
+  <footer class="col stack-s">
+    <p class="eyebrow">Where to look next</p>
+    <p class="small">
+      <code>docs/analysis/MODELING-V2-RESULT.md</code> — what the model scored, and the honest
+      comparison against Phase 1.<br>
+      <code>docs/plans/next-up.md</code> — the open items, ordered by when they bite.<br>
+      <code>backend/model/features.py</code> — the four features, and the rule that governs them.
+    </p>
+    <p class="small muted">
+      Every figure on this page is from the frozen model <code>c97a9b14ddd5</code> and its evaluation,
+      re-derived 2026-09-06.
+    </p>
+  </footer>
+
+</div>
