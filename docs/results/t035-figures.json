@@ -1,0 +1,565 @@
+{
+  "ablation": {
+    "dev_seasons": [
+      2024,
+      2025
+    ],
+    "full": {
+      "accuracy": 0.6685589810370645,
+      "auc": 0.7259764821774093,
+      "log_loss": 0.6075398632930007
+    },
+    "without": {
+      "avail_diff": {
+        "accuracy": 0.6662885481454018,
+        "auc": 0.7228592337509829,
+        "auc_cost": 0.0031172484264263556,
+        "log_loss": 0.610030241918081,
+        "log_loss_cost": 0.0024903786250802806
+      },
+      "away_b2b": {
+        "accuracy": 0.6643920250183799,
+        "auc": 0.7230548849551373,
+        "auc_cost": 0.002921597222272032,
+        "log_loss": 0.6095606029603398,
+        "log_loss_cost": 0.0020207396673390665
+      },
+      "elo_diff": {
+        "accuracy": 0.579540621866748,
+        "auc": 0.5991415046075368,
+        "auc_cost": 0.1268349775698725,
+        "log_loss": 0.6748036655312829,
+        "log_loss_cost": 0.06726380223828221
+      },
+      "home_b2b": {
+        "accuracy": 0.6571982077583838,
+        "auc": 0.7203080819946359,
+        "auc_cost": 0.00566840018277337,
+        "log_loss": 0.6104250868898964,
+        "log_loss_cost": 0.002885223596895692
+      }
+    }
+  },
+  "corpus": {
+    "games": 11854,
+    "seasons": 9
+  },
+  "delta_vs_phase_1": {
+    "2024": {
+      "accuracy": 0.022013949962092494,
+      "log_loss": -0.014193352198084042,
+      "roc_auc": 0.017136972489409152
+    },
+    "2025": {
+      "accuracy": 0.02040401211203635,
+      "log_loss": -0.007826921215915772,
+      "roc_auc": 0.012715991865409504
+    },
+    "2026": {
+      "accuracy": 0.0038302571860816537,
+      "log_loss": -0.0014717533454363663,
+      "roc_auc": -0.0004398172347958029
+    }
+  },
+  "failures": {
+    "away_calls": {
+      "accuracy": 0.6627218934911243,
+      "n": 507
+    },
+    "by_band": {
+      "clear": {
+        "accuracy": 0.7122507122507122,
+        "mean_confidence": 0.69905568371204,
+        "n": 351
+      },
+      "lean": {
+        "accuracy": 0.62877030162413,
+        "mean_confidence": 0.5994001464920311,
+        "n": 431
+      },
+      "strong": {
+        "accuracy": 0.8333333333333334,
+        "mean_confidence": 0.8166415610880396,
+        "n": 306
+      },
+      "toss-up": {
+        "accuracy": 0.5256410256410257,
+        "mean_confidence": 0.5264345244966695,
+        "n": 234
+      }
+    },
+    "early_season": {
+      "accuracy": 0.6743119266055045,
+      "n": 218,
+      "window_games": 15
+    },
+    "home_calls": {
+      "accuracy": 0.69079754601227,
+      "n": 815
+    },
+    "most_confident_misses": [
+      {
+        "away_id": "27",
+        "away_score": 126,
+        "confidence": 0.9000952494287702,
+        "game_id": "401810588",
+        "home_id": "8",
+        "home_score": 117,
+        "home_win_probability": 0.9000952494287702
+      },
+      {
+        "away_id": "17",
+        "away_score": 107,
+        "confidence": 0.897586717950552,
+        "game_id": "401810771",
+        "home_id": "8",
+        "home_score": 105,
+        "home_win_probability": 0.897586717950552
+      },
+      {
+        "away_id": "11",
+        "away_score": 117,
+        "confidence": 0.8937352807010216,
+        "game_id": "401810496",
+        "home_id": "25",
+        "home_score": 114,
+        "home_win_probability": 0.8937352807010216
+      },
+      {
+        "away_id": "26",
+        "away_score": 127,
+        "confidence": 0.8821214673372513,
+        "game_id": "401810295",
+        "home_id": "24",
+        "home_score": 114,
+        "home_win_probability": 0.8821214673372513
+      },
+      {
+        "away_id": "26",
+        "away_score": 105,
+        "confidence": 0.8788424976563005,
+        "game_id": "401810013",
+        "home_id": "2",
+        "home_score": 103,
+        "home_win_probability": 0.8788424976563005
+      }
+    ],
+    "n_test": 1322,
+    "rest_of_season": {
+      "accuracy": 0.6811594202898551,
+      "n": 1104
+    },
+    "sealed_accuracy": 0.6800302571860817,
+    "sealed_season": 2026
+  },
+  "feature_names": [
+    "elo_diff",
+    "home_b2b",
+    "away_b2b",
+    "avail_diff"
+  ],
+  "folds": [
+    {
+      "accuracy": 0.6664139499620925,
+      "beats_constant": true,
+      "calibration": [
+        {
+          "count": 2,
+          "lower": 0.0,
+          "mean_predicted": 0.09257065835885286,
+          "observed_rate": 0.5,
+          "upper": 0.1
+        },
+        {
+          "count": 15,
+          "lower": 0.1,
+          "mean_predicted": 0.17042721652329942,
+          "observed_rate": 0.06666666666666667,
+          "upper": 0.2
+        },
+        {
+          "count": 77,
+          "lower": 0.2,
+          "mean_predicted": 0.26054845239836744,
+          "observed_rate": 0.2077922077922078,
+          "upper": 0.3
+        },
+        {
+          "count": 152,
+          "lower": 0.3,
+          "mean_predicted": 0.3584672542345962,
+          "observed_rate": 0.26973684210526316,
+          "upper": 0.4
+        },
+        {
+          "count": 213,
+          "lower": 0.4,
+          "mean_predicted": 0.45446428022109747,
+          "observed_rate": 0.431924882629108,
+          "upper": 0.5
+        },
+        {
+          "count": 326,
+          "lower": 0.5,
+          "mean_predicted": 0.5504505919577007,
+          "observed_rate": 0.5460122699386503,
+          "upper": 0.6
+        },
+        {
+          "count": 249,
+          "lower": 0.6,
+          "mean_predicted": 0.6469816536858534,
+          "observed_rate": 0.6385542168674698,
+          "upper": 0.7
+        },
+        {
+          "count": 209,
+          "lower": 0.7,
+          "mean_predicted": 0.7473252568984419,
+          "observed_rate": 0.7990430622009569,
+          "upper": 0.8
+        },
+        {
+          "count": 72,
+          "lower": 0.8,
+          "mean_predicted": 0.8379487260932297,
+          "observed_rate": 0.8888888888888888,
+          "upper": 0.9
+        },
+        {
+          "count": 4,
+          "lower": 0.9,
+          "mean_predicted": 0.9159401823990079,
+          "observed_rate": 0.75,
+          "upper": 1.0
+        }
+      ],
+      "coefficients": {
+        "avail_diff": 0.056251205952390165,
+        "away_b2b": 0.12492664172332821,
+        "elo_diff": 0.5547458070271686,
+        "home_b2b": -0.1351521429299596
+      },
+      "constant_log_loss": 0.6887778822538962,
+      "fold": "train 2022-2023 \u2192 test 2024",
+      "intercept": 0.27970646395257115,
+      "log_loss": 0.6100066478019159,
+      "meets_ship_criterion": true,
+      "model_version": "fa9f0cd95807",
+      "n_test": 1319,
+      "n_train": 2643,
+      "roc_auc": 0.7254369724894092,
+      "test_season": 2024
+    },
+    {
+      "accuracy": 0.6707040121120363,
+      "beats_constant": true,
+      "calibration": [
+        {
+          "count": 2,
+          "lower": 0.0,
+          "mean_predicted": 0.09379814075504983,
+          "observed_rate": 0.0,
+          "upper": 0.1
+        },
+        {
+          "count": 32,
+          "lower": 0.1,
+          "mean_predicted": 0.16214815247459605,
+          "observed_rate": 0.0625,
+          "upper": 0.2
+        },
+        {
+          "count": 94,
+          "lower": 0.2,
+          "mean_predicted": 0.2562211832579066,
+          "observed_rate": 0.22340425531914893,
+          "upper": 0.3
+        },
+        {
+          "count": 158,
+          "lower": 0.3,
+          "mean_predicted": 0.3533935418498007,
+          "observed_rate": 0.3924050632911392,
+          "upper": 0.4
+        },
+        {
+          "count": 208,
+          "lower": 0.4,
+          "mean_predicted": 0.45204656960669765,
+          "observed_rate": 0.3798076923076923,
+          "upper": 0.5
+        },
+        {
+          "count": 264,
+          "lower": 0.5,
+          "mean_predicted": 0.5499814833883959,
+          "observed_rate": 0.5416666666666666,
+          "upper": 0.6
+        },
+        {
+          "count": 241,
+          "lower": 0.6,
+          "mean_predicted": 0.6494846801232098,
+          "observed_rate": 0.6473029045643154,
+          "upper": 0.7
+        },
+        {
+          "count": 207,
+          "lower": 0.7,
+          "mean_predicted": 0.7458908742792204,
+          "observed_rate": 0.7632850241545893,
+          "upper": 0.8
+        },
+        {
+          "count": 101,
+          "lower": 0.8,
+          "mean_predicted": 0.8421349763349506,
+          "observed_rate": 0.8514851485148515,
+          "upper": 0.9
+        },
+        {
+          "count": 14,
+          "lower": 0.9,
+          "mean_predicted": 0.9179520509657701,
+          "observed_rate": 0.9285714285714286,
+          "upper": 1.0
+        }
+      ],
+      "coefficients": {
+        "avail_diff": 0.07928184692801264,
+        "away_b2b": 0.1301454962540577,
+        "elo_diff": 0.6648827593896282,
+        "home_b2b": -0.1446486461822599
+      },
+      "constant_log_loss": 0.689298606016401,
+      "fold": "train 2022-2023-2024 \u2192 test 2025",
+      "intercept": 0.2615333648447962,
+      "log_loss": 0.6050730787840842,
+      "meets_ship_criterion": true,
+      "model_version": "ce4429120b8b",
+      "n_test": 1321,
+      "n_train": 3962,
+      "roc_auc": 0.7265159918654095,
+      "test_season": 2025
+    },
+    {
+      "accuracy": 0.6800302571860817,
+      "beats_constant": true,
+      "calibration": [
+        {
+          "count": 2,
+          "lower": 0.0,
+          "mean_predicted": 0.09162319292063625,
+          "observed_rate": 0.0,
+          "upper": 0.1
+        },
+        {
+          "count": 39,
+          "lower": 0.1,
+          "mean_predicted": 0.16399018148417324,
+          "observed_rate": 0.05128205128205128,
+          "upper": 0.2
+        },
+        {
+          "count": 104,
+          "lower": 0.2,
+          "mean_predicted": 0.2529414476289208,
+          "observed_rate": 0.2403846153846154,
+          "upper": 0.3
+        },
+        {
+          "count": 153,
+          "lower": 0.3,
+          "mean_predicted": 0.35359108360367325,
+          "observed_rate": 0.3333333333333333,
+          "upper": 0.4
+        },
+        {
+          "count": 209,
+          "lower": 0.4,
+          "mean_predicted": 0.45121144578894007,
+          "observed_rate": 0.4449760765550239,
+          "upper": 0.5
+        },
+        {
+          "count": 244,
+          "lower": 0.5,
+          "mean_predicted": 0.5512610540661018,
+          "observed_rate": 0.5942622950819673,
+          "upper": 0.6
+        },
+        {
+          "count": 250,
+          "lower": 0.6,
+          "mean_predicted": 0.6514316479359182,
+          "observed_rate": 0.648,
+          "upper": 0.7
+        },
+        {
+          "count": 192,
+          "lower": 0.7,
+          "mean_predicted": 0.7485402287159907,
+          "observed_rate": 0.7760416666666666,
+          "upper": 0.8
+        },
+        {
+          "count": 111,
+          "lower": 0.8,
+          "mean_predicted": 0.8427775749800255,
+          "observed_rate": 0.8108108108108109,
+          "upper": 0.9
+        },
+        {
+          "count": 18,
+          "lower": 0.9,
+          "mean_predicted": 0.9134312562318345,
+          "observed_rate": 0.9444444444444444,
+          "upper": 1.0
+        }
+      ],
+      "coefficients": {
+        "avail_diff": 0.12785793423442354,
+        "away_b2b": 0.13340573268112804,
+        "elo_diff": 0.7123622472898188,
+        "home_b2b": -0.15099859191754816
+      },
+      "constant_log_loss": 0.6870363960447018,
+      "fold": "train 2022-2023-2024-2025 \u2192 test 2026",
+      "intercept": 0.2501309797652364,
+      "log_loss": 0.6005282466545636,
+      "meets_ship_criterion": true,
+      "model_version": "c97a9b14ddd5",
+      "n_test": 1322,
+      "n_train": 5283,
+      "roc_auc": 0.7318601827652041,
+      "test_season": 2026
+    }
+  ],
+  "generated_by": "backend/model/report_v2.py",
+  "generated_utc": "2026-09-06T21:48:46.659518+00:00",
+  "phase_1": {
+    "accuracy_spread": 0.0318,
+    "accuracy_stdev": 0.0169,
+    "corpus_games": 6605,
+    "folds": {
+      "2024": {
+        "accuracy": 0.6444,
+        "log_loss": 0.6242,
+        "roc_auc": 0.7083
+      },
+      "2025": {
+        "accuracy": 0.6503,
+        "log_loss": 0.6129,
+        "roc_auc": 0.7138
+      },
+      "2026": {
+        "accuracy": 0.6762,
+        "log_loss": 0.602,
+        "roc_auc": 0.7323
+      }
+    },
+    "sealed_model_version": "972d33a83ad9",
+    "source": "docs/analysis/PHASE-1-RESULT.md"
+  },
+  "sealed": {
+    "accuracy": 0.6800302571860817,
+    "beats_constant": true,
+    "calibration": [
+      {
+        "count": 2,
+        "lower": 0.0,
+        "mean_predicted": 0.09162319292063625,
+        "observed_rate": 0.0,
+        "upper": 0.1
+      },
+      {
+        "count": 39,
+        "lower": 0.1,
+        "mean_predicted": 0.16399018148417324,
+        "observed_rate": 0.05128205128205128,
+        "upper": 0.2
+      },
+      {
+        "count": 104,
+        "lower": 0.2,
+        "mean_predicted": 0.2529414476289208,
+        "observed_rate": 0.2403846153846154,
+        "upper": 0.3
+      },
+      {
+        "count": 153,
+        "lower": 0.3,
+        "mean_predicted": 0.35359108360367325,
+        "observed_rate": 0.3333333333333333,
+        "upper": 0.4
+      },
+      {
+        "count": 209,
+        "lower": 0.4,
+        "mean_predicted": 0.45121144578894007,
+        "observed_rate": 0.4449760765550239,
+        "upper": 0.5
+      },
+      {
+        "count": 244,
+        "lower": 0.5,
+        "mean_predicted": 0.5512610540661018,
+        "observed_rate": 0.5942622950819673,
+        "upper": 0.6
+      },
+      {
+        "count": 250,
+        "lower": 0.6,
+        "mean_predicted": 0.6514316479359182,
+        "observed_rate": 0.648,
+        "upper": 0.7
+      },
+      {
+        "count": 192,
+        "lower": 0.7,
+        "mean_predicted": 0.7485402287159907,
+        "observed_rate": 0.7760416666666666,
+        "upper": 0.8
+      },
+      {
+        "count": 111,
+        "lower": 0.8,
+        "mean_predicted": 0.8427775749800255,
+        "observed_rate": 0.8108108108108109,
+        "upper": 0.9
+      },
+      {
+        "count": 18,
+        "lower": 0.9,
+        "mean_predicted": 0.9134312562318345,
+        "observed_rate": 0.9444444444444444,
+        "upper": 1.0
+      }
+    ],
+    "coefficients": {
+      "avail_diff": 0.12785793423442354,
+      "away_b2b": 0.13340573268112804,
+      "elo_diff": 0.7123622472898188,
+      "home_b2b": -0.15099859191754816
+    },
+    "constant_log_loss": 0.6870363960447018,
+    "fold": "train 2022-2023-2024-2025 \u2192 test 2026",
+    "intercept": 0.2501309797652364,
+    "log_loss": 0.6005282466545636,
+    "meets_ship_criterion": true,
+    "model_version": "c97a9b14ddd5",
+    "n_test": 1322,
+    "n_train": 5283,
+    "roc_auc": 0.7318601827652041,
+    "test_season": 2026
+  },
+  "spread": {
+    "accuracy_max": 0.6800302571860817,
+    "accuracy_min": 0.6664139499620925,
+    "accuracy_spread": 0.01361630722398921,
+    "accuracy_stdev": 0.006961648545777989,
+    "evaluation_games": 3962
+  },
+  "stdev_ratio": 0.4119318666140822
+}
