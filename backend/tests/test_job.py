@@ -302,6 +302,44 @@ def test_a_game_that_has_tipped_off_is_never_predicted(run_job, job_db):
     assert report.upcoming == 1
 
 
+@pytest.fixture
+def mid_hour_game(job_db: str) -> Iterator[datetime]:
+    """A game tipping at half past the hour, ten days after the opener -- so it sits outside every
+    other test's horizon, and is removed again because the corpus fixture is module-scoped."""
+    tip = OPENER + timedelta(days=10, minutes=30)
+    engine = sa.create_engine(job_db)
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO scheduled_games (game_id, season, season_type, game_date, home_id,"
+                " away_id, neutral_site, status, snapshot_sha256)"
+                " VALUES ('mid-hour', :s, 2, :d, :h, :a, false, 'STATUS_SCHEDULED', 'snap')"
+            ),
+            {"s": LIVE_SEASON, "d": tip, "h": TEAMS[10], "a": TEAMS[11]},
+        )
+    try:
+        yield tip
+    finally:
+        with engine.begin() as conn:
+            conn.execute(sa.text("DELETE FROM predictions WHERE game_id = 'mid-hour'"))
+            conn.execute(sa.text("DELETE FROM scheduled_games WHERE game_id = 'mid-hour'"))
+        engine.dispose()
+
+
+def test_a_game_that_tipped_off_earlier_in_the_hour_is_not_predicted(run_job, job_db, mid_hour_game):
+    """Truncation runs backwards: a run twelve minutes after a :30 tip predicts as of :00, which is
+    before tip-off, so the as-of checks alone let it through. Opening night, game 401909090."""
+    report = run_job(mid_hour_game + timedelta(minutes=12))
+    assert report.as_of < mid_hour_game, "the precondition: the as-of really is before tip-off"
+    assert "mid-hour" not in {r.game_id for r in _rows(job_db)}
+
+
+def test_the_same_hour_before_tip_off_still_predicts(run_job, job_db, mid_hour_game):
+    """The control: the refusal above must come from the clock, not from the hour."""
+    run_job(mid_hour_game - timedelta(minutes=10))
+    assert "mid-hour" in {r.game_id for r in _rows(job_db)}
+
+
 def test_a_postponed_game_is_not_predicted(run_job, job_db):
     run_job(OPENER - timedelta(days=1))
     assert all(r.game_id != "postponed" for r in _rows(job_db))

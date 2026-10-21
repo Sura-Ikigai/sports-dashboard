@@ -36,6 +36,13 @@ about when the prediction was made and long enough to absorb a retry.
 - **It does not predict a game that has tipped off.** `load_upcoming` returns games strictly after
   `as_of`, and `compute_features` refuses an as-of past tip-off anyway (D-010). Two checks, because
   the failure is a model re-predicting a finished game, which is the thing D-010 exists to prevent.
+
+  Both of those compare against the *truncated* moment, and truncation runs backwards in time: a run
+  at 01:42 predicts as of 01:00, so a game that tipped at 01:30 is "after as_of" and passes both.
+  That was live on opening night (2026-10-21, game 401909090) -- a row stamped half an hour before
+  tip-off, written twelve minutes after it, indistinguishable in the accuracy record from an honest
+  one. So `run` makes a third check against the untruncated clock it read: a game is predicted only
+  if it has not tipped off **when the job runs**, not merely at the as-of it reports.
 - **It does not predict a postponed game.** Only `STATUS_SCHEDULED` rows are returned. A prediction
   already made for a game that is later postponed is *retained* -- it is a true record of what the
   model said -- and excluded from the accuracy record by joining to the game's status, never by
@@ -139,7 +146,8 @@ def run(
     a function whose output cannot be reproduced. The job is the one place allowed to ask what time
     it is, and it does so once.
     """
-    moment = truncate_to_hour(as_of if as_of is not None else datetime.now(UTC))
+    clock = as_of if as_of is not None else datetime.now(UTC)
+    moment = truncate_to_hour(clock)
     scorer = Scorer.load(artifact)
 
     snapshot = refresh(url, season)
@@ -148,7 +156,13 @@ def run(
     try:
         with engine.begin() as conn:
             context = load_serving_context(conn)
-            upcoming = load_upcoming(conn, as_of=moment, horizon_days=horizon_days)
+            # `load_upcoming` filters on the truncated moment; this filters on the clock. A game
+            # tipping at 01:30 is after a 01:00 as-of and still has to be refused at 01:42.
+            upcoming = [
+                target
+                for target in load_upcoming(conn, as_of=moment, horizon_days=horizon_days)
+                if target.date > clock
+            ]
             predictions = [scorer.predict(context, target, moment) for target in upcoming]
             written = _insert(conn, predictions, snapshot.sha256)
     finally:
